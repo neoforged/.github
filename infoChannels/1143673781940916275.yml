@@ -1,1 +1,6 @@
-[]
+- content: Hello World
+  embeds:
+  - author:
+      name: He
+    title: llo
+    color: '#FFFFFF'
