@@ -8,3 +8,5 @@
     - name: This is a field
       value: And this is a field value
       inline: true
+    - name: This is a second field
+      value: yes it is
