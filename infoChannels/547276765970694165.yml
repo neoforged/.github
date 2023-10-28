@@ -1,20 +1,47 @@
-- content: "# Rules\n1. Do not DM anyone without asking for permission first.\n2.\
-    \ No spamming. This includes emojis, GIFs, many single word messages or advertisements.\n\
-    3. Please keep the channel topic in mind. There is lenience but don't push it.\n\
-    4. Don't be a dick. This includes pinging people that explicitly do not want to\
-    \ be pinged unnecessarily. \n Do not insult people. Racism, transphobia or any\
-    \ form of bigotry will not be tolerated.\n5. Do not promote or participate in\
-    \ illegal activities, including piracy, and scams.\n6. Do not send content that\
-    \ is hateful or sexually explicit. This is not a NSFW server.\n\n## Moderation\n\
-    We operate a 3 strikes policy. Rule violations (listed above) can trigger these\
-    \ actions.\n1. Strike one will result in an in channel warning stating which rule\
-    \ you violated\n2. Strike two will result in a ten minute timeout\n3. Strike three\
-    \ will result in a ban or read-only purgatory\n\n_Note that significant enough\
-    \ violations will lead to one or more of these steps being skipped._\n\n**If you\
-    \ feel like a member broke any of the rules please do not hesitate to contact\
-    \ moderators, either by pinging <@&1103212714219802654> or, by sending a message\
-    \ to an online moderator privately if you feel more comfortable doing it that\
-    \ way.**\n\n### Invite: https://discord.neoforged.net\n### Backup Invite: https://discord.gg/UvedJ9m"
+- author:
+    name: The NeoForged Project
+    avatar: https://cdn.discordapp.com/avatars/1167802516726087721/f16a6ae6a4fbf4125fea9f985648d964.png
+  embeds:
+  - title: Welcome to the NeoForged Project!
+    description: |-
+      Welcome to the official server of [The NeoForged Project](https://github.com/NeoForged)!
+      Below you will find our general rules. We'd like if you'd first read the [Code of Conduct](https://github.com/neoforged/.github/blob/main/CODE_OF_CONDUCT.md) which Moderators will refer to when doing their duties.
+    color: '#EC9A06'
+  - title: Rule 1. Do not DM anyone without asking for permission first
+    description: |-
+      Modding questions and/or requests will *not* be answered in DMs.
+      Make sure to ask people (preferably with a ping) before DMing them or sending them a friend request.
+  - title: Rule 2. No spamming
+    description: "This includes emojis, GIFs, many single word messages or advertisements."
+  - title: Rule 3. Please keep the channel topic in mind
+    description: "We understand that staying on topic is hard, but please at least\
+      \ try. There is lenience, but don't push it."
+  - title: Rule 4. Don't be a dick
+    description: |-
+      This includes pinging people that explicitly do not want to be pinged unnecessarily.
+      Do not insult people. Racism, transphobia or any form of bigotry will not be tolerated.
+  - title: Rule 5. Do not promote or participate in illegal activities
+    description: Neither piracy nor scam are tolerated in this server.
+  - title: Rule 6.  Do not send content that is hateful or sexually explicit
+    description: This is not a NSFW server.
+- content: _​_
   author:
     name: The NeoForged Project
-    avatar: https://cdn.discordapp.com/avatars/1147223290784530513/f16a6ae6a4fbf4125fea9f985648d964.png
+    avatar: https://cdn.discordapp.com/avatars/1167802516726087721/f16a6ae6a4fbf4125fea9f985648d964.png
+  embeds:
+  - title: Moderation Policy
+    description: |-
+      We operate a 3 strikes policy. Rule violations (listed above) can trigger these actions.
+      1. Strike one will result in an in channel warning stating which rule you violated
+      2. Strike two will result in a ten-minute timeout
+      3. Strike three will result in a ban or read-only purgatory
+
+      *Note that significant enough violations will lead to one or more of these steps being skipped.*
+    color: '#D59C9C'
+- content: |-
+    Have a nice stay, and remember: if you feel like a member broke any of the rules please do not hesitate to contact moderators, either by pinging <@&1103212714219802654> or, by sending a message to an online moderator privately if you feel more comfortable doing it that way.
+
+    P.S: here's an invite: <https://discord.neoforged.net>, and a backup one, just in case: <https://discord.gg/UvedJ9m>.
+  author:
+    name: The NeoForged Project
+    avatar: https://cdn.discordapp.com/avatars/1167802516726087721/f16a6ae6a4fbf4125fea9f985648d964.png
