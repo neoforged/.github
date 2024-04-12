@@ -13,4 +13,4 @@ We work with a large and vibrant community of volunteers — from moderators of 
 
 - 📝 _Want to contribute?_ Check our our [GitHub repository](https://github.com/neoforged/NeoForge), or visit our [Crowdin page](https://crowdin.neoforged.net/).
 
-- 🎁 _Want to donate instead?_ See our [OpenCollective page](https://opencollective.com/neoforged). (Don't feel pressured to donate, though!)
+- 🎁 _Want to donate instead?_ See our [OpenCollective page](https://opencollective.com/neoforged) or our [GitHub Sponsors](https://github.com/sponsors/neoforged) page. (Don't feel pressured to donate, though!)
