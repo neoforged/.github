@@ -1,4 +1,4 @@
-A small selection of changes that were done in NeoForge since it's creation. This is not all of them. Most changes can be seen in PRs and Commits on the NeoForged GitHub organization's repositories.
+A small selection of changes that were done in NeoForge for the 1.20.x Minecraft development cycle. This is not all of them. Most changes can be seen in PRs and Commits on the NeoForged GitHub organization's repositories.
 
 --------------
 
