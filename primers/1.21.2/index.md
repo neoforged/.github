@@ -806,7 +806,7 @@ Fog methods for individual values have been replaced with a `FogParameters` data
     - `mace_smash`
 - `minecraft:item`
     - `diamond_tool_materials`
-    - `furnace_minecraft_fuel`
+    - `furnace_minecart_fuel`
     - `gold_tool_materials`
     - `iron_tool_materials`
     - `netherite_tool_materials`
