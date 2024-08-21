@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=24w33a&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=24w34a&tab=changelog).
 
 ## The Holder Set Transition
 
@@ -74,6 +74,7 @@ graphics.blit(RenderType::guiTextured, ...);
 
 This means methods that provided helpers towards setting the texture or other properties that could be specified within a shader have been removed.
 
+- `com.mojang.blaze3d.pipeline.RenderTarget#blitToScreen(int, int, boolean)` -> `blitAndBlendToScreen`
 - `net.minecraft.client.gui.GuiGraphics`
     - `drawManaged` is removed
     - `setColor` is removed - Now a paramter within the `blit` and `blitSprite` methods
@@ -88,7 +89,11 @@ This means methods that provided helpers towards setting the texture or other pr
 
 ## Shader Rewrites
 
-The internals of shaders have been rewritten, changing the defined samplers and post shaders.
+The internals of shaders have been rewritten quite a bit.
+
+### Shaders Files
+
+The main changes are the defined samplers and post shaders.
 
 The `DiffuseSampler` and `DiffuseDepthSampler` have been given new names depending on the target to apply: `InSampler`, `MainSampler`, and `MainDepthSampler`. `InSampler` is used in everything but the `transparency` program shader.
 
@@ -102,10 +107,11 @@ The `DiffuseSampler` and `DiffuseDepthSampler` have been given new names dependi
 }
 ```
 
-Within post processor shaders, they have been changed completely. For a full breakdown of the changes, see `PostChainConfig`, but in general, all targets are now keys to objects, all pass inputs and filters are now lists of sampler inputs. As for how this looks:
+Within post effect shaders, they have been changed completely. For a full breakdown of the changes, see `PostChainConfig`, but in general, all targets are now keys to objects, all pass inputs and filters are now lists of sampler inputs. As for how this looks:
 
 ```json5
-// Old post processor shader JSON
+// Old post effect shader JSON
+// In assets/<namespace>/shaders/post
 {
     "targets": [
         "swap"
@@ -131,14 +137,17 @@ Within post processor shaders, they have been changed completely. For a full bre
     ]
 }
 
-// New post processor JSON
+// New post effect JSON
+// In assets/<namespace>/post_effect
 {
     "targets": {
         "swap": {} // Swap is now a target object (fullscreen unless otherwise specified)
     },
     "passes": [
         {
-            "name": "invert",
+            // Name of the program to apply (previously 'name')
+            // assets/minecraft/shaders/post/invert.json
+            "program": "minecraft:post/invert",
             // Inputs is now a list
             "inputs": [
                 {
@@ -161,7 +170,7 @@ Within post processor shaders, they have been changed completely. For a full bre
             ]
         },
         {
-            "name": "blit",
+            "program": "minecraft:post/blit",
             "inputs": [
                 {
                     "sampler_name": "In",
@@ -174,21 +183,186 @@ Within post processor shaders, they have been changed completely. For a full bre
 }
 ```
 
+### Shader Programs
+
+All shaders, regardless of where they are used (as part of a program or post effect), have a JSON within `assets/<namespace>/shaders`. This JSON defines everything the shader will use, as defined by `ShaderProgramConfig`. The main addition is the change to `ResourceLocation` relative references, and adding the `defines` header dynamically during load time.
+
+```json5
+// For some assets/my_mod/shaders/my_shader.json
+{
+    // Points to assets/my_mod/shaders/my_shader.vsh (previously 'my_shader', without id specification)
+    "vertex": "my_mod:my_shader",
+    // Points to assets/my_mod/shaders/my_shader.fsh (previously 'my_shader', without id specification)
+    "fragment": "my_mod:my_shader",
+    // Adds '#define' headers to the shaders
+    "defines": {
+        // #define <key> <value>
+        "values": {
+            "ALPHA_CUTOUT": "0.1"
+        },
+        // #define flag
+        "flags": [
+            "NO_OVERLAY"
+        ]
+    },
+    // A list of sampler uniforms to use in the shader
+    // There are 12 texture sampler uniforms Sampler0-Sampler11, though usually only Sampler0 is supplied
+    // Additionally, there are dynamic '*Sampler' for post effect shaders which are bound to read the specified targets or 'minecraft:main'
+    "samplers": [
+        { "name": "Sampler0" }
+    ],
+    // A list of uniforms that can be accessed within the shader
+    // A list of available uniforms can be found in CompiledShaderProgram#setUniforms
+    "uniforms": [
+        { "name": "ModelViewMat", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ] },
+        { "name": "ProjMat", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ] },
+        { "name": "ModelOffset", "type": "float", "count": 3, "values": [ 0.0, 0.0, 0.0 ] },
+        { "name": "ColorModulator", "type": "float", "count": 4, "values": [ 1.0, 1.0, 1.0, 1.0 ] }
+    ]
+}
+```
+
+```glsl
+// For some assets/my_mod/shaders/my_shader.vsh (Vertex Shader)
+
+// GLSL Version
+#version 150
+
+// Imports Mojang GLSL files
+// Located in assets/<namespace>/shaders/include/<path>
+#moj_import <minecraft:light.glsl>
+
+// Defines are injected (can use 'ALPHA_CUTOUT' and 'NO_OVERLAY')
+
+// Defined by the VertexFormat passed into the ShaderProgram below
+in vec3 Position; // vec3 float
+in vec4 Color; // vec4 unsigned byte (0-255)
+
+// Samplers defined by the JSON
+uniform sampler2D Sampler0;
+
+// Uniforms provided by the JSON
+uniform mat4 ModelViewMat;
+uniform mat4 ProjMat;
+uniform vec3 ModelOffset;
+
+// Values to output to the fragment shader
+out float vertexDistance;
+out vec4 vertexColor;
+out vec2 texCoord0;
+
+void main() {
+    // Out values should be set here
+}
+```
+
+```glsl
+// For some assets/my_mod/shaders/my_shader.fsh (Fragment Shader)
+
+// GLSL Version
+#version 150
+
+// Imports Mojang GLSL files
+// Located in assets/<namespace>/shaders/include/<path>
+#moj_import <minecraft:fog.glsl>
+
+// Defines are injected (can use 'ALPHA_CUTOUT' and 'NO_OVERLAY')
+
+// Defined by the output of the vertex shader above 
+in float vertexDistance;
+in vec4 vertexColor;
+in vec2 texCoord0;
+
+// Samplers defined by the JSON
+uniform sampler2D Sampler0;
+
+// Uniforms provided by the JSON
+uniform vec4 ColorModulator;
+
+// Values to output to the framebuffer (the color of the pixel)
+out vec4 fragColor;
+
+void main() {
+    // Out values should be set here
+}
+```
+
+On the code side, shaders are stored internally as either a `ShaderProgram` or a `CompiledShaderProgram`. `ShaderProgram` represents the identifier, while the `CompiledShaderProgram` represents the shader itself to run. Both are linked together through the `ShaderManager`.
+
+Shader programs are compiled dynamically unless specified as a core shader. This is done by registering the `ShaderProgram` to `CoreShaders#PROGRAMS`.
+
+```java
+// List<ShaderProgram> PROGRAMS access
+ShaderProgram MY_SHADER = new ShaderProgram(
+    // Points to assets/my_mod/shaders/my_shader.json
+    ResourceLocation.fromNamespaceAndPath('my_mod', 'my_shader'),
+    // Passed in vertex format used by the shader
+    DefaultVertexFormat.POSITION_COLOR,
+    // Lists the '#define' values and flags
+    // Value: '#define <key> <value>'
+    // Flag: '#define <flag>'
+    ShaderDefines.EMPTY
+)
+```
+
+The shader programs are then set by calling `RenderSystem#setShader` with the `ShaderProgram` in question. In fact, all references to `GameRenderer#get*Shader` should be replaced with a `ShaderProgram` reference.
+
+```java
+// In some rendering method
+RenderSystem.setShader(MY_SHADER);
+
+// Creating a new ShaderStateShard for a RenderType
+ShaderStateShard MY_SHARD = new ShaderStateShard(MY_SHADER);
+```
+
+- `com.mojang.blaze3d.platform.GlStateManager#glShaderSource` now takes in a `String` rather than a `List<String>`
+- `com.mojang.blaze3d.preprocessor.GlslPreprocessor#injectDefines` - Injects any defined sources to the top of a loaded `.*sh` file.
+- `com.mojang.blaze3d.shaders`
+    - `BlendMode`, `Effect`, `EffectProgram`, `Program`, `ProgramManager`, `Shader` has been bundled into `CompiledShader`
+    - `Unform` no longer takes in a `Shader`
+        - `glGetAttribLocation` is removed
+        - `glBindAttribLocation` -> `VertexFormat#bindAttributes`
+- `com.mojang.blaze3d.systems.RenderSystem`
+    - `setShader` now takes in the `CompiledShaderProgram`, or `ShaderProgram`
+    - `clearShader` - Clears the current system shader.
+    - `runAsFancy` is removed, handled internally by `LevelRenderer#getTransparencyChain`
+- `net.minecraft.client.Minecraft#getShaderManager` - Returns the manager that loads all the shaders and post effects.
 - `net.minecract.client.renderer`
-    - `LightTexture#loadShader` - Loads a lightmap shader from the `ResourceProvider`
-    - `PostChainConfig` - A configuration that represents how a post processor shader JSON is constructed.
-    - `PostPass` now takes in the `ResourceLocation` representing the output target instead of the in and out `RenderTarget`s or the `boolean` filter mode
+    - `EffectInstance` is removed, replaced by `CompiledShaderProgram` in most cases
+    - `GameRenderer`
+        - `get*Shader` -> `CoreShaders#*`
+        - `shutdownEffect` -> `clearPostEffect`
+        - `createReloadListener` -> `ShaderManager`
+        - `currentEffect` -> `currentPostEffect`
+    - `ItemBlockRenderTypes#getRenderType` no longer takes in a boolean indicating whether to use the translucent render type
+    - `ShaderInstance` -> `CompiledShaderProgram`
+        - `CHUNK_OFFSET` -> `MODEL_OFFSET`
+            - JSON shaders: `ChunkOffset` -> `ModelOffset`
+    - `LevelRenderer#graphicsChanged` is removed, handled internally by `LevelRenderer#getTransparencyChain`
+    - `PostChainConfig` - A configuration that represents how a post effect shader JSON is constructed.
+    - `PostPass` now takes in the `ResourceLocation` representing the output target instead of the in and out `RenderTarget`s or the `boolean` filter mode, the `CompiledShaderProgram` to use instead of the `ResourceProvider`, and a list of uniforms for the shader to consume
+        - No longer `AutoCloseable`
+        - `addToFrame` no longer takes in the `float` time
+        - `getEffect` -> `getShader`
         - `addAuxAsset` -> `addInput`
         - `process` -> `addToFrame`
-        - `$Input` - Represents an input of the post processor shader.
+        - `$Input` - Represents an input of the post effect shader.
         - `$TargetInput` - An input from a `RenderTarget`.
         - `$TextureInput` - An input from a texture.
     - `PostChain` constructor is now created via `load`
+        - No longer `AutoCloseable`
         - `MAIN_RENDER_TARGET` is now public
-        - `getName` -> `getId`
+        - `getName` is removed, replaced with `ShaderProgram#configId`
+        - `process` no longer takes in the `DeltaTracker`
         - `$TargetBundle` - Handles the getting and replacement of resource handles within the chain.
-    - `ShaderInstance#CHUNK_OFFSET` -> `MODEL_OFFSET`
-        - JSON shaders: `ChunkOffset` -> `ModelOffset`
+    - `RenderType#entityTranslucentCull`, `entityGlintDirect` is removed
+    - `ShaderDefines` - The defined values and flags used by the shader as constants.
+    - `ShaderManager` - The resource listener that loads the shaders.
+    - `ShaderProgram` - An identifier for a shader.
+    - `ShaderProgramConfig` - The definition of the program shader JSON.
+    - `Sheets#translucentCullBlockSheet` is removed
+    - `SkyRenderer` now implements `AutoCloseable`
+- `net.minecraft.client.renderer.entity.ItemRenderer#getFoilBufferDirect` is removed, replaced by `getFoilBuffer`
 
 ## Entity Render States
 
@@ -392,7 +566,7 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
         - `numStuck` now takes in the render state instead of the entity
         - `renderStuckItem` is now private
 - `net.minecraft.client.renderer.entity.player.PlayerRenderer`
-    - `renderRightHand`, `renderLeftHand` now take in a `ResourceLocation` instead of the `AbstractClientPlayer`
+    - `renderRightHand`, `renderLeftHand` now take in a `ResourceLocation` instead of the `AbstractClientPlayer` and a `boolean` whether to render the left and/or right sleeve
     - `setupRotations` now takes in the render state instead of the entity and parameter information
 - `net.minecraft.world.entity`
     - `AnimationState#copyFrom` - Copies the animation state from another state.
@@ -435,7 +609,6 @@ public class MyUnbakedModel implements UnbakedModel {
 ```
 
 - `net.minecraft.client.renderer.block`
-    - `ModelBlockRenderer#calculate` now takes in a `BakedQuad` instead of a `Direction` and `boolean`
     - `BlockModel#getDependencies`, `resolveParents` -> `resolveDependencies`
     - `BlockModelDefintion` now takes in a `MultiPart$Definition`, no `List<BlockModelDefinition>` constructor exists
         - `fromStream`, `fromJsonElement` no longer take in a `$Context`
@@ -707,6 +880,161 @@ public class MyRecipeProvider extends RecipeProvider {
 BlockEntityType<MyBlockEntity> type = new BlockEntityType(MyBlockEntity::new, MyBlocks.EXAMPLE_BLOCK);
 ```
 
+## Consumables
+
+Consuming an item has been further expanded upon, with most being transitioned into separate data component entries.
+
+### The `Consumable` Data Component
+
+The `Consumable` data component defines how an item is used when an item is finished being used. This effectively functions as `FoodProperties` used to previously, except all consumable logic is consolidated in this one component. A consumable has five properties: the number of seconds it takes to consume or use the item, the animation to play while consuming, the sound to play while consuming, whether particles should appear during consumption, and the [effects to apply once the consumption is complete](#consumeeffect).
+
+A `Consumable` can be applied using the `food` item property. If only the `Consumable` should be added, then `component` should be called. A list of vanilla consumables and builders can be found in `Consumables`.
+
+```java
+// For some item
+Item exampleItem = new Item(new Item.Properties().component(DataComponents.CONSUMABLE,
+    Consumable.builder()
+    .consumeSeconds(1.6f) // Will use the item in 1.6 seconds, or 32 ticks
+    .animation(ItemUseAnimation.EAT) // The animation to play while using
+    .sound(SoundEvents.GENERIC_EAT) // The sound to play while using the consumable
+    .soundAfterConsume(SoundEvents.GENERIC_DRINK) // The sound to play after consumption (delegates to 'onConsume')
+    .hasConsumeParticles(true) // Sets whether to display particles
+    .onConsume(
+        // When finished consuming, applies the effects with a 30% chance
+        new ApplyStatusEffectsConsumeEffect(new MobEffectInstance(MobEffects.HUNGER, 600, 0), 0.3F)
+    )
+    // Can have multiple
+    .onConsume(
+        // Teleports the entity randomly in a 50 block radius
+        // NOTE: CURRENTLY BUGGED, only allows for 8 block raidus
+        new TeleportRandomlyConsumeEffect(100f)
+    )
+    .build()
+));
+```
+
+#### `OnOverrideSound`
+
+Sometimes, an entity may want to play a different sound when consuming an item. In that case, the entity can implement `Consumable$OverrideConsumeSound` and return the sound event that should be played.
+
+```java
+// On your own entity
+public class MyEntity extends Mob implements Consumable.OverrideCustomSound {
+    // ...
+
+    @Override
+    public SoundEvent getConsumeSound(ItemStack stack) {
+        // Return the sound event to play
+    }
+}
+```
+
+### `ConsumableListener`
+
+`ConsumableListener`s are data components that indicate an action to apply once the stack has been 'consumed'. This means whenever `Consumable#consumeTicks` has passed since the player started using the consumable. An example of this would be `FoodProperties`. `ConsumableListener` only has one method `#onConsume` that takes in the level, entity, stack doing the consumption, and the `Consumable` that has finished being consumed.
+
+```java
+// On your own data component
+public record MyDataComponent() implements ConsumableListener {
+
+    // ...
+
+    @Override
+    public void onConsume(Level level, LivingEntity entity, ItemStack stack, Consumable consumable) {
+        // Perform stuff once the item has been consumed.
+    }
+}
+```
+
+### `ConsumeEffect`
+
+There is now a data component that handles what happens when an item is consumed by an entity, aptly called a `ConsumeEffect`. The current effects range from adding/removing mob effects, teleporting the player randomly, or simply playing a sound. These are applied by passing in the effect to the `Consumable` or `onConsume` in the builder.
+
+```java
+// When constructing a consumable
+Consumable exampleConsumable = Consumable.builder()
+    .onConsume(
+        // When finished consuming, applies the effects with a 30% chance
+        new ApplyStatusEffectsConsumeEffect(new MobEffectInstance(MobEffects.HUNGER, 600, 0), 0.3F)
+    )
+    // Can have multiple
+    .onConsume(
+        // Teleports the entity randomly in a 50 block radius
+        // NOTE: CURRENTLY BUGGED, only allows for 8 block raidus
+        new TeleportRandomlyConsumeEffect(100f)
+    )
+    .build();
+```
+
+### On Use Conversion
+
+Converting an item into another stack on consumption is now handled through `DataComponents#USE_REMAINDER`. The remainder will only be converted if the stack is empty after this use. Otherwise, it will return the current stack, just with one item used.
+
+```java
+// For some item
+Item exampleItem = new Item(new Item.Properties().usingConvertsTo(
+    Items.APPLE // Coverts this into an apple on consumption
+)); 
+Item exampleItem2 = new Item(new Item.Properties().component(DataComponents.USE_REMAINDER,
+    new UseCooldown(
+        new ItemStack(Items.APPLE, 3) // Converts into three apples on consumption
+    )
+));
+```
+
+### Cooldowns
+
+Item cooldowns are now handled through `DataComponents#USE_COOLDOWN`; however, they have been expanded to apply cooldowns to stacks based on their defined group. A cooldown group either refers to the `Item` registry name if not specified, or a custom resource location. When applying the cooldown, it will store the cooldown instance on anything that matches the defined group. This means that, if a stack has some defined cooldown group, it will not be affected when a normal item is used.
+
+```java
+// For some item
+Item exampleItem = new Item(new Item.Properties().useCooldown(
+    60 // Wait 60 seconds
+    // Will apply cooldown to items in the 'my_mod:example_item' group (assuming that's the registry name)
+)); 
+Item exampleItem2 = new Item(new Item.Properties().component(DataComponents.USE_COOLDOWN,
+    new UseCooldown(
+        60, // Wait 60 seconds
+        // Will apply cooldown to items in the 'my_mod:custom_group' group
+        Optional.of(ResourceLocation.fromNamespaceAndPath("my_mod", "custom_group"))
+    )
+));
+```
+
+- `net.minecraft.core.component.DataComponents#FOOD` -> `CONSUMABLE`
+- `net.minecraft.world.entity.LivingEntity`
+    - `getDrinkingSound`, `getEatingSound` is removed, handled via `ConsumeEffect`
+    - `triggerItemUseEffects` is removed
+    - `eat` is removed
+- `net.minecraft.world.entity.npc.WanderingTrader` now implements `Consumable$OverrideConsumeSound`
+- `net.minecraft.world.food.FoodProperties` is now a `ConsumableListener`
+    - `eatDurationTicks`, `eatSeconds` -> `Consumable#consumeSeconds`
+    - `usingConvertsTo` -> `DataComponents#USE_REMAINDER`,
+    - `effects` -> `ConsumeEffect`
+- `net.minecraft.world.item`
+    - `ChorusFruitItem` is removed
+    - `HoneyBottleItem` is removed
+    - `Item`
+        - `getDrinkingSound`, `#getEatingSound` is removed, handled via `ConsumeEffect`
+        - `$Properties#food` can now take in a `Consumable` for custom logic
+        - `$Properties#usingConvertsTo` - The item to convert to after use.
+        - `$Properties#useCooldown` - The amount of seconds to wait before the item can be used again.
+    - `ItemCooldowns` now take in `ItemStack`s or `ResourceLocation`s to their methods rather than just an `Item`
+        - `getCooldownGroup` - Returns the key representing the group the cooldown is applied to
+    - `ItemStack#getDrinkingSound`, `getEatingSound` is removed
+    - `MilkBucketItem` is removed
+    - `OminousBottleItem` is removed
+    - `SuspiciousStewItem` is removed
+- `net.minecraft.world.item.alchemy.PotionContents` now implements `ConsumableListener`
+    - `applyToLivingEntity` - Applies all effects to the provided entity.
+- `net.minecraft.world.item.component`
+    - `Consumable` - A data component that defines when an item can be consumed.
+    - `ConsumableListener` - An interface applied to data components that can be consumed, executes once consumption is finished.
+    - `SuspiciousStewEffects` now implements `ConsumableListener`
+    - `UseCooldown` - A data component that defines how the cooldown for a stack should be applied.
+    - `UseRemainer` - A data component that defines how the item should be replaced once used up.
+- `net.minecraft.world.item.consume_effects.ConsumeEffect` - An effect to apply after the item has finished being consumed.
+
 ## Minor Migrations
 
 The following is a list of useful or interesting additions, changes, and removals that do not deserve their own section in the primer.
@@ -843,7 +1171,7 @@ Light emission data is now baked into the quad and can be added to a face using 
 
 - `net.minecraft.client.renderer.block.model`
     - `BakedQuad` now takes in an `int` representing the light emission
-        - `emitsLight`, `getLightEmission` - Returns the light emission of a quad.
+        - `getLightEmission` - Returns the light emission of a quad.
     - `BlockElement` now takes in an `int` representing the light emission
     - `FaceBakery#bakeQuad` now takes in an `int` representing the light emission
 
@@ -885,17 +1213,19 @@ Minecarts now have a `MinecartBehavior` class that handles how the entity should
     - `AbstractMinecart`
         - `getMinecartBehavior` - Returns the behavior of the minecart.
         - `exits` is now public
-        - `getCurrentBlockPos` - Gets the current position of the minecart.
-        - `pushOrPickUpEntities` - Determines whether entities in the bounding box are pushed or picked up for riding.
+        - `isFirstTick` - Returns whether this is the first tick the entity is alive.
+        - `getCurrentBlockPosOrRailBelow` - Gets the current position of the minecart or the rail beneath.
         - `moveAlongTrack` -> `makeStepAlongTrack`
         - `setOnRails` - Sets whether the minecart is on rails.
-        - `isflipped`, `setFlipped` - Returns whetherh the minecart is upside down.
+        - `isFlipped`, `setFlipped` - Returns whetherh the minecart is upside down.
         - `getRedstoneDirection` - Returns the direction the redstone is powering to.
         - `isRedstoneConductor` is now public
         - `applyNaturalSlowdown` now returns the vector to slowdown by.
         - `getPosOffs` -> `MinecartBehavior#getPos`
         - `setPassengerMoveIntent`, `setPassengerMoveIntentFromInput`, `getPassengerMoveIntent` - Handles the passenger movement and how it translates to the minecart.
     - `MinecartBehavior` - holds how the entity should be rendered and positions during movement.
+- `net.minecraft.world.level.block.state.properties.RailShape#isAscending` -> `isSlope`
+- `net.minecraft.world.phys.shapes.MinecartCollisionContext` - An entity collision context that handles the collision of a minecart with some other collision object.
 
 ### Tools, via Tool Materials
 
@@ -939,9 +1269,12 @@ new PickaxeItem(
 
 The enchantment value and repair item checks are being replaced with data components: `DataComponents#ENCHANTABLE` and `DataComponents#REPAIRABLE`, respecitvely. These can be set via the `Item$Properties#enchantable` and `#repairable`. As a result, `Item#getEnchantmentValue` and `isValidRepairItem` have been deprecated for removal.
 
-- `net.minecraft.world.item.ItemStack`
-    - `isValidRepairItem` - Returns whether the stack can be repaired by this stack.
-    - `getEnchantmentValue` - Returns the enchantment value of the stack.
+- `net.minecraft.world.item`
+    - `ArmorMaterial` no longer takes in an `enchantmentValue`
+    - `Item#isEnchantable`, `getEnchantmentValue` is removed
+    - `ItemStack`
+        - `isValidRepairItem` - Returns whether the stack can be repaired by this stack.
+        - `getEnchantmentValue` - Returns the enchantment value of the stack.
 - `net.minecraft.world.item.enchantment`
     - `Enchantable` - The data component object for the item's enchantment value.
     - `Repairable` - The data component object for the items that can repair this item.
@@ -1015,7 +1348,9 @@ The enchantment value and repair item checks are being replaced with data compon
     - `Minecraft#saveReport` - Saves a crash report to the given file.
     - `ScrollWheelHandler` - A handler for storing information when a mouse wheel is scrolled.
 - `ItemSlotMouseAction` - An interface that defines how the mouse interacts with a slot when hovering over.
-- `net.minecraft.client.gui.components.DebugScreenOverlay#getProfilerPieChart` - Gets the pie chart profiler renderer.
+- `net.minecraft.client.gui.components`
+    - `AbstractWidget#playButtonClickSound` - Plays the button click sound.
+    - `DebugScreenOverlay#getProfilerPieChart` - Gets the pie chart profiler renderer.
 - `net.minecraft.client.gui.components.debugchart.AbstractDebugChart#getFullHeight` - Returns the height of the rendered chart.
 - `net.minecraft.client.gui.components.toasts`
     - `Toast`
@@ -1028,9 +1363,12 @@ The enchantment value and repair item checks are being replaced with data compon
     - `addItemSlotMouseAction` - Adds a mouse action when hovering over a slot.
 - `net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent#showTooltipWithItemInHand`- Returns whether the tooltip should be rendered when the item is in the player's hand.
 - `net.minecraft.client.multiplayer`
+    - `ClientChunkCache`
+        - `getLoadedEmptySections` - Returns the sections that have been loaded by the game, but has no data.
     - `ClientLevel`
         - `isTickingEntity` - Returns whether the entity is ticking in the level.
-        - `setSectionRangeDirty` - Marks an area as dirty to update during persistence and network calls.
+        - `setSectionRangeDirty`- Marks an area as dirty to update during persistence and network calls.
+        - `onSectionBecomingNonEmpty` - Updates the section when it has data.
     - `PlayerInfo#setTabListOrder`, `getTabListOrder` - Handles the order of players to cycle through in the player tab.
 - `net.minecraft.client.multiplayer.chat.report.ReportReason#getIncompatibleCategories` - Gets all reasons that cannot be reported for the given type.
 - `net.minecract.client.renderer`
@@ -1040,6 +1378,7 @@ The enchantment value and repair item checks are being replaced with data compon
     - `LevelRenderer`
         - `getCapturedFrustrum` - Returns the frustrum box of the renderer.
         - `getCloudRenderer` - Returns the renderer for the clouds in the skybox.
+        - `onSectionBecomingNonEmpty` - Updates the section when it has data.
     - `LevelTargetBundle` - Holds the resource handles and render targets for the rendering stages.
     - `LightTexture`
         - `getBrightness` - Returns the brightness of the given ambient and sky light.
@@ -1051,18 +1390,25 @@ The enchantment value and repair item checks are being replaced with data compon
         - `vignette` - Gets the vignette type.
         - `crosshair` - Gets the render type for the player crosshair.
         - `mojangLogo` - Gets the render type for the mojang logo
+    - `Octree` - A traversal implementation for defining the order sections should render in the frustum.
     - `ShapeRenderer` - Utility for rendering basic shapes in the Minecraft level.
     - `SkyRenderer` - Renders the sky.
     - `WeatherEffectRenderer` - Renders weather effects.
     - `WorldBorderRenderer` - Renders the world border.
+- `net.minecraft.client.renderer`
+    - `SectionOcclusionGraph#getOctree` - Returns the octree to handle traversal of the render sections.
+    - `ViewArea#getCameraSectionPos` - Gets the section position of the camera.
 - `net.minecraft.client.renderer.culling.Frustum`
-    - `getFrustumPoints` -> Returns the frustum matrix as an array of `Vector4f`s.
+    - `getFrustumPoints` - Returns the frustum matrix as an array of `Vector4f`s.
     - `getCamX`, `getCamY`, `getCamZ` - Returns the frustum camera coordinates.
+- `net.minecraft.client.renderer.chunk.CompileTaskDynamicQueue` - A syncrhonized queue dealing with the compile task of a chunk render section.
 - `net.minecraft.client.renderer.debug`
     - `ChunkCullingDebugRenderer` - A debug renderer for when a chunk is culled.
     - `DebugRenderer`
         - `renderAfterTranslucents` - Renders the chunk culling renderer after translucents have been rendered.
         - `renderVoxelShape` - Renders the outline of a voxel shape.
+        - `toggleRenderOctree` - Toggles whether `OctreeDebugRenderer` is rendered.
+    - `OctreeDebugRenderer` - Renders the order of the section nodes.
 - `net.minecraft.client.renderer.texture.AbstractTexture#defaultBlur`, `getDefaultBlur` - Returns whether the blur being applied is the default blur.
 - `net.minecraft.client.resources.DefaultPlayerSkin#getDefaultSkin` - Returns the default `PlayerSkin`.
 - `net.minecraft.commands.arguments.selector.SelectorPattern` - A record that defines an `EntitySelector` resolved from some pattern.
@@ -1076,7 +1422,9 @@ The enchantment value and repair item checks are being replaced with data compon
         - `listRegistries` - Returns the registry lookups for every registry.
         - `allRegistriesLifecycle` - Returns the lifecycle of all registries combined.
     - `HolderSet#isBound` - Returns whether the set is bound to some value.
-- `net.minecraft.core.component.PatchedDataComponentMap#clearPatch` - Clears all patches to the data components on the object.
+- `net.minecraft.core.component`
+    - `DataComponentHolder#getAllOfType` - Returns all data components that are of the specific class type.
+    - `PatchedDataComponentMap#clearPatch` - Clears all patches to the data components on the object.
 - `net.minecraft.data.info.DatapackStructureReport` - A provider that returns the structure of the datapack.
 - `net.minecraft.gametest.framework`
     - `GameTestHelper#absoluteAABB`, `relativeAABB` - Moves the bounding box between absolute coordinates and relative coordinates to the test location
@@ -1100,11 +1448,13 @@ The enchantment value and repair item checks are being replaced with data compon
     - `TickingTracker#getTickingChunks` - Returns all chunks that are currently ticking.
 - `net.minecraft.util`
     - `BinaryAnimator` - A basic animator that animates between two states using an easing function.
+    - `ExtraCodecs#NON_NEGATIVE_FLOAT` - A float codec that validates the value  cannot be negative.
     - `Mth`
         - `wrapDegrees` - Sets the degrees to a value within (-180, 180].
         - `lerp` - Linear interpolation between two vectors using their components.
         - `length` - Gets the length of a 2D point in space.
         - `easeInOutSine` - A cosine function that starts at (0,0) and alternates between 1 and 0 every pi.
+    - `RandomSource#triangle` - Returns a random `float` between the two `floats` (inclusive, exclusive) using a trangle distribution.
     - `TriState` - An enum that represents three possible states: true, false, or default.
 - `net.minecraft.util.datafix.ExtraDataFixUtils`
     - `patchSubType` - Rewrites the second type to the third type within the first type.
@@ -1131,6 +1481,7 @@ The enchantment value and repair item checks are being replaced with data compon
         - `getItemHeldByArm` - Returns the stack held by the specific arm.
         - `getEffectiveGravity` - Returns the gravity applied to the entity.
         - `canContinueToGlide` - Returns whether the entity can stil glide in the sky.
+        - `getItemBlockingWith` - Returns the stack the player is currently blocking with.
     - `WalkAnimationState#stop` - Stops the walking animation of the entity.
 - `net.minecraft.world.entity.ai.attributes`
     - `AttributeInstance`
@@ -1168,6 +1519,7 @@ The enchantment value and repair item checks are being replaced with data compon
     - `spawnProjectile` - Spawns a projectile.
     - `applyOnProjectileSpawned` - Applies any additional configurations from the given level and `ItemStack`.
     - `onItemBreak` - Handles what happens when the item that shot the projectile breaks.
+    - `shouldBounceOnWorldBorder` - Returns whether the projectile should bounce off the world border.
     - `$ProjectileFactory` - Defines how a projectile is spawned from some `ItemStack` by an entity.
 - `net.minecraft.world.inventory.AbstractContainerMenu`
     - `addInventoryHotbarSlots` - Adds the hotbar slots for the given container at the x and y positions.
@@ -1197,6 +1549,8 @@ The enchantment value and repair item checks are being replaced with data compon
         - `getBlockAndLiquidCollisions` - Returns the block and liquid collisions of the entity within the bounding box.
         - `clipIncludingBorder` - Gets the hit result for the specified clip context, clamped by the world border if necessary.
     - `EmptyBlockAndTintGetter` - A dummy `BlockAndTintGetter` instance.
+    - `LevelHeightAccessor#isInsideBuildHeight` - Returns whether the specified Y coordinate is within the bounds of the level.
+- `net.minecraft.world.level.block.Block#UPDATE_SKIP_SHAPE_UPDATE_ON_WIRE` - A block flag that, when enabled, does not update the shape of a redstone wire.
 - `net.minecraft.world.level.block.entity.trialspawner.TrialSpawnerData#resetStatistics` - Resets the data of the spawn to an empty setting, but does not clear the current mobs or the next spawning entity.
 - `net.minecraft.world.level.block.piston.PistonMovingBlockEntity#getPushDirection` - Returns the push direction of the moving piston.
 - `net.minecraft.world.level.block.state.StateHolder`
@@ -1204,11 +1558,13 @@ The enchantment value and repair item checks are being replaced with data compon
     - `getNullableValue` - Returns the value of the property, or null if it does not exist.
 - `net.minecraft.world.level.border.WorldBorder#clampVec3ToBound` - Clamps the vector to within the world border.
 - `net.minecraft.world.level.chunk`
+    - `ChunkSource#onSectionEmptinessChanged` - Updates the section when it has data.
     - `LevelChunkSection#copy` - Makes a shallow copy of the chunk section.
     - `PalettedContainerRO#copy` - Creates a shallow copy of the `PalettedContainer`.
     - `UpgradeData#copy` - Creates a deep copy of `UpgradeData`.
 - `net.minecraft.world.level.chunk.storage.IOWorker#store` - Stores the writes of the chunk to the worker.
 - `net.minecraft.world.level.levelgen.SurfaceRules$Context#getSeaLevel`, `SurfaceSystem#getSeaLevel` - Gets the sea level of the generator settings.
+- `net.minecraft.world.level.lighting.LayerLightSectionStorage#lightOnInColumn` - Returns whether there is light in the zero node section position.
 - `net.minecraft.world.level.pathfinder.PathFinder#setMaxVisitedNodes` - Sets the maximum number of nodes that can be visited.
 - `net.minecraft.world.level.portal.DimensionTransition#withRotation` - Updates the entity's spawn rotation.
 - `net.minecraft.world.phys`
@@ -1216,7 +1572,9 @@ The enchantment value and repair item checks are being replaced with data compon
     - `Vec3`
         - `add`, `subtract` - Translates the vector and returns a new object.
         - `horizontal` - Returns the horizontal components of the vector.
-- `net.minecraft.world.phys.shapes.CollisionContext#of(Entity, boolean)` - Creates a new entity collision context, where the `boolean` determines whether the entity can always stand on the provided fluid state.
+- `net.minecraft.world.phys.shapes.CollisionContext`
+    - `of(Entity, boolean)` - Creates a new entity collision context, where the `boolean` determines whether the entity can always stand on the provided fluid state.
+    - `getCollisionShape` - Returns the collision shape collided with.
 - `net.minecraft.world.ticks.ScheduledTick#toSavedTick` - Converts a scheduled tick to a saved tick.
 
 ### List of Changes
@@ -1255,7 +1613,7 @@ The enchantment value and repair item checks are being replaced with data compon
         - `getCloudColor` now returns a single `int` instead of a `Vec3`
         - `$ClientLevelData` now takes in a `FeatureFlagSet`
     - `TagCollector` -> `RegistryDataCollector$TagCollector`, now package-private
-- `net.minecraft.client.player.AbstractClientPlayer#getFieldOfViewModifier` now takes in a boolean representing whether the camera is in first person
+- `net.minecraft.client.player.AbstractClientPlayer#getFieldOfViewModifier` now takes in a boolean representing whether the camera is in first person and a float representing the partial tick
 - `net.minecraft.client.renderer`
     - `DimensionSpecialEffects#getSunriseColor` -> `getSunriseOrSunsetColor`
     - `GameRenderer`
@@ -1270,10 +1628,28 @@ The enchantment value and repair item checks are being replaced with data compon
         - `addParticle` is now public
         - `globalLevelEvent` -> `LevelEventHandler`
         - `entityTarget` -> `entityOutlineTarget`
+        - `$TransparencyShaderException` no longer takes in the throwable cause
+    - `SectionOcclusionGraph`
+        - `onSectionCompiled` -> `schedulePropagationFrom`
+        - `update` now takes in a `LongOpenHashSet` that holds the currently loaded section nodes
+        - `$GraphState` is now package-private
+    - `ViewArea`
+        - `repositionCamera` now takes in the `SectionPos` instead of two `double`s
+        - `getRenderSectionAt` -> `getRenderSection`
 - `net.minecraft.client.renderer.blockentity`
     - `BannerRenderer#renderPatterns` now takes in a `boolean` determining the glint render type to use
     - `*Renderer` classes that constructed `LayerDefinition`s have now been moved to their associated `*Model` class
     - `SignRenderer$SignModel` -> `SignModel`
+- `net.minecraft.client.renderer.chunk.SectionRenderDispatcher`
+    - `$CompiledSection#hasNoRenderableLayers` -> `hasRenderableLayers`
+    - `$RenderSection` now takes in a compiled `long` of the section node
+        - `setOrigin` -> `setSectionNode`
+        - `getRelativeOrigin` -> `getNeighborSectionNode`
+        - `cancelTasks` now returns nothing
+    - `$CompileTask` is now public
+        - `isHighPriority` -> `isRecompile`
+- `net.minecraft.client.renderer.culling.Frustum#cubeInFrustum` now returns an `int` representing the index of the first plane that culled the box
+- `net.minecraft.client.renderer.DebugRenderer#render` now takes in the `Frustum`
 - `net.minecraft.client.renderer.texture.atlas.sources.PalettedPermutations#loadPaletteEntryFromImage` is now private
 - `net.minecraft.client.tutorial.Tutorial#addTimedToast`, `#removeTimedToast`, `$TimedToast` -> `TutorialToast` parameter
 - `net.minecraft.core`
@@ -1339,7 +1715,9 @@ The enchantment value and repair item checks are being replaced with data compon
         - `getInputVector` is now protected
         - `isAlliedTo(Entity)` -> `considersEntityAsAlly`
         - `teleportTo` now takes in an additional `boolean` that determines whether the camera should be set
-    - `EntityType#create`, `loadEntityRecursive`, `loadEntitiesRecursive`, `loadStaticEntity` now takes in an `EntitySpawnReason`
+    - `EntityType`
+        - `create`, `loadEntityRecursive`, `loadEntitiesRecursive`, `loadStaticEntity` now takes in an `EntitySpawnReason`
+        - `*StackConfig` now takes in a `Level` instead of a `ServerLevel`
     - `MobSpawnType` -> `EntitySpawnReason`
     - `LivingEntity`
         - `getScale` is now final
@@ -1347,6 +1725,8 @@ The enchantment value and repair item checks are being replaced with data compon
         - `activeLocationDependentEnchantments` now takes in an `EquipmentSlot`
         - `handleRelativeFrictionAndCalculateMovement` is now private
         - `updateFallFlying` is now protected
+        - `onEffectRemoved` -> `onEffectsRemoved`
+        - `spawnItemParticles` is now public
     - `WalkAnimationState#update` now takes in an additional `float` representing the position scale when moving.
 - `net.minecraft.world.entity.ai.sensing`
     - `NearestLivingEntitySensor#radiusXZ`, `radiusY` -> `Attributes#FOLLOW_RANGE`
@@ -1364,10 +1744,13 @@ The enchantment value and repair item checks are being replaced with data compon
         - `isNoBasePlate` -> `showBasePlate`
     - `PaintingVariant` now takes in a title and author `Component`
 - `net.minecraft.world.entity.item.ItemEntity#getSpin` is now static
-- `net.minecraft.world.entity.player.Inventory`
-    - `findSlotMatchingUnusedItem` -> `findSlotMatchingCraftingIngredient`
-    - `swapPaint` -> `setSelectedHotbarSlot`
-    - `StackedContents` -> `StackedItemContents`
+- `net.minecraft.world.entity.monster.breeze.Breeze#getSnoutYPosition` -> `getFiringYPosition`
+- `net.minecraft.world.entity.player`
+    - `Player#disableShield` now takes in the stack to apply the cooldown to
+    - `Inventory`
+        - `findSlotMatchingUnusedItem` -> `findSlotMatchingCraftingIngredient`
+        - `swapPaint` -> `setSelectedHotbarSlot`
+        - `StackedContents` -> `StackedItemContents`
 - `net.minecraft.world.entity.projectile.ThrowableItemProjectile` can now take in an `ItemStack` of the item thrown
 - `net.minecraft.world.entity.raid.Raid#getLeaderBannerInstance` -> `getOminousBannerInstance`
 - `net.minecraft.world.item`
@@ -1375,6 +1758,7 @@ The enchantment value and repair item checks are being replaced with data compon
     - `BookItem`, `EnchantedBookItem` -> `DataComponents#WRITTEN_BOOK_CONTENT`
     - `ItemStack#hurtEnemy`, `postHurtEnemy` now take in a `LivingEntity` instead of a `Player`
     - `SmithingTemplateItem` now takes in the `Item.Properties` instead of hardcoding it, also true for static initializers
+    - `UseAnim` -> `ItemUseAnimation`
 - `net.minecraft.world.item.enchantment.EnchantmentHelper`
     - `onProjectileSpawned` now takes in a `Projectile` instead of an `AbstractArrow`
 - `net.minecraft.world.level`
@@ -1382,6 +1766,11 @@ The enchantment value and repair item checks are being replaced with data compon
         - `$IntegerValue#create` takes in a `FeatureFlagSet`
         - `$Type` takes in a `FeatureFlagSet`
     - `Level#setSpawnSettings` no longer takes in a `boolean` to determine whether to spawn friendlies
+    - `LevelHeightAccessor`
+        - `getMinBuildHeight` -> `getMinY`
+        - `getMaxBuildHeight` -> `getMaxY`
+        - `getMinSection` -> `getMinSectionY`
+        - `getMaxSection` -> `getMaxSectionY`
     - `NaturalSpawner#spawnForChunk` has been split into two methods: `getFilteredSpawningCategories`, and `spawnForChunk`
 - `net.minecraft.world.level.biome#Biome#getPrecipitationAt`, `coldEnoughToSnow`, `warmEnoughToRain`, `shouldMeltFrozenOceanIcebergSlightly` now takes in an `int` representing the the base height of the biome
 - `net.minecraft.world.level.block.Block`
@@ -1410,10 +1799,13 @@ The enchantment value and repair item checks are being replaced with data compon
     - `WorldDimensions#withOverworld` now takes in a `HolderLookup` instead of the `Registry` itself
     - `BlendingData` now has a packed and unpacked state for serializing the interal data as a simple object
 - `net.minecraft.world.level.levelgen.material.MaterialRuleList` now takes in an array instead of a list
-- `net.minecraft.world.level.lighting.LightEngine`
-    - `hasDifferentLightProperties`, `getOcclusionShape` no longer takes in the `BlockGetter` or `BlockPos`
-    - `getOpacity` no longer takes in the `BlockPos`
-    - `shapeOccludes` no longer takes in the two `longs` representing the packed positions
+- `net.minecraft.world.level.levelgen.placement.PlacementContext#getMinBuildHeight` -> `getMinY`
+- `net.minecraft.world.level.lighting`
+    - `LevelLightEngine#lightOnInSection` -> `lightOnInColumn`
+    - `LightEngine`
+        - `hasDifferentLightProperties`, `getOcclusionShape` no longer takes in the `BlockGetter` or `BlockPos`
+        - `getOpacity` no longer takes in the `BlockPos`
+        - `shapeOccludes` no longer takes in the two `longs` representing the packed positions
 - `net.minecraft.world.level.material`
     - `FlowingFluid`
         - `spread` now takes in the `BlockState` at the current position
@@ -1427,6 +1819,8 @@ The enchantment value and repair item checks are being replaced with data compon
 - `net.minecraft.world.level.storage.DimensionDataStorage` now implements `AutoCloseable`
     - The constructor takes in a `Path` instead of a `File`
     - `save` -> `scheduleSave` and `saveAndJoin`
+- `net.minecraft.world.phys.BlockHitResult` now takes in a boolean representing if the world border was hit
+    - Adds in two helpers `hitBorder`, `isWorldBorderHit`
 - `net.minecraft.world.ticks`
     - `ProtoChunkTicks#load` now takes in a list of saved ticks
     - `SavedTick#loadTickList` now returns a list of saved ticks, rather than consuming them
@@ -1465,7 +1859,9 @@ The enchantment value and repair item checks are being replaced with data compon
         - `setOrthoMatrix`
         - `getFilterMode`
 - `net.minecraft.client.renderer.block.model.BlockModel#fromString`
-- `net.minecraft.client.renderer.texture.AbstractTexture#blur`, `mipmap`
+- `net.minecraft.client.renderer.texture`
+    - `AbstractTexture#blur`, `mipmap`
+    - `TextureManager#bindForSetup`
 - `net.minecraft.core`
     - `Direction#fromDelta`
     - `Registry#getOrCreateTag`, `getTagNames`, `resetTags`
