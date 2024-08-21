@@ -1768,9 +1768,9 @@ The enchantment value and repair item checks are being replaced with data compon
     - `Level#setSpawnSettings` no longer takes in a `boolean` to determine whether to spawn friendlies
     - `LevelHeightAccessor`
         - `getMinBuildHeight` -> `getMinY`
-        - `getMaxBuildHeight` -> `getMaxY`
+        - `getMaxBuildHeight` -> `getMaxY`, this value is one less than the previous version
         - `getMinSection` -> `getMinSectionY`
-        - `getMaxSection` -> `getMaxSectionY`
+        - `getMaxSection` -> `getMaxSectionY`, this value is one less than the previous version
     - `NaturalSpawner#spawnForChunk` has been split into two methods: `getFilteredSpawningCategories`, and `spawnForChunk`
 - `net.minecraft.world.level.biome#Biome#getPrecipitationAt`, `coldEnoughToSnow`, `warmEnoughToRain`, `shouldMeltFrozenOceanIcebergSlightly` now takes in an `int` representing the the base height of the biome
 - `net.minecraft.world.level.block.Block`
