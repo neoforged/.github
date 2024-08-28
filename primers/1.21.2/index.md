@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=24w34a&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=24w35a&tab=changelog).
 
 ## The Holder Set Transition
 
@@ -50,11 +50,11 @@ HolderSet<Item> items = HolderSet.direct(BuiltInRegistries.ITEM.wrapAsHolder(Ite
 Holderset<ConfiguredFeature<?, ?>> features = HolderSet.direct(registry.getOrThrow(OreFeatures.ORE_IRON));
 ```
 
-For named `HolderSet`s, the process is similar. For static registries, you first get the `RegistryLookup` via `Registry#asLookup`. Then, for both static and dynamic registries, you call `HolderGetter#getOrThrow`.
+For named `HolderSet`s, the process is similar. For both static and dynamic registries, you call `HolderGetter#getOrThrow`.
 
 ```java
 // Named holder set for Items
-HolderSet<Item> items = BuiltInRegistries.ITEM.asLookup().getOrThrow(ItemTags.PLANKS);
+HolderSet<Item> items = BuiltInRegistries.ITEM.getOrThrow(ItemTags.PLANKS);
 
 // Named holder set for biomes
 // Assume we have access to the HolderGetter<Biome> registry
@@ -326,6 +326,7 @@ ShaderStateShard MY_SHARD = new ShaderStateShard(MY_SHADER);
     - `setShader` now takes in the `CompiledShaderProgram`, or `ShaderProgram`
     - `clearShader` - Clears the current system shader.
     - `runAsFancy` is removed, handled internally by `LevelRenderer#getTransparencyChain`
+- `com.mojang.blaze3d.vertex.VertexBuffer#drawWithShader` will now noop when passing in a null `CompiledShaderProgram`
 - `net.minecraft.client.Minecraft#getShaderManager` - Returns the manager that loads all the shaders and post effects.
 - `net.minecract.client.renderer`
     - `EffectInstance` is removed, replaced by `CompiledShaderProgram` in most cases
@@ -378,29 +379,27 @@ public class MyEntityRenderState extends LivingEntityRenderState {
 }
 ```
 
-From there, you create the `EntityModel` that will render your `Entity`. The `EntityModel` has a generic that takes in the `EntityRenderState`. There are two methosd to implement: `root`, which gets the root `ModelPart`, and `setupAnim`, which modifies the `ModelPart`'s mutable fields using the render state. If your model does not have any animation, then a `Model$Simple` implementation can be used instead. This does not need anything implemented.
+From there, you create the `EntityModel` that will render your `Entity`. The `EntityModel` has a generic that takes in the `EntityRenderState` along with taking in the `ModelPart` root, and optionally the `RenderType` factory as part of its super. The are no methods to implement by default; however, if you need to setup any kind of model movement, you will need to overrride `setupAnim` which modifies the `ModelPart`'s mutable fields using the render state. If your model does not have any animation, then a `Model$Simple` implementation can be used instead. This does not need anything implemented.
 
 ```java
 public class MyEntityModel extends EntityModel<MyEntityRenderState> {
 
-    private final ModelPart root;
-
     public MyEntityModel(ModelPart root) {
-        this.root = root;
+        super(root);
         // ...
     }
 
     @Override
-    public ModelPart root() {
-        return this.root;
-    }
-
-    @Override
     public void setupAnim(MyEntityRenderState state) {
+        // Calls resetPose and whatever other transformations done by superclasses
+        super.setupAnim(state); 
+
         // Perform transformations to model parts here
     }
 }
 ```
+
+`EntityModel` also has three `final` methods from the `Model` subclass: `root`, which grabs the root `ModelPart`; `allParts`, which returns a list of all `ModelPart`s flattened; and `resetPose`, which returns the `ModelPart` to their default state.
 
 `LayerDefinition`s, `MeshDefinition`s, `PartDefinition`s, and `CubeDeformation`s remain unchanged in their implementation and construction for the `ModelLayerLocation` -> `LayerDefinition` map in `LayerDefinitions`.
 
@@ -535,7 +534,8 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
         - `affectedByCulling` - Returns whether the entity can be culled.
         - `render` only takes in the render state, along with the stack, buffer source, and packet light
         - `shouldShowName` now takes in a `double` for the camera squared distance from the entity
-        - `getTextureLocation` now takes in the render state instead of the entity
+        - `getTextureLocation` is removed, being moved to the classes where it is used, like `LivingEntityRenderer`
+            - Subsequent implementations of `getTextureLocation` may be protected or private
         - `renderNameTag` now takes in the render state instead of the entity and removes the partial tick `float`
         - `getNameTag` - Gets the name tag from the entity.
         - `getShadowRadius` now takes in the render state instead of the entity
@@ -551,6 +551,7 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
         - `scale` now takes in the render state instead of the entity and no longer takes in the entity Y rotation
         - `shouldShowName` now takes in a `double` representing the squared distance to the camera
         - `getShadowRadius` now takes in the render state instead of the entity
+    - `RenderLayerParent#getTextureLocation` is removed
 - `net.minecraft.client.renderer.entity.layers`
     - `EnergySwirlLayer#isPowered` - Returns whether the energy is powered.
     - `CustomHeadLayer` and `#translateToHead` takes in a `CustomHeadLayer$Transforms` instead of a scaling information hardcoding the transform
@@ -558,7 +559,7 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
     - `RenderLayer` takes in an `EntityRenderState` generic instead of an `Entity` generic
         - `coloredCutoutModelCopyLayerRender` takes in a single `EntityModel` with the state info bundled into the render state
         - `renderColoredCutoutModel` takes in non-generic forms of the rendering information, assuming a `LivingEntityRenderState`
-        - `getTextureLocation` now takes in the render state instead of the entity
+        - `getTextureLocation` is removed, instead being passed directly into the appropriate location
         - `render` now takes in the render state instead of the entity and parameter information
     - `SaddleLayer` has a constructor to take in a baby model.
     - `SheepFurLayer` -> `SheepWoolLayer`
@@ -786,11 +787,12 @@ public class MyContainerScreen extends AbstractContainerScreen<MyRecipeMenu> imp
             - This remove all basic placement recipes calls, as that would be handled internally by the `ServerPlaceRecipe`
 
 
-## Instruments, the Datapack Editions
+## Instruments, the Datapack Edition
 
-`Instrument`s (not `NoteBlockInstrument`s) are now a datapack registry, meaning they must be defined in JSON.
+`Instrument`s (not `NoteBlockInstrument`s) are now a datapack registry, meaning they must be defined in JSON or datagenned.
 
 ```json5
+// In data/examplemod/instrument/example_instrument.json
 {
     // The registry name of the sound event
     "sound_event": "minecraft:entity.arrow.hit",
@@ -800,14 +802,111 @@ public class MyContainerScreen extends AbstractContainerScreen<MyRecipeMenu> imp
     "range": 256.0,
     // The description of the instrument
     "description": {
-        "translate": "instrument.minecraft.my_instrument"
+        "translate": "instrument.examplemod.example_instrument"
     },
 }
+```
+
+```java
+// For some RegistrySetBuilder builder
+builder.add(Registries.INSTRUMENT, bootstrap -> {
+    bootstrap.register(
+        ResourceKey.create(Registries.INSTRUMENT, ResourceLocation.fromNamespaceAndPath("examplemod", "example_instrument")),
+        new Instrument(
+            BuiltInRegistries.SOUND_EVENT.wrapAsHolder(SoundEvents.ARROW_HIT),
+            7f,
+            256f,
+            Component.translatable(Util.makeDescriptionId("instrument", ResourceLocation.fromNamespaceAndPath("examplemod", "example_instrument")))
+        )
+    )
+});
 ```
 
 - `net.minecraft.world.item`
     - `Instrument` takes in a `float` for the use duration and a `Component` description.
     - `InstrumentItem#setRandom` is removed
+
+## Trial Spawner Configurations, now in Datapack Form
+
+`TrialSpawnConfig` are now a datapack registry, meaning they must be defined in JSON or datagenned.
+
+```json5
+// In data/examplemod/trial_spawner/example_config.json
+{
+    // The range the entities can spawn from the trial spawner block
+    "spawn_range": 2,
+    // The total number of mobs that can be spawned
+    "total_mobs": 10.0,
+    // The number of mobs that can be spawned at one time
+    "simultaneous_mobs": 4.0,
+    // The number of mobs that are added for each player in the trial
+    "total_mobs_added_per_player": 3.0,
+    // The number of mobs that can be spawned at one time that are added for each player in the trial
+    "simultaneous_mobs_added_per_player": 2.0,
+    // The ticks between each spawn
+    "ticks_between_spawn": 100,
+    // A weighted list of entities to select from when spawning
+    "spawn_potentials": [
+        {
+            // The SpawnData
+            "data": {
+                // Entity to spawn
+                "entity": {
+                    "id": "minecraft:zombie"
+                }
+            },
+            // Weighted value
+            "weight": 1
+        }
+    ],
+    // A weight list of loot tables to select from when the reward is given
+    "loot_tables_to_eject": [
+        {
+            // The loot key
+            "data": "minecraft:spawners/ominous/trial_chamber/key",
+            // Weight value
+            "weight": 1
+        }
+    ],
+    // Returns the loot table to use when the the trial spawner is ominous
+    "items_to_drop_when_ominous": "minecraft:shearing/bogged"
+}
+```
+
+```java
+// For some RegistrySetBuilder builder
+builder.add(Registries.TRIAL_SPAWNER_CONFIG, bootstrap -> {
+    var entityTag = new CompoundTag();
+    entityTag.putString("id", BuiltInRegistries.ENTITY_TYPE.getKey(EntityType.ZOMBIE).toString());
+
+    bootstrap.register(
+        ResourceKey.create(Registries.INSTRUMENT, ResourceLocation.fromNamespaceAndPath("examplemod", "example_config")),
+        TrialSpawnerConfig.builder()
+            .spawnRange(2)
+            .totalMobs(10.0)
+            .simultaneousMobs(4.0)
+            .totalMobsAddedPerPlayer(3.0)
+            .simultaneousMobsAddedPerPlayer(2.0)
+            .ticksBetweenSpawn(100)
+            .spawnPotentialsDefinition(
+                SimpleWeightedRandomList.single(new SpawnData(entityTag, Optional.empty(), Optional.empty()))
+            )
+            .lootTablesToEject(
+                SimpleWeightedRandomList.single(BuiltInLootTables.SPAWNER_OMINOUS_TRIAL_CHAMBER_KEY)
+            )
+            .itemsToDropWhenOminous(
+                BuiltInLootTables.BOGGED_SHEAR
+            )
+            .build()
+    )
+});
+```
+
+- `net.minecraft.world.level.block.entity.trialspawner`
+    - `TrialSpawner` now takes in a `Holder` of the `TrialSpawnerConfig`
+    - `TrialSpawnerConfig`
+        - `CODEC` -> `DIRECT_CODEC`
+        - `$Builder`, `builder` - A builder for a trial spawner configuration
 
 ## Recipe Providers, the 'not actually' of Data Providers
 
@@ -1016,6 +1115,7 @@ Item exampleItem2 = new Item(new Item.Properties().component(DataComponents.USE_
     - `HoneyBottleItem` is removed
     - `Item`
         - `getDrinkingSound`, `#getEatingSound` is removed, handled via `ConsumeEffect`
+        - `releaseUsing` now returns a `boolean` whether it was successfully released
         - `$Properties#food` can now take in a `Consumable` for custom logic
         - `$Properties#usingConvertsTo` - The item to convert to after use.
         - `$Properties#useCooldown` - The amount of seconds to wait before the item can be used again.
@@ -1034,6 +1134,18 @@ Item exampleItem2 = new Item(new Item.Properties().component(DataComponents.USE_
     - `UseCooldown` - A data component that defines how the cooldown for a stack should be applied.
     - `UseRemainer` - A data component that defines how the item should be replaced once used up.
 - `net.minecraft.world.item.consume_effects.ConsumeEffect` - An effect to apply after the item has finished being consumed.
+
+## Block Id, in the Properties?
+
+When providing the `BlockBehaviour$Properties` to the `Block`, it must set the `ResourceKey` in the block directly by calling `#setId`. An error will be thrown if this is not set before passing in.
+
+```java
+new Block(BlockBehaviour.Properties.of()
+    .setId(ResourceKey.create(Registries.BLOCK, ResourceLocation.fromNamespaceAndPath("examplemod", "example_block"))));
+```
+
+- `BlockBehaviour$Properties`
+    - `setId` - Sets the resource key of the block to get the default drops and description from. This property must be set.
 
 ## Minor Migrations
 
@@ -1201,7 +1313,10 @@ With the edition of the redstone wire experiments comes a new class provided by 
 - `net.minecraft.world.level.block.state.BlockBehaviour`
     - `neighborChanged`, `$BlockStateBase#handleNeighborChanged` now takes in an `Orientation` instead of the neighbor `BlockPos`
 - `net.minecraft.world.level.redstone`
-    - `NeighborUpdater#neighborChanged`, `updateNeighborsAtExceptFromFacing`, `executeUpdate` now takes in an `Orientation` instead of the neighbor `BlockPos`
+    - `CollectingNeighborUpdater$ShapeUpdate#state` -> `neighborState`
+    - `NeighborUpdater`
+        - `neighborChanged`, `updateNeighborsAtExceptFromFacing`, `executeUpdate` now takes in an `Orientation` instead of the neighbor `BlockPos`
+        - `executeShapeUpdate` switches the order of the `BlockState` and neighbor `BlockPos`
     - `Orientation` - A group of connected `Directions` on a block along with a bias towards either the front or the up side.
     - `RedstoneWireEvaluator` - A strength evaluator for incoming and outgoing signals.
 
@@ -1344,8 +1459,11 @@ The enchantment value and repair item checks are being replaced with data compon
     - `Util`
         - `allOf` - ANDs all predicates or a list of predicates provided. If there are no supplied predicates, the method will default to `true`.
         - `anyOf` - ORs all predicates or a list of predicates provided. If there are no supplied predicates, the method will default to `false`.
+- `net.minecraft.advancements.critereon.SheepPredicate` - A predicate for when the entity is a sheep.
 - `net.minecraft.client`
-    - `Minecraft#saveReport` - Saves a crash report to the given file.
+    - `Minecraft`
+        - `saveReport` - Saves a crash report to the given file.
+        - `triggerResourcePackRecovery` - A function that attempts to save the game when a compilation exception occurs, currently used by shaders when loading.
     - `ScrollWheelHandler` - A handler for storing information when a mouse wheel is scrolled.
 - `ItemSlotMouseAction` - An interface that defines how the mouse interacts with a slot when hovering over.
 - `net.minecraft.client.gui.components`
@@ -1432,7 +1550,9 @@ The enchantment value and repair item checks are being replaced with data compon
 - `net.minecraft.network.FriendlyByteBuf`
     - `readVec3`, `writeVec3` - Static methods to read and write vectors.
     - `readContainerId`, `writeContainerId` - Methods to read and write menu identifiers.
-- `net.minecraft.network.codec.ByteBufCodecs#CONTAINER_ID` - A stream codec to handle menu identifiers.
+- `net.minecraft.network.codec.ByteBufCodecs`
+    - `CONTAINER_ID` - A stream codec to handle menu identifiers.
+    - `ROTATION_BYTE` - A packed rotation into a byte.
 - `net.minecraft.server`
     - `MinecraftServer`
         - `tickConnection` - Ticks the connection for handling packets.
@@ -1446,6 +1566,7 @@ The enchantment value and repair item checks are being replaced with data compon
     - `ServerPlayer`
         - `getTabListOrder` - Handles the order of players to cycle through in the player tab.
     - `TickingTracker#getTickingChunks` - Returns all chunks that are currently ticking.
+- `net.minecraft.resources.DependantName` - A reference object that maps some registry object `ResourceKey` to a value. Acts similarly to `Holder` except as a functional interface.
 - `net.minecraft.util`
     - `BinaryAnimator` - A basic animator that animates between two states using an easing function.
     - `ExtraCodecs#NON_NEGATIVE_FLOAT` - A float codec that validates the value  cannot be negative.
@@ -1454,6 +1575,7 @@ The enchantment value and repair item checks are being replaced with data compon
         - `lerp` - Linear interpolation between two vectors using their components.
         - `length` - Gets the length of a 2D point in space.
         - `easeInOutSine` - A cosine function that starts at (0,0) and alternates between 1 and 0 every pi.
+        - `packDegrees`, `unpackDegrees` - Stores and reads a degree in `float` form to a `byte`.
     - `RandomSource#triangle` - Returns a random `float` between the two `floats` (inclusive, exclusive) using a trangle distribution.
     - `TriState` - An enum that represents three possible states: true, false, or default.
 - `net.minecraft.util.datafix.ExtraDataFixUtils`
@@ -1475,6 +1597,11 @@ The enchantment value and repair item checks are being replaced with data compon
         - `getXRot`, `getYRot` - Returns the linearly interpolated rotation of the entity given the partial tick.
         - `isAlliedTo(Entity)` - Returns whether the entity is allied to this entity.
         - `teleportSetPosition` - Sets the position and rotation data of the entity being teleported via a `DimensionTransition`
+        - `getLootTable` - Returns the `ResourceKey` of the loot table the entity should use, if present.
+    - `EntityType`
+        - `getDefaultLootTable` now returns an `Optional` in case the loot table is not present
+        - `$Builder#noLootTable` - Sets the entity type to have no loot spawn on death.
+        - `$Builder#build` now takes in the resouce key of the entity type
     - `EntitySelector#CAN_BE_PICKED` - Returns a selector that gets all pickable entities not in spectator.
     - `LivingEntity`
         - `dropFromShearingLootTable` - Resolves a loot table with a shearing context.
@@ -1482,6 +1609,7 @@ The enchantment value and repair item checks are being replaced with data compon
         - `getEffectiveGravity` - Returns the gravity applied to the entity.
         - `canContinueToGlide` - Returns whether the entity can stil glide in the sky.
         - `getItemBlockingWith` - Returns the stack the player is currently blocking with.
+        - `canPickUpLoot` - Returns whether the entity can pick up items.
     - `WalkAnimationState#stop` - Stops the walking animation of the entity.
 - `net.minecraft.world.entity.ai.attributes`
     - `AttributeInstance`
@@ -1501,7 +1629,9 @@ The enchantment value and repair item checks are being replaced with data compon
     - `Animal`
         - `createAnimalAttributes` - Creates the attribute supplier for animals.
         - `playEatingSound` - Plays the sound an animal makes while eating.
+    - `Bee#isNightOrRaining` - Returns whether the current level has sky light and is either at night or raining.
     - `Cat#isLyingOnTopOfSleepingPlayer` - Returns whether the cat is on top of a sleeping player.
+    - `Salmon#getSalmonScale` - Returns the scale factor to apply to the entity's bounding box.
     - `Wolf#DEFAULT_TAIL_ANGLE` - Returns the default tail angle of the wolf.
 - `net.minecraft.world.entity.boss.enderdragon.DragonFlightHistory` - Holds the y and rotation of the dragon when flying through the sky. Used for animating better motion of the dragon's parts.
 - `net.minecraft.world.entity.player`
@@ -1529,18 +1659,20 @@ The enchantment value and repair item checks are being replaced with data compon
 - `net.minecraft.world.item`
     - `BundleItem`
         - `getOpenBundleModelFrontLocation`, `getOpenBundleModelBackLocation` - Returns the model locations of the bundle.
-        - `getBarColor` - Returns the fulness bar color of the bundle.
         - `toggleSelectedItem`, `hasSelectedItem`, `getSelectedItem`, `getSelectedItemStack` - Handles item selection within a bundle.
         - `getNumberOfItemsToShow` - Determines the number of items in the bundle to show at once.
     - `ItemStack`
         - `clearComponents` - Clears the patches made to the stack, not the item components.
         - `isBroken` - Returns wheter the stack has been broken.
         - `hurtWithoutBreaking` - Damages the stack without breaking the stack.
+        - `getStyledHoverName` - Gets the stylized name component of the stack.
 - `net.minecraft.world.item.component.BundleContents`
     - `canItemBeInBundle` - Whether the item can be put into the bundle.
     - `getNumberOfItemsToShow` - Determines the number of items in the bundle to show at once.
     - `hasSelectedItem`, `getSelectedItem` - Handles item selection within a bundle.
-- `net.minecraft.world.item.enchantment.EnchantmentHelper#createBook` - Creates an enchanted book stack.
+- `net.minecraft.world.item.enchantment.EnchantmentHelper`
+    - `createBook` - Creates an enchanted book stack.
+    - `doPostAttackEffectsWithItemSourceOnBreak` - Applies the enchantments after attack when the item breaks.
 - `net.minecraft.world.level`
     - `BlockCollisions` has a constructor to take in a `CollisionContext`
     - `BlockGetter#boxTraverseBlocks` - Returns an iterable of the positions traversed along the vector in a given bounding box.
@@ -1553,9 +1685,11 @@ The enchantment value and repair item checks are being replaced with data compon
 - `net.minecraft.world.level.block.Block#UPDATE_SKIP_SHAPE_UPDATE_ON_WIRE` - A block flag that, when enabled, does not update the shape of a redstone wire.
 - `net.minecraft.world.level.block.entity.trialspawner.TrialSpawnerData#resetStatistics` - Resets the data of the spawn to an empty setting, but does not clear the current mobs or the next spawning entity.
 - `net.minecraft.world.level.block.piston.PistonMovingBlockEntity#getPushDirection` - Returns the push direction of the moving piston.
-- `net.minecraft.world.level.block.state.StateHolder`
-    - `getValueOrElse` - Returns the value of the property, else the provided default.
-    - `getNullableValue` - Returns the value of the property, or null if it does not exist.
+- `net.minecraft.world.level.block.state`
+    - `BlockBehaviour$Properties#overrideDescription` - Sets the translation key of the block name.
+    - `StateHolder`
+        - `getValueOrElse` - Returns the value of the property, else the provided default.
+        - `getNullableValue` - Returns the value of the property, or null if it does not exist.
 - `net.minecraft.world.level.border.WorldBorder#clampVec3ToBound` - Clamps the vector to within the world border.
 - `net.minecraft.world.level.chunk`
     - `ChunkSource#onSectionEmptinessChanged` - Updates the section when it has data.
@@ -1579,6 +1713,7 @@ The enchantment value and repair item checks are being replaced with data compon
 
 ### List of Changes
 
+- `F3 + F` now toggles fog rendering
 - `com.mojang.blaze3d.platform.NativeImage`
     - `getPixelRGBA`, `setPixelRGBA` are now private. These are replaced by `getPixel` and `setPixel`, respectively
     - `getPixelsRGBA` -> `getPixels`
@@ -1603,7 +1738,9 @@ The enchantment value and repair item checks are being replaced with data compon
 - `net.minecraft.client.gui.screens.inventory.AbstractSignEditScreen`
     - `sign` is now protected
     - `renderSignBackground` no longer takes in the `BlockState`
-- `net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent#getHeight()` -> `getHeight(Font)`
+- `net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent`
+    - `getHeight()` -> `getHeight(Font)`
+    - `renderImage` now takes in the `int` width and height of the rendering tooltip
 - `net.minecraft.client.gui.screens.reporting.ReportReasonSelectionScreen` now takes in a `ReportType`
 - `net.minecraft.client.gui.screens.worldselection.WorldOpenFlows#createFreshLevel` takes in a `Function<HolderLookup.Provider, WorldDimensions>` instead of `Function<RegistryAccess, WorldDimensions>`
 - `net.minecraft.client.gui.spectator.SpectatorMenuItem#renderIcon` now takes in a `float` instead of an `int` to represent the alpha value
@@ -1656,11 +1793,24 @@ The enchantment value and repair item checks are being replaced with data compon
     - `Direction`
         - `getNearest` -> `getApproximateNearest`
         - `getNormal` -> `getUnitVec3i`
-    - `HolderLookup$Provider#listRegistries` -> `listRegistryKeys`
-    - `Registry`
+    - `HolderGetter$Provider#get` no longer takes in the registry key, instead reading it from the `ResourceKey`
+    - `HolderLookup$Provider` now implements `HolderGetter$Provider`
+        - `asGetterLookup` is removed as the interface is a `HolderGetter$Provider`
+        - `listRegistries` -> `listRegistryKeys`
+    - `Registry` now implements `HolderLookup$RegistryLookup`
         - `getTags` only returns a stream of named holder sets
         - `asTagAddingLookup` -> `prepareTagReload`
         - `bindTags` -> `WritabelRegistry#bindTag`
+        - `get` -> `getValue`
+        - `getOrThrow` -> `getValueOrThrow`
+        - `getHolder` -> `get`
+        - `getHolderOrThrow` -> `getOrThrow`
+        - `holders` -> `listElements`
+        - `getTag` -> `get`
+        - `holderOwner`, `asLookup` is removed as `Registry` is an instance of them
+    - `RegistryAccess`
+        - `registry` -> `lookup`
+        - `registryOrThrow` -> `lookupOrThrow`
     - `RegistrySynchronization#NETWORKABLE_REGISTRIES` -> `isNetworkable`
 - `net.minecraft.core.cauldron.CauldronInteraction`
     - `FILL_WATER` -> `fillWaterInteraction`, now private
@@ -1675,11 +1825,16 @@ The enchantment value and repair item checks are being replaced with data compon
         - `createShearsOnlyDrop` is now an instance method
     - `EntityLootSubProvider`
         - `killedByFrog`, `killedByFrogVariant` now take in the getter for the `EntityType` registry
+        - `createSheepTable` -> `createSheepDispatchPool`, not one-to-one as the table was replaced with a pool builder given a map of dye colors to loot tables
 - `net.minecraft.gametest.framework`
     - `GameTestHelper#assertEntityPresent`, `assertEntityNotPresent` takes in a bounding box instead of two vectors
     - `GameTestInfo#getOrCalculateNorthwestCorner` is now public
 - `net.minecraft.network.chat.Component#score` now takes in a `SelectorPattern`
 - `net.minecraft.network.chat.contents.ScoreContents`, `SelectorContents` is now a record
+- `net.minecraft.network.protocol.game`
+    - `ClientboundMoveEntityPacket#getyRot`, `getxRot` now returns a `float` of the degrees
+    - `ClientboundRotateHeadPacket#getYHeadRot` now returns a `float` of the degrees
+    - `ClientboundTeleportEntityPacket#getyRot`, `getxRot` now returns a `float` of the degrees
 - `net.minecraft.resources.RegistryDataLoader$Loader#loadFromNetwork` now takes in a `$NetworkedRegistryData`, which contains the packed registry entries
 - `net.minecraft.server`
     - `MinecraftServer` no longer implements `AutoCloseable`
@@ -1718,6 +1873,7 @@ The enchantment value and repair item checks are being replaced with data compon
     - `EntityType`
         - `create`, `loadEntityRecursive`, `loadEntitiesRecursive`, `loadStaticEntity` now takes in an `EntitySpawnReason`
         - `*StackConfig` now takes in a `Level` instead of a `ServerLevel`
+    - `EquipmentTable` now has a constructor that takes in a single float representing the slot drop chance for all equipment slots
     - `MobSpawnType` -> `EntitySpawnReason`
     - `LivingEntity`
         - `getScale` is now final
@@ -1727,6 +1883,7 @@ The enchantment value and repair item checks are being replaced with data compon
         - `updateFallFlying` is now protected
         - `onEffectRemoved` -> `onEffectsRemoved`
         - `spawnItemParticles` is now public
+        - `getLootTable` -> `Entity#getLootTable`, wrapped in optional
     - `WalkAnimationState#update` now takes in an additional `float` representing the position scale when moving.
 - `net.minecraft.world.entity.ai.sensing`
     - `NearestLivingEntitySensor#radiusXZ`, `radiusY` -> `Attributes#FOLLOW_RANGE`
@@ -1735,6 +1892,7 @@ The enchantment value and repair item checks are being replaced with data compon
 - `net.minecraft.world.entity.animal`
     - `Fox$Type` -> `$Variant`
     - `MushroomCow$MushroomType` -> `$Variant`
+        - `$Variant` no longer takes in the loot table
     - `Salmon` now has a variant for its size
     - `Wolf#getBodyRollAngle` -> `#getShakeAnim`, not one-to-one as the angle is calculated within the render state
 - `net.minecraft.world.entity.boss.wither.WitherBoss#getHead*Rot` -> `getHead*Rots`, returns all rotations rather than just the provided index
@@ -1753,6 +1911,7 @@ The enchantment value and repair item checks are being replaced with data compon
         - `StackedContents` -> `StackedItemContents`
 - `net.minecraft.world.entity.projectile.ThrowableItemProjectile` can now take in an `ItemStack` of the item thrown
 - `net.minecraft.world.entity.raid.Raid#getLeaderBannerInstance` -> `getOminousBannerInstance`
+- `net.minecraft.world.entity.vehicle.ContainerEntity#*LootTable*` -> `ContainerLootTable`
 - `net.minecraft.world.item`
     - `ArmorMaterial#repairIngredient` is now a `Predicate<ItemStack>` instead of a `Supplier<Ingredient>`
     - `BookItem`, `EnchantedBookItem` -> `DataComponents#WRITTEN_BOOK_CONTENT`
@@ -1766,6 +1925,7 @@ The enchantment value and repair item checks are being replaced with data compon
         - `$IntegerValue#create` takes in a `FeatureFlagSet`
         - `$Type` takes in a `FeatureFlagSet`
     - `Level#setSpawnSettings` no longer takes in a `boolean` to determine whether to spawn friendlies
+    - `LevelAccessor#neighborShapeChanged` switches the order of the `BlockState` and neighbor `BlockPos` parameters
     - `LevelHeightAccessor`
         - `getMinBuildHeight` -> `getMinY`
         - `getMaxBuildHeight` -> `getMaxY`, this value is one less than the previous version
@@ -1773,14 +1933,20 @@ The enchantment value and repair item checks are being replaced with data compon
         - `getMaxSection` -> `getMaxSectionY`, this value is one less than the previous version
     - `NaturalSpawner#spawnForChunk` has been split into two methods: `getFilteredSpawningCategories`, and `spawnForChunk`
 - `net.minecraft.world.level.biome#Biome#getPrecipitationAt`, `coldEnoughToSnow`, `warmEnoughToRain`, `shouldMeltFrozenOceanIcebergSlightly` now takes in an `int` representing the the base height of the biome
-- `net.minecraft.world.level.block.Block`
-    - `shouldRenderFace` takes in the relative state for the face being checked, no longer passing in the `BlockGetter` or `BlockPos`s.
-    - `updateEntityAfterFallOn` -> `updateEntityMovementAfterFallOn`
+- `net.minecraft.world.level.block`
+    - `Block`
+        - `shouldRenderFace` takes in the relative state for the face being checked, no longer passing in the `BlockGetter` or `BlockPos`s.
+        - `updateEntityAfterFallOn` -> `updateEntityMovementAfterFallOn`
+        - `$BlockStatePairKey` -> `FlowingFluid$BlockStatePairKey`, now package private
+        - `getDescriptionId` -> `BlockBehaviour#getDescriptionId`, also a protected field `descriptionId`
+    - `ChestBlock` constructor switched its parameter order
 - `net.minecraft.world.level.block.state.BlockBehaviour`
     - `getOcclusionShape`, `getLightBlock`, `propagatesSkylightDown` only takes in the `BlockState`, not the `BlockGetter` or `BlockPos`
+    - `getLootTable` now returns an `Optional`, also a protected field `drops`
     - `$BlockStateBase#getOcclusionShape`, `getLightBlock`, `getFaceOcclusionShape`, `propagatesSkylightDown`, `isSolidRender` no longer takes in the `BlockGetter` or `BlockPos`
     - `$BlockStateBase#getOffset` no longer takes in the `BlockGetter`
     - `$OffsetFunction#evaluate` no longer takes in the `BlockGetter`
+    - `$Properties#dropsLike` -> `overrideLootTable`
 - `net.minecraft.world.level.chunk`
     - `ChunkAccess`
         - `addPackedPostProcess` now takes in a `ShortList` instead of a single `short`
@@ -1888,6 +2054,7 @@ The enchantment value and repair item checks are being replaced with data compon
     - `getLatencyPos`
     - `getHeadPartYOffset`
 - `net.minecraft.world.entity.monster.Zombie#supportsBreakDoorGoal`
+- `net.minecraft.world.entity.npc.Villager#setChasing`, `isChasing`
 - `net.minecraft.world.entity.projectile.ThrowableProjectile(EntityType, LivingEntity, Level)`
 - `net.minecraft.world.item`
     - `BannerPatternItem#getDisplayName`
