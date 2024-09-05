@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=24w35a&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=24w36a&tab=changelog).
 
 ## The Holder Set Transition
 
@@ -77,8 +77,9 @@ This means methods that provided helpers towards setting the texture or other pr
 - `com.mojang.blaze3d.pipeline.RenderTarget#blitToScreen(int, int, boolean)` -> `blitAndBlendToScreen`
 - `net.minecraft.client.gui.GuiGraphics`
     - `drawManaged` is removed
-    - `setColor` is removed - Now a paramter within the `blit` and `blitSprite` methods
+    - `setColor` is removed - Now a parameter within the `blit` and `blitSprite` methods
     - `blit(int, int, int, int, int, TextureAtlasSprite, *)` is removed
+    - `bufferSource` -> `drawSpecial`, not one-to-one as this takes in a consumer of the `MultiBufferSource` and ends the current batch instead of just returning the `MultiBufferSource`
 - `net.minecraft.client.gui.components.PlayerFaceRenderer`
     - All `draw` methods except `draw(GuiGraphics, PlayerSkin, int, int, int)` takes in an additional `int` that defines the color
 - `net.minecraft.client.renderer.RenderType`
@@ -86,6 +87,7 @@ This means methods that provided helpers towards setting the texture or other pr
         - `guiOpaqueTexturedBackground` - Gets the render type for a GUI texture applied to the background of a menu.
         - `guiNauseaOverlay` - Gets the render type for the nausea overlay.
         - `guiTextured` - Gets the render type for an image within a GUI menu.
+- `net.minecraft.client.resources.metadata.gui.GuiSpriteScaling$NineSlice` now takes in a boolean representing whether the center portion of the texture should be streched to fit the size
 
 ## Shader Rewrites
 
@@ -511,7 +513,9 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
     - `ModelLayers`
         - `createRaftModelName`, `createChestRaftModelName` is removed
         - `createSignModelName` -> `createStandingSignModelName`, `createWallSignModelName`
-    - `ModelPart#rotateBy` - Rotates the part using the given `Quaternionf`.
+    - `ModelPart`
+        - `rotateBy` - Rotates the part using the given `Quaternionf`.
+        - `$Cube#polygons`, `$Polygon`, `$Vertex` is now public
     - `PartPose` is now a record
         - `translated` - Translates a pose.
         - `withScale`, `scaled` - Scales a pose.
@@ -579,7 +583,7 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
 
 ### Model Baking
 
-`UnbakedModel`s now have a different method to resolve any dependencies. Instead of getting the dependencies and resolving the parents, this is now done through a single method called `resolveDependencies`. This method takes in two values: the `Resolver` and the `ResolutionContext`. The `Resolver` is responsible for getting the `UnbakedModel` for the `ResourceLocation`. The `ResolutionContext` says whether this model is the top or for an `ItemOverride`.
+`UnbakedModel`s now have a different method to resolve any dependencies. Instead of getting the dependencies and resolving the parents, this is now done through a single method called `resolveDependencies`. This method takes in the `Resolver`. The `Resolver` is responsible for getting the `UnbakedModel` for the `ResourceLocation`.
 
 ```java
 // For some UnbakedModel instance
@@ -594,16 +598,10 @@ public class MyUnbakedModel implements UnbakedModel {
     // ...
 
     @Override
-    public void resolveDependencies(UnbakedModel.Resolver resolver, UnbakedModel.ResolutionContext ctx) {
+    public void resolveDependencies(UnbakedModel.Resolver resolver) {
         // Get parent model for delegate resolution
         if (this.parentLocation != null) {
             this.parent = resolver.resolve(this.parentLocation);
-        }
-
-
-        // Get top model item overrides
-        if (ctx != UnbakedModel.ResolutionContext.OVERRIDE) {
-            this.overrides.forEach(override -> resolver.resolveForOverride(override.getModel()));
         }
     }
 }
@@ -619,10 +617,15 @@ public class MyUnbakedModel implements UnbakedModel {
     - `MultiVariant` is now a record
     - `UnbakedBlockStateModel` - An interface that represents a block state model, contains a single method to group states together with the same model.
     - `VariantSelector` - A utility for constructing the state definitions from the model descriptor.
+- `net.minecraft.client.renderer.block.model`
+    - `BlockModel`
+        - `bake` no longer takes in the `ModelBaker` and `BlockModel`
+        - `$LoopException` is removed
 - `net.minecraft.client.renderer.block.model.multipart.MultiPart` now implements `UnbakedBlockStateModel`
     - `getSelectors` -> `$Definition#selectors`
     - `getMultiVariants` ->` $Definition#getMultiVariants`
 - `net.minecraft.client.resources.model`
+    - `BakedModel#getOverrides` -> `overrides`, method is defaulted to an empty override
     - `BlockStateModelLoader` only takes in the missing unbaked model
         - `loadAllBlockStates` is removed
         - `definitionLocationToBlockMapper` - Gets the state definition from a given resource location
@@ -631,8 +634,11 @@ public class MyUnbakedModel implements UnbakedModel {
         - `$LoadedJson` -> `$LoadedBlockModelDefinition`
         - `$LoadedModel` is now public
         - `$LoadedModels` - A record which maps a model location to a loaded model.
+    - `BuiltInModel` no longer takes in the `ItemOverrides`
+    - `DelegateBakedModel` - A utility implementation that delegates all logic to the supplied `BakedModel`
     - `Material#buffer` takes in another `boolean` that handles whether to apply the glint
     - `MissingBlockModel` - The missing model for a block.
+    - `ModelBaker#getModel` is removed, implementation in `ModelBakery$ModelBakerImpl` is private
     - `ModelBakery` only takes in the top models, all unbacked models, and the missing model
         - `BUILTIN_SLASH` -> `SpecialModels#builtinModelId`
         - `BUILTIN_SLASH_GENERATED` -> `SpecialModels#BUILTIN_GENERATED`
@@ -645,11 +651,346 @@ public class MyUnbakedModel implements UnbakedModel {
     - `ModelDiscovery` - A loader for block and item models, such as how to resolve them when reading.
     - `ModelGroupCollector` - A blockstate collector meant to map states to their associated block models.
     - `ModelResourceLocation#vanilla` is removed
+    - `MultiPartBakedModel` fields are now obtained from the first model in the selector and are private
+        - `$Builder` is removed, replaced with `$Selector`
+    - `SimpleBakedModel`, `SimpleBakedModel$Builder` no longer takes in the `ItemOverrides`
     - `SpecialModels` - A utility for builtin models.
     - `UnbakedModel`
         - `getDependencies`, `resolveParents` -> `resolveDependencies`
-        - `$ResolutionContext` - The context on how the model should be resolved.
+        - `bake` is no longer nullable
         - `$Resolver` - Determines how the unbaked model should be loaded when on top or on override.
+    - `WeightedBakedModel` now takes in a `SimpleWeightedRandomList` rather than a list of `WeightedEntry`s
+
+## Equipments and Items, Models and All
+
+Equipments and Items have had a major overhaul, most of which is spread throughout this documentation. This is some of the core change which, while they are important, do not deserve more than a cursory explanation due to their ease of change.
+
+### Item Names and Models
+
+The item name and model is now set directly within the properties using the `ITEM_NAME` and `ITEM_MODEL` data components, respectively. By default, this will use the same name and model location as previously, but these can be set via `Item$Properties#overrideDescription` and `#overrideModel`. `overrideDescription` takes in the translation key to use. There is also `useBlockDescriptionPrefix` and `useItemDescriptionPrefix` to change it to the default block and item translation keys, respectively. `overrideModel` takes in the relative `ResourceLocation` of the model JSON. For example, a value of `examplemod:example_item` will map to a `ModelResourceLocation` of `examplemod:example_item#inventory`. This is intended to link to the model JSON at `assets/examplemod/models/item/example_item.json`.
+
+> There is a slight quirk to item models. The same key can also point to `assets/examplemod/models/example_item.json` if the modder decides to for a special model to load at that location under the `inventory` variant. So, it is recommended to avoid having model names with the same name in the root `models` and `models/item` subdirectory.
+
+### Enchantable, Repairable Items
+
+The enchantment value and repair item checks are being replaced with data components: `DataComponents#ENCHANTABLE` and `DataComponents#REPAIRABLE`, respectively. These can be set via the `Item$Properties#enchantable` and `#repairable`. As a result, `Item#getEnchantmentValue` and `isValidRepairItem` are removed.
+
+### Elytras -> Gliders
+
+Any item can act similarly to an elytra if they have the `DataComponents#GLIDER` value equipped. This essentially functions as a flag to indicate that the item can be used to glide. This works only if the item also has a `DataComponents#EQUIPPABLE` entry.
+
+```java
+new Item(
+    new Item.Properties()
+        .component(DataComponents.GLIDER, Unit.INSTANCE) // Sets as a glider
+        .equippable(EquipmentSlot.BOOTS, SoundEvents.ARMOR_EQUIP_ELYTRA, EquipmentModels.ELYTRA) // Determines the slot to check whether it can be used
+);
+```
+
+### Tools, via Tool Materials
+
+`Tier`s within items have been replaced with `ToolMaterial`, which better handles the creation of tools and swords without having to implement each method manually. `ToolMaterial` takes in the same arguments as `Tier`, just as parameters to a single constructor rather than as implementable methods. From there, the `ToolMaterial` is passed to the `DiggerItem` subtypes, along with two floats representing the attack damage and attack speed. Interally, `ToolMaterial#apply*Properties` is called, which applies the `ToolMaterial` info to the `DataComponents#TOOL` and the attributes from the given `float`s.
+
+```java
+// Some tool material
+public static final ToolMaterial WOOD = new ToolMaterial(
+    BlockTags.INCORRECT_FOR_WOODEN_TOOL, // Tier#getIncorrectBlocksForDrops
+    59, // Tier#getUses
+    2.0F, // Tier#getSpeed
+    0.0F, // Tier#getAttackDamageBonus
+    15, // Tier#getEnchantmentValue
+    ItemTags.WOODEN_TOOL_MATERIALS // Tier#getRepairIngredient
+);
+
+// When constructing the digger item subtype
+new PickaxeItem(
+    WOOD, // Tool material
+    1.0f, // Attack damage
+    -2.8f, // Attack speed
+    new Item.Properties()
+)
+```
+
+## Armor Materials, Equipment, and Model (Textures)
+
+This is, by far, the largest change outside of consumables to items. `ArmorMaterial`s have effectively been made obsolete, as almost all of the logic is handled within data components, and attached to some resource pack JSON to load the associated textures. It is annoyingly complicated to understand at first glance, but is rather intuitive once you are familiar with the process.
+
+### `ArmorMaterial`
+
+`ArmorMaterial` is essentially a record that converts a list of properties to their proper location on the data components, NOT a registry object. This is done by passing in the item properties and an additional setting to either `#humanoidProperties` or `#animalProperties`. These settings should be familiar, as they remained unchanged from the previous version, the only difference is that they now specify a 'model id', which we will go into below. The armor material is used in conjunction with the `ArmorType`: an enum which defines the equipment slot the armor is placed into, the unit durability of each armor type, and the name (which is only used to construcct the attribute modifier id).
+
+```java
+ArmorMaterial exampleArmorMaterial = new ArmorMaterial(
+    15, // The scalar durability to multiply the armor type against
+    // A map of ArmorType -> half armor bars to apply to the entity ARMOR attribute
+    // Should be set for all ArmorTypes
+    Util.make(new EnumMap<>(ArmorType.class), map -> {
+        map.put(ArmorType.BOOTS, 2);
+        map.put(ArmorType.LEGGINGS, 5);
+        map.put(ArmorType.CHESTPLATE, 6);
+        map.put(ArmorType.HELMET, 2);
+        map.put(ArmorType.BODY, 5);
+    },
+    25, // The enchantment value of the armor
+    SoundEvents.ARMOR_EQUIP_IRON, // The holder wrapped sound event on what sound to make when the item is equipped
+    0f, // The ARMOR_TOUGHNESS attribute value
+    2f, // The KNOCKBACK_RESISTANCE attribute value,
+    ItemTags.REPAIRS_DIAMOND_ARMOR, // An item tag representing the items that can repair this armor
+    // The relative location of the EquipmentModel JSON
+    // Points to assets/examplemod/models/equipment/example_armor_material.json
+    ResourceLocation.fromNamespaceAndPath("examplemod", "example_armor_material")
+)
+```
+
+With the `ArmorMaterial`, this is either applied to the item properties by calling `humanoidProperties`, to apply the armor to a specific `ArmorType`; or `animalProperties` to apply the armor to the `BODY` and only allow specific entities to wear them.
+
+Does this mean that `ArmorItem` and `AnimalArmorItem` are effectively pointless? For `AnimalArmorItem`, this can be argued. The only thing that `AnimalArmorItem` does is have a `$BodyType` parameter, which means that the armor can only be applied to a horse or a wolf, and specifies the item breaking sound. `ArmorItem`, on the other hand, only has one specific usecase: determining whether the item can be taken off or swapped. This implicity checks the currently wearing armor item to see whether it can't be taken off (via `PREVENT_ARMOR_CHANGE` enchantment) and calculating the properties on the replacing armor material so that any hotswaps will only improve their wearer's armor attribute values.
+
+Let's go one level deeper.
+
+### The Data Components
+
+`ArmorMaterial` specifies eight data components to apply to item:
+
+- `MAX_DAMAGE` - Set to the maximum durability of the item multiplied by the `ArmorType` unit durability
+- `MAX_STACK_SIZE` - Set to 1
+- `DAMAGE` - Set to 0
+- `ATTRIBUTE_MODIFIERS` - Sets `ARMOR` and `ARMOR_TOUGHNESS` attributes, and `KNOCKBACK_RESISTANCE` when greater than 0
+- `ENCHANTABLE` - Set to the enchantment value (not set when calling `animalProperties`)
+- `REPAIRABLE` - Set to the `HolderSet` of the tag key representing the repairing ingredients
+- `EQUIPPABLE` - Sets the slot, equip sound, model id, what entities can wear the item, and whether it is dispensible
+
+Everything but `EQUIPPABLE` has already been explained above or has been around from a prior version, so this primer will only focus on `EQUIPPABLE` from now on.
+
+### Equippable
+
+`Equippable`, which used to be an interface, is now a data component that contains how an entity can equip this item and if the equipment should be rendered. Because of this, an item can only be equipped to a single slot.
+
+```java
+new Item(
+    new Item.Properties()
+    .component(DataComponents.EQUIPPABLE, new Equippable(
+        EquipmentSlot.HEAD, // The slot the item can be equipped to
+        SoundEvents.ARMOR_EQUIP_IRON, // The sound to play when equipping the item
+        // The relative location of the EquipmentModel JSON
+        // Points to assets/examplemod/models/equipment/example_armor_material.json
+        // When set to an empty optional, the item does not attempt to render as equipment
+        Optional.of(ResourceLocation.fromNamespaceAndPath("examplemod", "example_armor_material")),
+        // A HolderSet of entities (direct or tag) that can equip this item
+        // When set to an empty optional, any entity can equip this item
+        Optional.of(HolderSet.direct(EntityType::builtInRegistryHolder, EntityType.ZOMBIE)),
+        // Whether the item can be equipped when dispensed from a dispenser 
+        true
+    ))
+);
+```
+
+### Equipment Models?
+
+So, as mentioned previously, `Equippable` items, and by extension the `ArmorMaterial` delegate, can specify a model id to determine how the equipment should render. However, what does this id link to? Well, it points to an `EquipmentModel` serialized as a JSON within `models/equipment` of the resource pack. This JSON defines the layers and textures of the equippable item to render. This does NOT specify the model, making the record a misnomer. It is better to think of this as the equipment textures applied to the passed in model.
+
+`EquipmentModel` functions as a more feature generic version of the previous `ArmorMaterial$Layer`, which has been removed. Each `EquipmentModel` is functionally a map of `$LayerType`s to a list of `$Layer` to render.
+
+A `$LayerType` is an enum representing the layer to render the equipment model as. While these are non-specific, they are implemented and read by specific entity renderer through the layer renderers. For example, `HUMANOID` is used by the `HumanoidArmorLayer` to render the head, chest, and feet; so any usage of `HUMANOID` will be rendered using that system. Another example is `WOLF_BODY` is used by `WolfArmorLayer` to render the body armor. As such, if using existing layer types (which is the only scenario unless your mod loader supports enum extensions), make sure that they are compatible with the existing renderers in place.
+
+The `$Layer` list specifies the texture and dyeable options to use when rendering over the passed in model. The first parameter specifes the texture location, relative to `textures/entity/equipment`. The second parameter specifies an optional indicating whether the texture can be tinted (stored via the `ItemTags#DYEABLE` in conjunction with the `DYED_COLOR` data component). When specified, an optional color can be specified for when the item is not dyed. If empty, the armor will be invisible when not dyed. The final parameter indicates whether it should use the texture provided to the renderer instead, such as when rendering a custom elytra texture for the player.
+
+```json5
+// In assets/examplemod/models/equipment/example_armor_material.json
+{
+    // The layer map
+    "layers": {
+        // The serialized name of the EquipmentModel$LayerType to apply to
+        "humanoid": [
+            // A list of layers to render in the order provided in the list
+            {
+                // The relative texture of the layer
+                // Points to assets/examplemod/textures/entity/equipment/example.png
+                "texture": "examplemod:example",
+                // When specified, allows the texture to be tinted the color in DYED_COLOR data component
+                // Otherwise, cannot be tinted
+                "dyeable": {
+                    // An RGB value (always opaque color)
+                    // 0x7683DE as decimal
+                    // When not specified, set to 0 (meaning transparent or invisible)
+                    "color_when_undyed": 7767006
+                },
+                // When true, uses the texture passed into the layer renderer instead
+                "use_player_texture": true
+            }
+            // ...
+        ]
+        // ...
+    }
+}
+```
+
+```java
+EquipmentModel.builder()
+    .addLayers(EquipmentModel.LayerType.HUMANOID, new EquipmentModel.Layer(
+        // The relative texture of the layer
+        // Points to assets/examplemod/textures/entity/equipment/example.png
+        ResourceLocation.fromNamespaceAndPath("examplemod", "example"),
+        // When specified, allows the texture to be tinted the color in DYED_COLOR data component
+        // Otherwise, cannot be tinted
+        Optional.of(new EquipmentModel.Dyeable(
+            // An RGB value (always opaque color)
+            // When not specified, set to 0 (meaning transparent or invisible)
+            Optional.of(0x7683DE)
+        )),
+        // When true, uses the texture passed into the layer renderer instead
+        true
+    )/*, ... */)
+    .build();
+```
+
+The equipment model is then rendered by calling `EquipmentLayerRenderer#renderLayers` in the render function of an `EntityRenderer` or `RenderLayer`. `EquipementLayerRenderer` is passed in as part of the render context via `EntityRendererProvider$Context#getEquipmentRenderer`.
+
+```java
+// In some render method where EquipmentLayerRenderer equipmentLayerRenderer is a field
+this.equipmentLayerRenderer.renderLayers(
+    // The layer type to render
+    EquipmentModel.LayerType.HUMANOID,
+    // The model id representing the EquipmentModel JSON
+    // This would be set in the `EQUIPPABLE` data component via `model`
+    ResourceLocation.fromNamespaceAndPath("examplemod", "example_armor_material"),
+    // The model to apply the textures to
+    // These are usually separate models from the entity model
+    // and are separate ModelLayers linking to a LayerDefinition
+    model,
+    // The item stack representing the item being rendered as a model
+    // This is only used to get the dyeable, foil, and armor trim information
+    stack,
+    // The location -> RenderType shader used to render the armor layers
+    // It is recommended to use a RendderType with a VIEW_OFFSET_Z_LAYERING state
+    // to avoid some z-fighting issues
+    RenderType::armorCutoutNoCull,
+    // The stack used to render the model in the correct location
+    poseStack,
+    // The source of the buffers to get the vertex consumer of the render type
+    bufferSource,
+    // The packed light texture
+    lighting,
+    // The absolute path of the texture to render when use_player_texture is true for one of the layer if not null
+    ResourceLocation.fromNamespaceAndPath("examplemod", "textures/other_texture.png");
+)
+```
+
+### Technical Changes to Items
+
+- `net.minecraft.client.Minecraft#getEquipmentModels` - Gets the `EquipmentModelSet` that contains the current equipment model textures.
+- `net.minecraft.client.gui.GuiGraphics#renderTooltip`, `renderComponentTooltip` now has a parameter to take in the relative directory of the background and frame textures of the tooltip, or the default if `null`
+- `net.minecraft.client.gui.screens.inventory.tooltip.TooltipRenderUtil#renderTooltipBackground` now has a parameter to take in the relative directory of the background and frame textures of the tooltip, or the default if `null`
+- `net.minecraft.client.renderer.block.model`
+    - `ItemOverrides` -> `BakedOverrides`
+        - The construct no longer takes in the parent `BlockModel`
+        - `resolve` -> `findOverride`, does not take in the fallback model
+    - `ItemOverride`, `ItemOverride$Predicate` is now a record
+        - `getPredicates` is removed, use `predicates`
+        - `getModel` -> `model`
+- `net.minecraft.client.renderer.entity`
+    - `EntityRenderDispatcher` now takes in the `EquipmentModelSet`
+    - `EntityRendererProvider$Context`
+        - `getEquipmentModels` - Gets the current equipment textures.
+        - `getEquipmentRenderer` - Gets the renderer for the equipment.
+    - `ItemRenderer` no longer takes in the `Minecraft` instance and `TextureManager`
+        - `TRIDENT_MODEL`, `SPYGLASS_MODEL` is now public
+        - `TRIDENT_IN_HAND_MODEL`, `SPYGLASS_IN_HAND_MODEL` is removed
+        - `getItemModelShaper` is removed
+- `net.minecraft.client.renderer.entity.layers`
+    - `CapeLayer` now takes in the `EquipmentModelSet`
+    - `ElytraLayer` -> `WingsLayer`
+        - The constructor now takes in the `EquipmentLayerRenderer`
+    - `EquipmentLayerRenderer` - A renderer for equipment layers on the provided model.
+    - `HorseArmorLayer` now takes in the `EquipmentLayerRenderer`
+    - `HumanoidArmorLayer` now teaks in the `EquipmentLayerRenderer` instead of the `ModelManager`
+        - `shouldRender` - Returns whether the equippable item should be rendered in the given slot.
+    - `LlamaDecorLayer` now takes in the `EquipmentLayerRenderer`
+    - `WolfArmorLayer` now takes in the `EquipmentLayerRenderer`
+- `net.minecraft.client.resources.model`
+    - `EquipmentModelSet` - A resource listener that loads the `EquipmentModel`s from `models/equipment`.
+    - `ItemModel` - A model for an item.
+- `net.minecraft.core.component.DataComponents`
+    - `ITEM_MODEL` - Returns the model of the item. The `item/` is stripped, meaning that `minecraft:apple` points to `minecraft/textures/models/item/apple.json`.
+    - `EQUIPPABLE` - Indicates that an item is equippable in the given slot. Also contains the model to render for the equipment.
+    - `GLIDER` - Indicates that an item can be used to glide across the air. Must also be used in conjunction with `EQUIPPABLE`.
+    - `TOOLTIP_STYLE` - Determines the relative location representing how the tooltip should render
+- `net.minecraft.core.dispenser.EquipmentDispenseItemBehavior` - Handles how equipment is dispensed from a dispenser.
+- `net.minecraft.core.registries.BuiltInRegistries#`, `Registries#ARMOR_MATERIAL` is no longer a registry, handled purely through data components
+- `net.minecraft.world.entity`
+    - `EquipmentSlot#getFilterFlag` -> `getId`
+        - Also a method `getFilterBit` for converting the ID to a bit mask
+    - `LivingEntity`
+        - `canContinueToGlide` -> `canGlide`, no longer takes in the `ItemStack`
+        - `canTakeItem` replaced by `DataComponents#EQUIPPABLE`
+        - `canEquipWithDispenser` - Returns whether the stack can be equipped when spat from a dispenser.
+        - `canDispenserEquipIntoSlot` - An entity override that specifies whether a dispenser can put eequipment into a given slot.
+        - `isEquippableInSlot` - Returns whether the stack can be equipped in the given slot.
+        - `canGlideUsing` - Whether the entity can glide with the stack in the provided slot.
+    - `Mob`
+        - `canReplaceCurrentItem` now takes in the `EquipmentSlot`
+        - `isBodyArmorItem` replaced by `DataComponents#EQUIPPABLE`
+- `net.minecraft.world.entity.animal.horse`
+    - `Horse#isBodyArmorItem` replaced by `DataComponents#EQUIPPABLE`
+    - `Llama#isBodyArmorItem`, `getSwag` replaced by `DataComponents#EQUIPPABLE`
+- `net.minecraft.world.item`
+    - `AnimalArmorItem` no longer extends `ArmorItem`
+        - The constructor no longer takes in a boolean indicating the overlay texture, as that is now part of the `EquipmentModel`
+        - `$BodyType` no takes in the allowed entities to wear the armor rather than the path factory to the texture
+    - `ArmorItem` is no longer equipable
+        - Basically functions as an item class where its only remaining usage is to prevent armor change when enchanted and get the associated attributes
+        - `$Type` -> `ArmorType`
+    - `ArmorMaterial` -> `.equipment.ArmorMaterial`
+        - Bascially a dummy record to easily handle applying the associated data components (`MAX_DAMAGE`, `ATTRIBUTE_MODIFIERS`, `ENCHANTABLE`, `EQUIPPABLE`, `REPAIRABLE`)
+    - `ArmorMaterials` -> `.equipment.ArmorMaterials`
+    - `BundleItem` now takes in a `ResourceLocation` for the model rather than just strings
+    - `ElytraItem` is removed, now just and item with `DataComponents#GLIDER`
+    - `Equippable` -> `.equipment.Equippable`, now a record which defines how an item can be equipped
+    - `FoodOnAStackItem` parameter order has been switched
+    - `InstrumentItem` parameter order has been switched
+    - `Item`
+        - `descriptionId` is now protected
+        - `getDescription` -> `getName`
+        - `getOrCreateDescriptionId` is removed
+        - `getDescriptionId(ItemStack)` -> `DataComponents#ITEM_NAME`
+        - `isEnchantable`, `getEnchantmentValue` is removed
+        - `isValidRepairItem` is removed
+        - `getDefaultAttributeModifiers` is removed
+        - `$Properties`
+            - `equippable` - Sets an equippable component, defining how an item can be equipped
+            - `overrideDescription` - Sets the translation key of the item.
+            - `overrideModel` - Sets the model resource location.
+    - `ItemNameBlockItem` is removed, just a normal `Item` with `useItemDescriptionPrefix` as a property
+    - `ItemStack`
+        - `isValidRepairItem` - Returns whether the stack can be repaired by this stack.
+        - `nextDamageWillBreak` - Checks if the next damage taken with break the item.
+        - `getDescriptionId` -> `getItemName`, not one-to-one, as now it returns the full component
+    - `ShieldItem` no longer implements `Equippable`, passed in through `DataComponents#EQUIPPABLE`
+    - `SignItem` parameter order has been switched
+    - `SmithingTemplateItem` parameter order has been swtiched, removes `FeatureFlag`s
+    - `StandingAndWallBlockItem` paramter order has been switched
+    - `AxeItem` now takes in two floats representing the attack damage and attack speed
+    - `DiggerItem` now takes in two floats representing the attack damage and attack speed
+        - `createAttributes` -> `ToolMaterial#applyToolProperties`
+    - `HoeItem` now takes in two floats representing the attack damage and attack speed
+    - `PickaxeItem` now takes in two floats representing the attack damage and attack speed
+    - `ShovelItem` now takes in two floats representing the attack damage and attack speed
+    - `SwordItem` now takes in two floats representing the attack damage and attack speed
+        - `createAttributes` -> `ToolMaterial#applySwordProperties`
+    - `Tier` -> `ToolMaterial`
+    - `TieredItem` is removed
+    - `Tiers` constants are stored on `ToolMaterial`
+- `net.minecraft.world.item.alchemy.Potion` name is now required
+        - `getName` -> `name`, not one-to-one as this is stored directly on the potion without any other processing
+- `net.minecraft.world.item.armortrim.*` -> `.equipment.trim.*`
+- `net.minecraft.world.item.component.Tool` methods that return `Tool$Rule` now only take the `HolderSet` of blocks and not a list or tag ke
+- `net.minecraft.world.item.enchantment`
+    - `Enchantable` - The data component object for the item's enchantment value.
+    - `Repairable` - The data component object for the items that can repair this item.
+- `net.minecraft.world.level.block`
+    - `AbstractSkullBlock` no longer implements `Equippable`
+    - `EquipableCarvedPumpkinBlock` is removed, as replaced by `DataComponents#EQUIPPABLE`
+    - `WoolCarpetBlock` no longer implements `Equippable`
 
 ## Interaction Results
 
@@ -774,6 +1115,7 @@ public class MyContainerScreen extends AbstractContainerScreen<MyRecipeMenu> imp
         - `canCraft` -> `selectMatchingRecipes`
         - `getRecipes`, `getDisplayRecipes` -> `getFittingRecipes`
     - `SlotSelectTime` - Represents the current index of the slot selected by the player
+    - `RecipeButton#getResultItem` - Returns the result of the recipe.
 - `net.minecraft.recipebook`
     - `PlaceRecipe` -> `PlaceRecipeHelper`
         - `addItemToSlot` -> `$Output#addItemToSlot`
@@ -1135,17 +1477,27 @@ Item exampleItem2 = new Item(new Item.Properties().component(DataComponents.USE_
     - `UseRemainer` - A data component that defines how the item should be replaced once used up.
 - `net.minecraft.world.item.consume_effects.ConsumeEffect` - An effect to apply after the item has finished being consumed.
 
-## Block Id, in the Properties?
+## Registry Objcet Id, in the Properties?
 
-When providing the `BlockBehaviour$Properties` to the `Block`, it must set the `ResourceKey` in the block directly by calling `#setId`. An error will be thrown if this is not set before passing in.
+When providing the `BlockBehaviour$Properties` to the `Block` or the `Item$Properties` to the `Item`, it must set the `ResourceKey` in the block directly by calling `#setId`. An error will be thrown if this is not set before passing in.
 
 ```java
 new Block(BlockBehaviour.Properties.of()
     .setId(ResourceKey.create(Registries.BLOCK, ResourceLocation.fromNamespaceAndPath("examplemod", "example_block"))));
+
+new BlockItem(exampleBlock, new Item.Properties()
+    .useBlockDescriptionPrefix() // Makes the description id for a block item
+    .setId(ResourceKey.create(Registries.ITEM, ResourceLocation.fromNamespaceAndPath("examplemod", "example_item"))));
+
+new Item(new Item.Properties()
+    .setId(ResourceKey.create(Registries.ITEM, ResourceLocation.fromNamespaceAndPath("examplemod", "example_item"))));
 ```
 
-- `BlockBehaviour$Properties`
-    - `setId` - Sets the resource key of the block to get the default drops and description from. This property must be set.
+- `net.minecraft.world.item.Item$Properties`
+    - `setId` - Sets the resource key of the item to get the default description and model from. This property must be set.
+    - `useBlockDescriptionPrefix` - Creates the description id using the `block.` prefix.
+    - `useItemDescriptionPrefix` - Creates the description id using the `item.` prefix.
+- `net.minecraft.world.level.block.state.BlockBehaviour$Properties#setId` - Sets the resource key of the block to get the default drops and description from. This property must be set.
 
 ## Minor Migrations
 
@@ -1199,11 +1551,11 @@ If an `Optional<Ingredient>` is used, they can be tested via `Ingredient#testOpt
     - `SmithingTransformRecipe`, `SmithingTrimRecipe` now takes in `Optional<Ingredient>`s instead of `Ingredient`s
     - `SuspiciousStewRecipe` is removed
 
-### Criterions, Supplied with HolderGetters
+### Critereons, Supplied with HolderGetters
 
-All criterion builders during construction now take in a `HolderGetter`. While this may not be used, this is used instead of a direct call to the static registry to grab associated `Holder`s and `HolderSet`s.
+All critereon builders during construction now take in a `HolderGetter`. While this may not be used, this is used instead of a direct call to the static registry to grab associated `Holder`s and `HolderSet`s.
 
-- `net.minecraft.advancement.criterion`
+- `net.minecraft.advancement.critereon`
     - `BlockPredicate$Builder#of`
     - `ConsumeItemTrigger$TriggerInstance#usedItem`
     - `EntityEquipmentPredicate#captainPredicate`
@@ -1242,6 +1594,8 @@ Fog methods for individual values have been replaced with a `FogParameters` data
 - `minecraft:banner_pattern`
     - `bordure_indented`
     - `field_masoned`
+- `minecraft:block`
+    - `bats_spawnable_on`
 - `minecraft:damage_type`
     - `mace_smash`
 - `minecraft:item`
@@ -1252,6 +1606,15 @@ Fog methods for individual values have been replaced with a `FogParameters` data
     - `netherite_tool_materials`
     - `villager_picks_up`
     - `wooden_tool_materials`
+    - `piglin_safe_armor`
+    - `repairs_leather_armor`
+    - `repairs_chain_armor`
+    - `repairs_iron_armor`
+    - `repairs_gold_armor`
+    - `repairs_diamond_armor`
+    - `repairs_netherite_armor`
+    - `repairs_turtle_helmet`
+    - `repairs_wolf_armor`
 
 ### Smarter Framerate Limiting
 
@@ -1337,62 +1700,9 @@ Minecarts now have a `MinecartBehavior` class that handles how the entity should
         - `isRedstoneConductor` is now public
         - `applyNaturalSlowdown` now returns the vector to slowdown by.
         - `getPosOffs` -> `MinecartBehavior#getPos`
-        - `setPassengerMoveIntent`, `setPassengerMoveIntentFromInput`, `getPassengerMoveIntent` - Handles the passenger movement and how it translates to the minecart.
     - `MinecartBehavior` - holds how the entity should be rendered and positions during movement.
 - `net.minecraft.world.level.block.state.properties.RailShape#isAscending` -> `isSlope`
 - `net.minecraft.world.phys.shapes.MinecartCollisionContext` - An entity collision context that handles the collision of a minecart with some other collision object.
-
-### Tools, via Tool Materials
-
-`Tier`s within items have been replaced with `ToolMaterial`, which better handles the creation of tools and swords without having to implement each method manually. `ToolMaterial` takes in the same arguments as `Tier`, just as parameters to a single constructor rather than as implementable methods. From there, the `ToolMaterial` is passed to the `DiggerItem` subtypes, along with two floats representing the attack damage and attack speed. Interally, `ToolMaterial#apply*Properties` is called, which applies the `ToolMaterial` info to the `DataComponents#TOOL` and the attributes from the given `float`s.
-
-```java
-// Some tool material
-public static final ToolMaterial WOOD = new ToolMaterial(
-    BlockTags.INCORRECT_FOR_WOODEN_TOOL, // Tier#getIncorrectBlocksForDrops
-    59, // Tier#getUses
-    2.0F, // Tier#getSpeed
-    0.0F, // Tier#getAttackDamageBonus
-    15, // Tier#getEnchantmentValue
-    ItemTags.WOODEN_TOOL_MATERIALS // Tier#getRepairIngredient
-);
-
-// When constructing the digger item subtype
-new PickaxeItem(
-    WOOD, // Tool material
-    1.0f, // Attack damage
-    -2.8f, // Attack speed
-    new Item.Properties()
-)
-```
-
-- `net.minecraft.world.item`
-    - `AxeItem` now takes in two floats representing the attack damage and attack speed
-    - `DiggerItem` now takes in two floats representing the attack damage and attack speed
-        - `createAttributes` -> `ToolMaterial#applyToolProperties`
-    - `HoeItem` now takes in two floats representing the attack damage and attack speed
-    - `PickaxeItem` now takes in two floats representing the attack damage and attack speed
-    - `ShovelItem` now takes in two floats representing the attack damage and attack speed
-    - `SwordItem` now takes in two floats representing the attack damage and attack speed
-        - `createAttributes` -> `ToolMaterial#applySwordProperties`
-    - `Tier` -> `ToolMaterial`
-    - `TieredItem` is removed
-    - `Tiers` constants are stored on `ToolMaterial`
-- `net.minecraft.world.item.component.Tool` methods that return `Tool$Rule` now only take the `HolderSet` of blocks and not a list or tag key
-
-### Enchantable, Repairable Items, now Data Components
-
-The enchantment value and repair item checks are being replaced with data components: `DataComponents#ENCHANTABLE` and `DataComponents#REPAIRABLE`, respecitvely. These can be set via the `Item$Properties#enchantable` and `#repairable`. As a result, `Item#getEnchantmentValue` and `isValidRepairItem` have been deprecated for removal.
-
-- `net.minecraft.world.item`
-    - `ArmorMaterial` no longer takes in an `enchantmentValue`
-    - `Item#isEnchantable`, `getEnchantmentValue` is removed
-    - `ItemStack`
-        - `isValidRepairItem` - Returns whether the stack can be repaired by this stack.
-        - `getEnchantmentValue` - Returns the enchantment value of the stack.
-- `net.minecraft.world.item.enchantment`
-    - `Enchantable` - The data component object for the item's enchantment value.
-    - `Repairable` - The data component object for the items that can repair this item.
 
 ### EXPLOOOOSSSION!
 
@@ -1433,6 +1743,68 @@ The enchantment value and repair item checks are being replaced with data compon
     - `CarvingMaskPlacement` is removed
     - `PlacementContext#getCarvingMask` no longer takes in a `GenerationStep$Carving`
 
+### Codecable Json Reload Listener
+
+The `SimpleJsonResourceReloadListener` has been rewritten to use codecs instead of pure `Gson`.
+
+```java
+public class MyJsonListener extends SimpleJsonResourceReloadListener<MyJsonObject> {
+
+    // If you do not need registry access, the HolderLookup$Provider parameter can be removed
+    public MyJsonListener(HolderLookup.Provider registries, Codec<T> codec, String directory) {
+        super(registries, codec, directory);
+    }
+}
+```
+
+- `net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener` now takes in a generic representing the data object of the JSON
+    - The constructor is now protected, taking in the codec of the data object, the string of the directory, and an optional `HolderLookup$Provider` to construct the `RegistryOps` serialization context as necessary
+    - `prepare` now returns a map of names to objects
+    - `scanDirectory` now takes in the `DynamicOps` and `Codec`
+
+### Consecutive Executors
+
+`ProcessorMailbox` and `ProcessorHandle` have been replaced with `AbstractConsecutiveExecutor` and `TaskScheduler`, respectively. These are effectively the same in their usage, just with potentially different method names.
+
+- `net.minecraft.util.thread`
+    - `ProcessorMailbox` -> `AbstractConsecutiveExecutor`, not one-to-one
+        - `ConsecutiveExecutor` would be the equivalent implementation
+    - `PriorityConsecutiveExecutor` - An executor that specifies the priority of the task to run when scheduling.
+    - `BlockableEventLoop#wrapRunnable` -> `AbstractConsecutiveExecutor#wrapRunnable`
+    - `ProcessorHandle` -> `TaskScheduler`, where the generic is a subtype of `Runnable`
+        - `tell` -> `schedule`
+        - `ask`, `askEither` -> `scheduleWithResult`, not one-to-one
+        - `of` -> `wrapExecutor`
+    - `StrictQueue` no longer takes in an `F` generic and makes `T` a subtype of `Runnable`
+        - `pop` now returns a `Runnable`
+        - `$IntRunnable` -> `$RunnableWithPriority`
+
+
+### Mob Conversions
+
+Mobs, converted via `#convertTo`, have their logic handled by `ConversionType`, `ConversionParams`. `ConversionType` is an enum that dictates the logic to apply when copying the information from one mob to another via `#convert`. The common properties are handled via `#convertCommon`, which is called within the `#convert` method. There are currently two types: `SINGLE`, where the entity is converted one-to-one to another entity; and `SPLIT_ON_DEATH`, where the `Mob#convertTo` method is called mutiple times such as when a slime dies. `ConversionParams` contains the metadata about the conversion process: the type, whether the entity can keep its equipment or pick up loot, and what team the entity is on. `Mob#convertTo` also takes in a mob consumer to apply any finalization settings to the entity itself.
+
+```java
+// For some Mob exampleMob
+exampleMob.convertTo(
+    EntityType.SHEEP, // The entity to convert to
+    new ConversionParams(
+        ConversionType.SINGLE, // One-to-one
+        true, // Keep equipment
+        false // Do not preserve pick up loot
+    ),
+    EntitySpawnReason.CONVERSION, // Reason entity spawned
+    sheep -> {
+        // Perform any other settings to set on the newly converted entity
+    },
+)
+```
+
+- `net.minecraft.world.entity`
+    - `ConversionParams` - A record containing the settings of what happens when a mob is converted to another entity
+    - `ConversionType` - An enum that defines how one mob is transformed to another. Currently either `SINGLE` for one-to-one, or `SPLIT_ON_DEATH` for one-to-many (only used for slimes)
+    - `Mob#convertTo` now takes in the `ConversionParams`, an optional `EntitySpawnReason` of the entity (default `CONVERSION`), and a mob consumer to set any other information after conversion
+
 ### List of Additions
 
 - `com.mojang.blaze3d.framegraph`
@@ -1459,7 +1831,10 @@ The enchantment value and repair item checks are being replaced with data compon
     - `Util`
         - `allOf` - ANDs all predicates or a list of predicates provided. If there are no supplied predicates, the method will default to `true`.
         - `anyOf` - ORs all predicates or a list of predicates provided. If there are no supplied predicates, the method will default to `false`.
-- `net.minecraft.advancements.critereon.SheepPredicate` - A predicate for when the entity is a sheep.
+        - `makeEnumMap` - Creates an enum map given the enum class and a function to convert the enum to a value.
+- `net.minecraft.advancements.critereon`
+    - `InputPredicate` - A predicate that matches the input the player is making.
+    - `SheepPredicate` - A predicate for when the entity is a sheep.
 - `net.minecraft.client`
     - `Minecraft`
         - `saveReport` - Saves a crash report to the given file.
@@ -1542,10 +1917,19 @@ The enchantment value and repair item checks are being replaced with data compon
     - `HolderSet#isBound` - Returns whether the set is bound to some value.
 - `net.minecraft.core.component`
     - `DataComponentHolder#getAllOfType` - Returns all data components that are of the specific class type.
+    - `DataComponentPredicate`
+        - `someOf` - Constructs a data component predicate where the provided map contains the provided component types.
+        - `$Builder#expect` - Adds that we should expect the data component has some value.
     - `PatchedDataComponentMap#clearPatch` - Clears all patches to the data components on the object.
+- `net.minecraft.data.DataProvider`
+    - `saveAll` - Writes all values in a resource location to value map to the `PathProvider` using the provided codec.
+    - `saveStable` - Writes a value to the provided path given the codec.
+- `net.minecraft.data.models.EquipmentModelProvider` - A model provider for equipment models, only includes vanilla bootstrap.
 - `net.minecraft.data.info.DatapackStructureReport` - A provider that returns the structure of the datapack.
 - `net.minecraft.gametest.framework`
-    - `GameTestHelper#absoluteAABB`, `relativeAABB` - Moves the bounding box between absolute coordinates and relative coordinates to the test location
+    - `GameTestHelper`
+        - `absoluteAABB`, `relativeAABB` - Moves the bounding box between absolute coordinates and relative coordinates to the test location
+        - `assertEntityData` - Asserts that the entity at the provided block position matches the predicate.
     - `StructureUtils#getStartCorner` - Gets the starting position of the test to run.
 - `net.minecraft.network.FriendlyByteBuf`
     - `readVec3`, `writeVec3` - Static methods to read and write vectors.
@@ -1560,16 +1944,23 @@ The enchantment value and repair item checks are being replaced with data compon
         - `pauseWhileEmptySeconds` - Determines how many ticks the server should be paused for when no players are on.
     - `SuppressedExceptionCollector` - A handler for exceptions that were supressed by the server.
 - `net.minecraft.server.level`
+    - `ChunkTaskDispatcher` - A task scheduler for chunks.
     - `DistanceManager`
         - `getSpawnCandidateChunks` - Returns all chunks that the player can spawn within.
         - `getTickingChunks` - Returns all chunks that are currently ticking.
     - `ServerPlayer`
         - `getTabListOrder` - Handles the order of players to cycle through in the player tab.
+        - `getLastClientInput`, `setLastClientInput`, `getLastClientMoveIntent` - Handles how the server player interprets the client impulse.
+    - `ThrottlingChunkTaskDispatcher` - A chunk task dispatcher that sets a maximum number of chunks that can be executing at once.
     - `TickingTracker#getTickingChunks` - Returns all chunks that are currently ticking.
+- `net.minecraft.server.packs.repository.PackRepository#isAbleToClearAnyPack` - Rebuilds the selected packs and returns whether it is different from the currently selected packs.
 - `net.minecraft.resources.DependantName` - A reference object that maps some registry object `ResourceKey` to a value. Acts similarly to `Holder` except as a functional interface.
 - `net.minecraft.util`
     - `BinaryAnimator` - A basic animator that animates between two states using an easing function.
-    - `ExtraCodecs#NON_NEGATIVE_FLOAT` - A float codec that validates the value  cannot be negative.
+    - `ExtraCodecs`
+        - `NON_NEGATIVE_FLOAT` - A float codec that validates the value cannot be negative.
+        - `RGB_COLOR_CODEC` - An integer, float, or three vector float codec representing the RGB color.
+        - `nonEmptyMap` - A map codec that validates the map is not empty.
     - `Mth`
         - `wrapDegrees` - Sets the degrees to a value within (-180, 180].
         - `lerp` - Linear interpolation between two vectors using their components.
@@ -1593,11 +1984,12 @@ The enchantment value and repair item checks are being replaced with data compon
         - `applyEffectsFromBlocks` - Applies any effects from blocks via `Block#entityInside` or hardcoded checks like snow or rain.
         - `isAffectedByBlocks` - Returns whether the entity is affect by the blocks when inside.
         - `checkInsideBlocks` - Gets all blocks that teh player has traversed and checks whether the entity is inside one and adds them to a set when present.
-        - `oldPosition` - Returns the previous position of the entity.
+        - `oldPosition`, `setOldPosAndrot`, `setOldPos`, `setOldRot` - Helpers for updating the last position and rotation of the entity.
         - `getXRot`, `getYRot` - Returns the linearly interpolated rotation of the entity given the partial tick.
         - `isAlliedTo(Entity)` - Returns whether the entity is allied to this entity.
         - `teleportSetPosition` - Sets the position and rotation data of the entity being teleported via a `DimensionTransition`
         - `getLootTable` - Returns the `ResourceKey` of the loot table the entity should use, if present.
+        - `isControlledByOrIsLocalPlayer` - Return whether the entity is the local player or is controlled by a local player.
     - `EntityType`
         - `getDefaultLootTable` now returns an `Optional` in case the loot table is not present
         - `$Builder#noLootTable` - Sets the entity type to have no loot spawn on death.
@@ -1610,12 +2002,17 @@ The enchantment value and repair item checks are being replaced with data compon
         - `canContinueToGlide` - Returns whether the entity can stil glide in the sky.
         - `getItemBlockingWith` - Returns the stack the player is currently blocking with.
         - `canPickUpLoot` - Returns whether the entity can pick up items.
+    - `Mob`
+        - `setLootTable` - Sets an optional `ResourceKey` of the loot table the entity should use.
+        - `setLootTableSeed` - Sets the seed used to generate the loot table.
+    - `PositionMoveRotation` - A helper for handling the position and rotation of the entity in context.
     - `WalkAnimationState#stop` - Stops the walking animation of the entity.
 - `net.minecraft.world.entity.ai.attributes`
     - `AttributeInstance`
         - `getPermanentModifiers` - Returns all permanent modifiers applied to the entity.
         - `addPermanentModifiers` - Adds a collection of permanent modifiers to apply.
     - `AttributeMap#assignPermanentModifiers` - Copies the permanent modifiers from another map.
+- `net.minecraft.world.entity.ai.control.Control#rotateTowards` - Returns a float that rotates to some final rotation by the provided difference within a clamped value.
 - `net.minecraft.world.entity.ai.navigation.PathNavigation`
     - `updatePathfinderMaxVisitedNodes` - Updates the maximum number of nodes the entity can visit.
     - `setRequiredPathLength` - Sets the minimum length of the path the entity must take.
@@ -1679,14 +2076,16 @@ The enchantment value and repair item checks are being replaced with data compon
     - `CollisionGetter`
         - `noCollision` - Returns whether there is no collision between the entity and blocks, entities, and liquids if the `boolean` provided is `true`.
         - `getBlockAndLiquidCollisions` - Returns the block and liquid collisions of the entity within the bounding box.
-        - `clipIncludingBorder` - Gets the hit result for the specified clip context, clamped by the world border if necessary.
+        - `clipIncludingBorder` - Gets the block hit result for the specified clip context, clamped by the world border if necessary.
     - `EmptyBlockAndTintGetter` - A dummy `BlockAndTintGetter` instance.
     - `LevelHeightAccessor#isInsideBuildHeight` - Returns whether the specified Y coordinate is within the bounds of the level.
 - `net.minecraft.world.level.block.Block#UPDATE_SKIP_SHAPE_UPDATE_ON_WIRE` - A block flag that, when enabled, does not update the shape of a redstone wire.
 - `net.minecraft.world.level.block.entity.trialspawner.TrialSpawnerData#resetStatistics` - Resets the data of the spawn to an empty setting, but does not clear the current mobs or the next spawning entity.
 - `net.minecraft.world.level.block.piston.PistonMovingBlockEntity#getPushDirection` - Returns the push direction of the moving piston.
 - `net.minecraft.world.level.block.state`
-    - `BlockBehaviour$Properties#overrideDescription` - Sets the translation key of the block name.
+    - `BlockBehaviour`
+        - `getEntityInsideCollisionShape`, `$BlockStateBase#getEntityInsideCollisionShape` - Determines the voxel shape of the block when the entity is within it.
+        - `$Properties#overrideDescription` - Sets the translation key of the block name.
     - `StateHolder`
         - `getValueOrElse` - Returns the value of the property, else the provided default.
         - `getNullableValue` - Returns the value of the property, or null if it does not exist.
@@ -1702,13 +2101,18 @@ The enchantment value and repair item checks are being replaced with data compon
 - `net.minecraft.world.level.pathfinder.PathFinder#setMaxVisitedNodes` - Sets the maximum number of nodes that can be visited.
 - `net.minecraft.world.level.portal.DimensionTransition#withRotation` - Updates the entity's spawn rotation.
 - `net.minecraft.world.phys`
-    - `AABB#clip` - Clips the vector inside the given bounding box, or returns an empty optional if there is no intersection.
+    - `AABB`
+        - `clip` - Clips the vector inside the given bounding box, or returns an empty optional if there is no intersection.
+        - `collidedAlongVector` - Returns whether this box collided with one of the bounding boxes provided in the list along the provided movement vector.
+        - `getBottomCenter` - Gets the bottom center of the bounding box as a vector.
     - `Vec3`
         - `add`, `subtract` - Translates the vector and returns a new object.
         - `horizontal` - Returns the horizontal components of the vector.
-- `net.minecraft.world.phys.shapes.CollisionContext`
-    - `of(Entity, boolean)` - Creates a new entity collision context, where the `boolean` determines whether the entity can always stand on the provided fluid state.
-    - `getCollisionShape` - Returns the collision shape collided with.
+- `net.minecraft.world.phys.shapes`
+    - `CollisionContext`
+        - `of(Entity, boolean)` - Creates a new entity collision context, where the `boolean` determines whether the entity can always stand on the provided fluid state.
+        - `getCollisionShape` - Returns the collision shape collided with.
+    - `VoxelShape#move(Vec3)` - Offsets the voxel shape by the provided vector.
 - `net.minecraft.world.ticks.ScheduledTick#toSavedTick` - Converts a scheduled tick to a saved tick.
 
 ### List of Changes
@@ -1717,6 +2121,7 @@ The enchantment value and repair item checks are being replaced with data compon
 - `com.mojang.blaze3d.platform.NativeImage`
     - `getPixelRGBA`, `setPixelRGBA` are now private. These are replaced by `getPixel` and `setPixel`, respectively
     - `getPixelsRGBA` -> `getPixels`
+- `net.minecraft.advancements.critereon.PlayerPredicate` can now match the player's input
 - `net.minecraft.client`
     - `Minecraft`
         - `debugFpsMeterKeyPress` -> `ProfilerPieChart#profilerPieChartKeyPress` obtained via `Minecraft#getDebugOverlay` and then `DebugScreenOverlay#getProfilerPieChart`
@@ -1750,13 +2155,24 @@ The enchantment value and repair item checks are being replaced with data compon
         - `getCloudColor` now returns a single `int` instead of a `Vec3`
         - `$ClientLevelData` now takes in a `FeatureFlagSet`
     - `TagCollector` -> `RegistryDataCollector$TagCollector`, now package-private
-- `net.minecraft.client.player.AbstractClientPlayer#getFieldOfViewModifier` now takes in a boolean representing whether the camera is in first person and a float representing the partial tick
+- `net.minecraft.client.player`
+    - `AbstractClientPlayer#getFieldOfViewModifier` now takes in a boolean representing whether the camera is in first person and a float representing the partial tick
+    - `Input` -> `ClientInput` and `net.minecraft.world.entity.player.Input`
+    - `KeyboardInput` now extends `ClientInput`
+    - `LocalPlayer#input` is now `ClientInput`
 - `net.minecraft.client.renderer`
     - `DimensionSpecialEffects#getSunriseColor` -> `getSunriseOrSunsetColor`
     - `GameRenderer`
         - `processBlurEffect` no longer takes in the partial tick `float`
         - `getFov` returns a `float` instead of a `double`
         - `getProjectionMatrix` now takes in a `float` instead of a `double`
+    - `ItemModelShaper`
+        - `shapes` is now private
+        - `getItemModel(Item)` is removed
+        - `getItemModel(ResourceLocation)` - Gets the baked model associated with the provided `ResourceLocation`.
+        - `register` is removed
+        - `getModelManager` is removed
+        - `invalidateCache` - Clears the model map.
     - `LevelRenderer`
         - `renderSnowAndRain` -> `WeatherEffectRenderer`
         - `tickRain` -> `tickParticles`
@@ -1770,6 +2186,7 @@ The enchantment value and repair item checks are being replaced with data compon
         - `onSectionCompiled` -> `schedulePropagationFrom`
         - `update` now takes in a `LongOpenHashSet` that holds the currently loaded section nodes
         - `$GraphState` is now package-private
+        - `addSectionsInFrustum` now takes in a list to add the render sections to
     - `ViewArea`
         - `repositionCamera` now takes in the `SectionPos` instead of two `double`s
         - `getRenderSectionAt` -> `getRenderSection`
@@ -1783,12 +2200,27 @@ The enchantment value and repair item checks are being replaced with data compon
         - `setOrigin` -> `setSectionNode`
         - `getRelativeOrigin` -> `getNeighborSectionNode`
         - `cancelTasks` now returns nothing
+        - `pointOfView` - A reference to the location of where the translucent render type is rendered from.
+        - `resortTransparency` no longer takes in the `RenderType` and returns nothing
+        - `hasTranslucentGeometry` - Returns whether the compiled blocks have a translucent render type.
+        - `transparencyResortingScheduled` - Returns whether the last task was scheduled but not completed.
+        - `isAxisAlignedWith` -> `$TranslucencyPointOfView#isAxisAligned`
     - `$CompileTask` is now public
+        - No longer `Comparable`
+        - The constructor no longer takes in the distance at creation
         - `isHighPriority` -> `isRecompile`
+    - `$TranslucencyPointOfView` - Returns the coordinate representing the view point of the tranlucent render type in this section.
 - `net.minecraft.client.renderer.culling.Frustum#cubeInFrustum` now returns an `int` representing the index of the first plane that culled the box
 - `net.minecraft.client.renderer.DebugRenderer#render` now takes in the `Frustum`
 - `net.minecraft.client.renderer.texture.atlas.sources.PalettedPermutations#loadPaletteEntryFromImage` is now private
-- `net.minecraft.client.tutorial.Tutorial#addTimedToast`, `#removeTimedToast`, `$TimedToast` -> `TutorialToast` parameter
+- `net.minecraft.client.tutorial`
+    - `Tutorial`
+        - `addTimedToast`, `#removeTimedToast`, `$TimedToast` -> `TutorialToast` parameter
+        - `onInput` takes in a `ClientInput` instead of an `Input`
+    - `TutorialStepInstance`
+        - `onInput` takes in a `ClientInput` instead of an `Input`
+- `net.minecraft.commands.arguments.Coordinates`
+    - `getPosition`, `getRotation` now have overloads which take in a `boolean` representing whether the position to be relative or not
 - `net.minecraft.core`
     - `Direction`
         - `getNearest` -> `getApproximateNearest`
@@ -1833,21 +2265,35 @@ The enchantment value and repair item checks are being replaced with data compon
 - `net.minecraft.network.chat.contents.ScoreContents`, `SelectorContents` is now a record
 - `net.minecraft.network.protocol.game`
     - `ClientboundMoveEntityPacket#getyRot`, `getxRot` now returns a `float` of the degrees
+    - `ClientboundPlayerPositionPacket` is now a record, delta movement as well
     - `ClientboundRotateHeadPacket#getYHeadRot` now returns a `float` of the degrees
     - `ClientboundTeleportEntityPacket#getyRot`, `getxRot` now returns a `float` of the degrees
+    - `ServerboundPlayerInputPacket` is now a record, taking in an `Input`
 - `net.minecraft.resources.RegistryDataLoader$Loader#loadFromNetwork` now takes in a `$NetworkedRegistryData`, which contains the packed registry entries
 - `net.minecraft.server`
     - `MinecraftServer` no longer implements `AutoCloseable`
         - `tickChildren` is now protected
+        - `wrapRunnable` is now public
     - `ReloadableServerRegistries#reload` now takes in a list of pending tags and returns a `$LoadResult` instead of a layered registry access
     - `ReloadableServerResources`
         - `loadResources` now takes in a list of pending tags and the server `Executor`
         - `updateRegistryTags` -> `updateStaticRegistryTags`
     - `ServerFunctionLibrary#getTag`, `ServerFunctionManager#getTag` returns a list of command functions
 - `net.minecraft.server.level`
-    - `ChunkHolder#blockChanged`, `sectionLightChanged` now returns `boolean` if the information has changed
-    - `ServerPlayer#teleportTo` takes in a `boolean` that determines whether the camera should be set
+    - `ChunkHolder`
+        - `blockChanged`, `sectionLightChanged` now returns `boolean` if the information has changed
+        - `addSaveDependency` is now protected, a method within `GenerationChunkHolder`
+    - `ChunkTaskPriorityQueue` no longer takes in a generic
+        - The constructor no longer takes in the maximum number of tasks to do
+        - `submit` now takes in a `Runnable` rather than an `Optional`
+        - `pop` returns a `$TasksForChunk` instead of a raw `Stream`
+    - `ChunkTaskPriorityQueueSorter` -> `ChunkTaskDispatcher`
+    - `ServerPlayer`
+        - `teleportTo` takes in a `boolean` that determines whether the camera should be set
+        - `INTERACTION_DISTANCE_VERIFICATION_BUFFER` -> `BLOCK_INTERACTION_DISTANCE_VERIFICATION_BUFFER`
+            - Also splits into `ENTITY_INTERACTION_DISTANCE_VERIFICATION_BUFFER` set to 3.0
     - `TextFilterClient` -> `ServerTextFilter`
+    - `ThreadedLevelLightEngine` now takes in a `ConsecutiveExecutor` and `ChunkTaskDispatcher` instead of a `ProcessorMailbox` and a `ProcessorHandle`, respectively
 - `net.minecraft.tags`
     - `TagLoader`
         - `build` now returns a value of lists
@@ -1858,6 +2304,7 @@ The enchantment value and repair item checks are being replaced with data compon
 - `net.minecraft.util`
     - `FastColor` -> `ARGB`
     - `Mth#color` -> `ARGB#color`
+- `net.minecraft.util.profiling.metrics.MetricCategory#MAIL_BOXES` -> `CONSECUTIVE_EXECUTORS`
 - `net.minecraft.util.thread`
     - `BlockableEventLoop#waitForTasks` is now protected
     - `ProcessorMailbox` no longer implements `AutoCloseable`
@@ -1884,7 +2331,9 @@ The enchantment value and repair item checks are being replaced with data compon
         - `onEffectRemoved` -> `onEffectsRemoved`
         - `spawnItemParticles` is now public
         - `getLootTable` -> `Entity#getLootTable`, wrapped in optional
+    - `RelativeMovement` -> `Relative`, expanded to contain delta movement
     - `WalkAnimationState#update` now takes in an additional `float` representing the position scale when moving.
+- `net.minecraft.world.entity.ai.control.LookControl#rotateTowards` -> `Control#rotateTowards`
 - `net.minecraft.world.entity.ai.sensing`
     - `NearestLivingEntitySensor#radiusXZ`, `radiusY` -> `Attributes#FOLLOW_RANGE`
     - `Sensor#TARGETING_RANGE` is now private
@@ -1903,6 +2352,7 @@ The enchantment value and repair item checks are being replaced with data compon
     - `PaintingVariant` now takes in a title and author `Component`
 - `net.minecraft.world.entity.item.ItemEntity#getSpin` is now static
 - `net.minecraft.world.entity.monster.breeze.Breeze#getSnoutYPosition` -> `getFiringYPosition`
+- `net.minecraft.world.entity.monster.piglin.PiglinAi#isWearingGold` -> `#isWearingSafeArmor`
 - `net.minecraft.world.entity.player`
     - `Player#disableShield` now takes in the stack to apply the cooldown to
     - `Inventory`
@@ -1911,7 +2361,9 @@ The enchantment value and repair item checks are being replaced with data compon
         - `StackedContents` -> `StackedItemContents`
 - `net.minecraft.world.entity.projectile.ThrowableItemProjectile` can now take in an `ItemStack` of the item thrown
 - `net.minecraft.world.entity.raid.Raid#getLeaderBannerInstance` -> `getOminousBannerInstance`
-- `net.minecraft.world.entity.vehicle.ContainerEntity#*LootTable*` -> `ContainerLootTable`
+- `net.minecraft.world.entity.vehicle`
+    - `Boat$Type` now takes in the boat item and the translation key for the item
+    - `ContainerEntity#*LootTable*` -> `ContainerLootTable`
 - `net.minecraft.world.item`
     - `ArmorMaterial#repairIngredient` is now a `Predicate<ItemStack>` instead of a `Supplier<Ingredient>`
     - `BookItem`, `EnchantedBookItem` -> `DataComponents#WRITTEN_BOOK_CONTENT`
@@ -1981,6 +2433,10 @@ The enchantment value and repair item checks are being replaced with data compon
     - `FluidState`
         - `tick` now takes in the `BlockState` at the current position
     - `MapColor#calculateRGBColor` -> `calculateARGBColor`
+- `net.minecraft.world.level.portal.DimensionTransition`
+    - `pos` -> `position`
+    - `speed` -> `deltaMovement`
+    - The constructor can now take in a set of `Relatives` to indicate in what motions should the positions be moved relative to another
 - `net.miencraft.world.level.saveddata.SavedData#save(File, HolderLookup$Provider)` now returns `CompoundTag`, not writing the data to file in the method
 - `net.minecraft.world.level.storage.DimensionDataStorage` now implements `AutoCloseable`
     - The constructor takes in a `Path` instead of a `File`
@@ -2034,7 +2490,11 @@ The enchantment value and repair item checks are being replaced with data compon
 - `net.minecraft.server.MinecraftServer`
     - `isSpawningAnimals`
     - `areNpcsEnabled`
-- `net.minecraft.server.level.ServerPlayer#setPlayerInput`
+- `net.minecraft.server.level`
+    - `GenerationChunkHolder#getGenerationRefCount`
+    - `ServerPlayer`
+        - `setPlayerInput`
+        - `teleportTo(ServerLevel, double, double, double, float, float, boolean)`
 - `net.minecraft.tags`
     - `TagManager`
     - `TagManagerSerialization$TagOutput`
@@ -2044,6 +2504,7 @@ The enchantment value and repair item checks are being replaced with data compon
         - `walkDist0`, `walkDist`
         - `wasOnFire`
         - `tryCheckInsideBlocks`
+    - `EntitySelector$MobCanWearArmorEntitySelector`
 - `net.minecraft.world.entity.ai.sensing`
     - `BreezeAttackEntitySensor#BREEZE_SENSOR_RADIUS`
     - `TemptingSensor#TEMPTATION_RANGE`
@@ -2062,6 +2523,7 @@ The enchantment value and repair item checks are being replaced with data compon
 - `net.minecraft.world.level.BlockGetter#getMaxLightLevel`
 - `net.minecraft.world.level.block.state.BlockBehaviour#isOcclusionShapeFullBlock`
 - `net.minecraft.world.level.chunk.ChunkAccess#setBlendingData`
+- `net.minecraft.world.level.storage.loot.LootDataType#deserialize`
 - `net.minecraft.world.phys.AABB#getBottomCenter`
 - `net.minecraft.world.phys.shapes.Shapes#getFaceShape`
 - `net.minecraft.world.ticks.SavedTick#saveTick`
