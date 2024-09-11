@@ -317,7 +317,12 @@ RenderSystem.setShader(MY_SHADER);
 ShaderStateShard MY_SHARD = new ShaderStateShard(MY_SHADER);
 ```
 
-- `com.mojang.blaze3d.platform.GlStateManager#glShaderSource` now takes in a `String` rather than a `List<String>`
+- `com.mojang.blaze3d.platform.GlStateManager`
+    - `glShaderSource` now takes in a `String` rather than a `List<String>`
+    - `_glMapBufferRange` - Delegates to `GL30#glMapBufferRange`.
+    - `_glFenceSync` - Delegates to `GL32#glFenceSync`.
+    - `_glClientWaitSync` - Delegates to `GL32#glClientWaitSync`.
+    - `_glDeleteSync` - Delegates to `GL32#glDeleteSync`.
 - `com.mojang.blaze3d.preprocessor.GlslPreprocessor#injectDefines` - Injects any defined sources to the top of a loaded `.*sh` file.
 - `com.mojang.blaze3d.shaders`
     - `BlendMode`, `Effect`, `EffectProgram`, `Program`, `ProgramManager`, `Shader` has been bundled into `CompiledShader`
@@ -331,7 +336,7 @@ ShaderStateShard MY_SHARD = new ShaderStateShard(MY_SHADER);
 - `com.mojang.blaze3d.vertex.VertexBuffer#drawWithShader` will now noop when passing in a null `CompiledShaderProgram`
 - `net.minecraft.client.Minecraft#getShaderManager` - Returns the manager that loads all the shaders and post effects.
 - `net.minecract.client.renderer`
-    - `EffectInstance` is removed, replaced by `CompiledShaderProgram` in most cases
+    - `EffectInstance` class is removed, replaced by `CompiledShaderProgram` in most cases
     - `GameRenderer`
         - `get*Shader` -> `CoreShaders#*`
         - `shutdownEffect` -> `clearPostEffect`
@@ -480,7 +485,7 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
         - `waterPatch` -> `createWaterPatch`
         - `parts` is removed
     - `ChestBoatModel` -> `BoatModel#createChestBoatModel`
-    - `ChestedHorseModel` is removed and now purely lives in `LlamaModel` and `DonkeyModel`
+    - `ChestedHorseModel` class is removed and now purely lives in `LlamaModel` and `DonkeyModel`
     - `ChestRaftModel` -> `RaftModel#createChestRaftModel`
     - `ColorableHierarchicalModel` is now stored in the individual `EntityRenderState`
     - `EntityModel`
@@ -488,9 +493,9 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
         - `setupAnim` only takes in the `EntityRenderState` generic
         - `prepareMobModel` is removed
         - `copyPropertiesTo` is removed, still exists in `HumanoidModel`
-    - `HierarchicalModel` is removed
+    - `HierarchicalModel` class is removed
     - `HumanoidModel#rotLerpRad` -> `Mth#rotLerpRad`
-    - `ListModel` is removed
+    - `ListModel` class is removed
     - `Model`
         - `renderToBuffer` is now final
         - `root` - Returns the root `ModelPart`.
@@ -499,7 +504,7 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
         - `animateWalk` - Animates the walking cycle of the model.
         - `applyStatic` - Applies an immediate animation to the specified state.
         - `$Simple` - Constructs a simple model that has no additional animation.
-    - `ModelUtils` is removed
+    - `ModelUtils` class is removed
     - `ParrotModel#getState` -> `getPose`, now public
     - `PlayerModel` no longer has a generic
         - `renderEars` -> `PlayerEarsModel`
@@ -578,8 +583,8 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
     - `Entity`
         - `noCulling` -> `EntityRenderer#affectedByCulling`
         - `getBoundingBoxForCulling` -> `EntityRenderer#getBoundingBoxForCulling`
-    - `LerpingModel` is removed
-    - `PowerableMob` is removed
+    - `LerpingModel` class is removed
+    - `PowerableMob` class is removed
 
 ### Model Baking
 
@@ -620,7 +625,7 @@ public class MyUnbakedModel implements UnbakedModel {
 - `net.minecraft.client.renderer.block.model`
     - `BlockModel`
         - `bake` no longer takes in the `ModelBaker` and `BlockModel`
-        - `$LoopException` is removed
+        - `$LoopException` class is removed
 - `net.minecraft.client.renderer.block.model.multipart.MultiPart` now implements `UnbakedBlockStateModel`
     - `getSelectors` -> `$Definition#selectors`
     - `getMultiVariants` ->` $Definition#getMultiVariants`
@@ -652,7 +657,7 @@ public class MyUnbakedModel implements UnbakedModel {
     - `ModelGroupCollector` - A blockstate collector meant to map states to their associated block models.
     - `ModelResourceLocation#vanilla` is removed
     - `MultiPartBakedModel` fields are now obtained from the first model in the selector and are private
-        - `$Builder` is removed, replaced with `$Selector`
+        - `$Builder` class is removed, replaced with `$Selector`
     - `SimpleBakedModel`, `SimpleBakedModel$Builder` no longer takes in the `ItemOverrides`
     - `SpecialModels` - A utility for builtin models.
     - `UnbakedModel`
@@ -683,7 +688,7 @@ Any item can act similarly to an elytra if they have the `DataComponents#GLIDER`
 new Item(
     new Item.Properties()
         .component(DataComponents.GLIDER, Unit.INSTANCE) // Sets as a glider
-        .equippable(EquipmentSlot.BOOTS, SoundEvents.ARMOR_EQUIP_ELYTRA, EquipmentModels.ELYTRA) // Determines the slot to check whether it can be used
+        .component(DataComponents.EQUIPPABLE, /*...*/) // Determines the slot to check whether it can be used
 );
 ```
 
@@ -780,7 +785,12 @@ new Item(
         // When set to an empty optional, any entity can equip this item
         Optional.of(HolderSet.direct(EntityType::builtInRegistryHolder, EntityType.ZOMBIE)),
         // Whether the item can be equipped when dispensed from a dispenser 
-        true
+        true,
+        // Whether the item can be swapped off the player during a quick equip
+        false,
+        // Whether the item should be damaged when attacked (for equipment typically)
+        // Must also be a damageable item
+        false
     ))
 );
 ```
@@ -897,6 +907,7 @@ this.equipmentLayerRenderer.renderLayers(
         - `TRIDENT_MODEL`, `SPYGLASS_MODEL` is now public
         - `TRIDENT_IN_HAND_MODEL`, `SPYGLASS_IN_HAND_MODEL` is removed
         - `getItemModelShaper` is removed
+        - `renderBundleWithSelectedItem` -> `renderBundleItem`, not one-to-one
 - `net.minecraft.client.renderer.entity.layers`
     - `CapeLayer` now takes in the `EquipmentModelSet`
     - `ElytraLayer` -> `WingsLayer`
@@ -907,6 +918,7 @@ this.equipmentLayerRenderer.renderLayers(
         - `shouldRender` - Returns whether the equippable item should be rendered in the given slot.
     - `LlamaDecorLayer` now takes in the `EquipmentLayerRenderer`
     - `WolfArmorLayer` now takes in the `EquipmentLayerRenderer`
+- `net.minecraft.client.renderer.entity.player.PlayerRenderer#getArmPose` is now private, replaced publically with a method that only takes in the `HumanoidArm` and `PlayerRenderState`
 - `net.minecraft.client.resources.model`
     - `EquipmentModelSet` - A resource listener that loads the `EquipmentModel`s from `models/equipment`.
     - `ItemModel` - A model for an item.
@@ -943,8 +955,10 @@ this.equipmentLayerRenderer.renderLayers(
     - `ArmorMaterial` -> `.equipment.ArmorMaterial`
         - Bascially a dummy record to easily handle applying the associated data components (`MAX_DAMAGE`, `ATTRIBUTE_MODIFIERS`, `ENCHANTABLE`, `EQUIPPABLE`, `REPAIRABLE`)
     - `ArmorMaterials` -> `.equipment.ArmorMaterials`
+    - `BookItem`, `EnchantedBookItem` -> `DataComponents#WRITTEN_BOOK_CONTENT`
     - `BundleItem` now takes in a `ResourceLocation` for the model rather than just strings
-    - `ElytraItem` is removed, now just and item with `DataComponents#GLIDER`
+    - `ComplexItem` class is removed
+    - `ElytraItem` class is removed, now just and item with `DataComponents#GLIDER`
     - `Equippable` -> `.equipment.Equippable`, now a record which defines how an item can be equipped
     - `FoodOnAStackItem` parameter order has been switched
     - `InstrumentItem` parameter order has been switched
@@ -956,11 +970,14 @@ this.equipmentLayerRenderer.renderLayers(
         - `isEnchantable`, `getEnchantmentValue` is removed
         - `isValidRepairItem` is removed
         - `getDefaultAttributeModifiers` is removed
+        - `getDamageSource` - Returns the damage source this item makes against the `LivingEntity`
+        - `isComplex` is removed
         - `$Properties`
             - `equippable` - Sets an equippable component, defining how an item can be equipped
+            - `equippableUnswappable` - Sets an equippable commponent that cannot be swapped via a key shortcut.
             - `overrideDescription` - Sets the translation key of the item.
             - `overrideModel` - Sets the model resource location.
-    - `ItemNameBlockItem` is removed, just a normal `Item` with `useItemDescriptionPrefix` as a property
+    - `ItemNameBlockItem` class is removed, just a normal `Item` `useItemDescriptionPrefix` as a property
     - `ItemStack`
         - `isValidRepairItem` - Returns whether the stack can be repaired by this stack.
         - `nextDamageWillBreak` - Checks if the next damage taken with break the item.
@@ -978,18 +995,20 @@ this.equipmentLayerRenderer.renderLayers(
     - `SwordItem` now takes in two floats representing the attack damage and attack speed
         - `createAttributes` -> `ToolMaterial#applySwordProperties`
     - `Tier` -> `ToolMaterial`
-    - `TieredItem` is removed
+    - `TieredItem` class is removed
     - `Tiers` constants are stored on `ToolMaterial`
 - `net.minecraft.world.item.alchemy.Potion` name is now required
         - `getName` -> `name`, not one-to-one as this is stored directly on the potion without any other processing
 - `net.minecraft.world.item.armortrim.*` -> `.equipment.trim.*`
-- `net.minecraft.world.item.component.Tool` methods that return `Tool$Rule` now only take the `HolderSet` of blocks and not a list or tag ke
+- `net.minecraft.world.item.component`
+    - `Tool` methods that return `Tool$Rule` now only take the `HolderSet` of blocks and not a list or tag key
+    - `DamageResistant` - A component that holds a tag of damage types the item is resistant to as an entity or being worn
 - `net.minecraft.world.item.enchantment`
     - `Enchantable` - The data component object for the item's enchantment value.
     - `Repairable` - The data component object for the items that can repair this item.
 - `net.minecraft.world.level.block`
     - `AbstractSkullBlock` no longer implements `Equippable`
-    - `EquipableCarvedPumpkinBlock` is removed, as replaced by `DataComponents#EQUIPPABLE`
+    - `EquipableCarvedPumpkinBlock` class is removed, as replaced by `DataComponents#EQUIPPABLE`
     - `WoolCarpetBlock` no longer implements `Equippable`
 
 ## Interaction Results
@@ -1453,8 +1472,8 @@ Item exampleItem2 = new Item(new Item.Properties().component(DataComponents.USE_
     - `usingConvertsTo` -> `DataComponents#USE_REMAINDER`,
     - `effects` -> `ConsumeEffect`
 - `net.minecraft.world.item`
-    - `ChorusFruitItem` is removed
-    - `HoneyBottleItem` is removed
+    - `ChorusFruitItem` class is removed
+    - `HoneyBottleItem` class is removed
     - `Item`
         - `getDrinkingSound`, `#getEatingSound` is removed, handled via `ConsumeEffect`
         - `releaseUsing` now returns a `boolean` whether it was successfully released
@@ -1464,17 +1483,20 @@ Item exampleItem2 = new Item(new Item.Properties().component(DataComponents.USE_
     - `ItemCooldowns` now take in `ItemStack`s or `ResourceLocation`s to their methods rather than just an `Item`
         - `getCooldownGroup` - Returns the key representing the group the cooldown is applied to
     - `ItemStack#getDrinkingSound`, `getEatingSound` is removed
-    - `MilkBucketItem` is removed
-    - `OminousBottleItem` is removed
-    - `SuspiciousStewItem` is removed
+    - `MilkBucketItem` class is removed
+    - `OminousBottleItem` class is removed
+    - `SuspiciousStewItem` class is removed
 - `net.minecraft.world.item.alchemy.PotionContents` now implements `ConsumableListener`
+    - The constructor takes in an optional string representing the translation key suffix of the custom name
     - `applyToLivingEntity` - Applies all effects to the provided entity.
+    - `getName` - Gets the name component by appending the custom name to the end of the provided contents string.
 - `net.minecraft.world.item.component`
     - `Consumable` - A data component that defines when an item can be consumed.
     - `ConsumableListener` - An interface applied to data components that can be consumed, executes once consumption is finished.
     - `SuspiciousStewEffects` now implements `ConsumableListener`
     - `UseCooldown` - A data component that defines how the cooldown for a stack should be applied.
     - `UseRemainer` - A data component that defines how the item should be replaced once used up.
+    - `DeathProtection` - A data component that contains a list of `ConsumeEffect`s on what to do when using the item to survive death.
 - `net.minecraft.world.item.consume_effects.ConsumeEffect` - An effect to apply after the item has finished being consumed.
 
 ## Registry Objcet Id, in the Properties?
@@ -1549,7 +1571,7 @@ If an `Optional<Ingredient>` is used, they can be tested via `Ingredient#testOpt
     - `ShapedRecipePattern` now takes in a `List<Optional<Ingredient>>` instead of a `NonNullList<Ingredient>`
     - `ShapelessRecipe` now takes in a `List<Ingredient>` instead of a `NonNullList<Ingredient>`
     - `SmithingTransformRecipe`, `SmithingTrimRecipe` now takes in `Optional<Ingredient>`s instead of `Ingredient`s
-    - `SuspiciousStewRecipe` is removed
+    - `SuspiciousStewRecipe` class is removed
 
 ### Critereons, Supplied with HolderGetters
 
@@ -1615,6 +1637,9 @@ Fog methods for individual values have been replaced with a `FogParameters` data
     - `repairs_netherite_armor`
     - `repairs_turtle_helmet`
     - `repairs_wolf_armor`
+    - `duplicates_allays`
+    - `brewing_fuel`
+    - `panda_eats_from_ground`
 
 ### Smarter Framerate Limiting
 
@@ -1740,7 +1765,7 @@ Minecarts now have a `MinecartBehavior` class that handles how the entity should
     - `ChunkGenerator#applyCarvers` no longer takes in a `GenerationStep$Carving`
     - `ProtoChunk#getCarvingMask`, `getOrCreateCarvingMask`, `setCarvingMask` no longer takes in a `GenerationStep$Carving`
 - `net.minecraft.world.level.levelgen.placement`
-    - `CarvingMaskPlacement` is removed
+    - `CarvingMaskPlacement` class is removed
     - `PlacementContext#getCarvingMask` no longer takes in a `GenerationStep$Carving`
 
 ### Codecable Json Reload Listener
@@ -1805,6 +1830,48 @@ exampleMob.convertTo(
     - `ConversionType` - An enum that defines how one mob is transformed to another. Currently either `SINGLE` for one-to-one, or `SPLIT_ON_DEATH` for one-to-many (only used for slimes)
     - `Mob#convertTo` now takes in the `ConversionParams`, an optional `EntitySpawnReason` of the entity (default `CONVERSION`), and a mob consumer to set any other information after conversion
 
+### Ender Pearl Chunk Loading
+
+Ender pearls now load the chunks they cross through by adding a ticket to the chunk source and storing the entity on the player.
+
+- `net.minecraft.server.level.ServerPlayer`
+    - `registerEnderPearl`, `deregisterEnderPearl`, `getEnderPearls` - Handles the ender pearls thrown by the player.
+    - `registerAndUpdateEnderPearlTicket`, `placeEnderPearlTicket` - Handles the region tickets for the thrown ender pearls.
+
+### Profilers and the Tracy Client
+
+Profilers have been separated from the minecraft instance, now obtained through `Profiler#get`. A new profiler instance can be added via a try-resource block on `Profiler#use`. In addition, the profiler addds a new library called Tracy, made to track the current stack frame along with capturing images on the screen, if the associated `--tracy` argument is passed in. These sections can be split into 'zones' to more granularly distinguish what is happening.
+
+```java
+Profiler.get().push("section");
+// Do code here
+Profiler.get().pop();
+```
+
+- `com.mojang.blaze3d.systems.RenderSystem#flipFrame` now takes in a `TracyFrameCapture`, or `null`
+- `net.minecraft.client.Minecraft#getProfiler` -> `Profiler#get`
+- `net.minecraft.client.main.GameConfig$GameData` now takes in a boolean on whether to capture the screen via the tracy client.
+- `net.minecraft.client.multiplayer.ClientLevel` no longer takes in the `ProfilerFiller`
+- `net.minecraft.server.MinecraftServer#getProfiler` -> `Profiler#get`
+- `net.minecraft.server.packs.resources.PreparableReloadListener#reload` no longer takes in the `ProfilerFiller`s
+- `net.minecraft.util.profiling`
+    - `Profiler` - A static handler for managing the currently active `ProfilerFiller`.
+    - `ProfilerFiller`
+        - `addZoneText` - Adds text to label when profiling the current frame.
+        - `addZoneValue` - Adds the value of the zone when profiling the current frame.
+        - `setZoneColor` - Sets the color of the zone when profiling the current frame.
+        - `zone` - Adds a profiler section while creating a new zone to call the above methods for.
+        - `tee` -> `combine`
+        - `$CombinedProfileFiller` - A profiler that writes to multiple profilers.
+    - `TracyZoneFiller` - A profiler used by the tracy client to keep track of the currently profiling zones.
+    - `Zone` - A section that is current being profiled and interpreted by Tracy.
+- `net.minecraft.world.entity.ai.goal.GoalSelector` no longer takes in the supplied `ProfilerFiller`
+- `net.minecraft.world.level`
+    - `Level` no longer takes in the `ProfilerFiller`
+        - `getProfiler`, `getProfilerSupplier` -> `Profiler#get`
+    - `PathNavigationRegion#getProfiler` -> `Profiler#get`
+- `net.minecraft.world.ticks.LevelTicks` no longer takes in the `ProfilerFiller`
+
 ### List of Additions
 
 - `com.mojang.blaze3d.framegraph`
@@ -1828,6 +1895,7 @@ exampleMob.convertTo(
     - `VertexConsumer#setNormal(PoseStack$Pose, Vec3)` - Sets the normal of a vertex using a vector
 - `net.minecraft`
     - `Optionull#orElse` - If the first object is null, return the second object.
+    - `TracingExecutor` - An executor that traces the stack frames of the class references executing.
     - `Util`
         - `allOf` - ANDs all predicates or a list of predicates provided. If there are no supplied predicates, the method will default to `true`.
         - `anyOf` - ORs all predicates or a list of predicates provided. If there are no supplied predicates, the method will default to `false`.
@@ -1850,11 +1918,15 @@ exampleMob.convertTo(
         - `getWantedVisbility` - Returns the visbility of the toast to render.
         - `update` - Updates the data within the toast.
     - `TutorialToast` has a constructor that takes in an `int` to represent the time to display in milliseconds.
-- `net.minecraft.client.gui.screens.BackupConfirmScreen` has a construct that takes in another `Component` that represents the prompt for erasing the cache.
+- `net.minecraft.client.gui.screens.BackupConfirmScreen` has a constructor that takes in another `Component` that represents the prompt for erasing the cache.
 - `net.minecraft.client.gui.screens.inventory.AbstractContainerScreen`
     - `BACKGROUND_TEXTURE_WIDTH`, `BACKGROUND_TEXTURE_HEIGHT` - Both set to 256.
     - `addItemSlotMouseAction` - Adds a mouse action when hovering over a slot.
 - `net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent#showTooltipWithItemInHand`- Returns whether the tooltip should be rendered when the item is in the player's hand.
+- `net.minecraft.client.gui.screens.worldselection`
+    - `CreateWorldScreen#testWorld` - Tries to open the world create screen with the provided generation settings context.
+    - `InitialWorldCreationOptions` - Contains the options set when creating the world to generate.
+    - `WorldCreationContextMapper` - An interface that creates the world context from the available resource reloaders and registries.
 - `net.minecraft.client.multiplayer`
     - `ClientChunkCache`
         - `getLoadedEmptySections` - Returns the sections that have been loaded by the game, but has no data.
@@ -1904,6 +1976,7 @@ exampleMob.convertTo(
     - `OctreeDebugRenderer` - Renders the order of the section nodes.
 - `net.minecraft.client.renderer.texture.AbstractTexture#defaultBlur`, `getDefaultBlur` - Returns whether the blur being applied is the default blur.
 - `net.minecraft.client.resources.DefaultPlayerSkin#getDefaultSkin` - Returns the default `PlayerSkin`.
+- `net.minecraft.commands.CommandBuildContext#enabledFeatures` - Returns the feature flags 
 - `net.minecraft.commands.arguments.selector.SelectorPattern` - A record that defines an `EntitySelector` resolved from some pattern.
 - `net.minecraft.core`
     - `BlockPos#betweenClosed` - Returns an iterable of all positions within the bounding box.
@@ -1931,9 +2004,12 @@ exampleMob.convertTo(
         - `absoluteAABB`, `relativeAABB` - Moves the bounding box between absolute coordinates and relative coordinates to the test location
         - `assertEntityData` - Asserts that the entity at the provided block position matches the predicate.
     - `StructureUtils#getStartCorner` - Gets the starting position of the test to run.
-- `net.minecraft.network.FriendlyByteBuf`
-    - `readVec3`, `writeVec3` - Static methods to read and write vectors.
-    - `readContainerId`, `writeContainerId` - Methods to read and write menu identifiers.
+- `net.minecraft.network`
+    - `FriendlyByteBuf`
+        - `readVec3`, `writeVec3` - Static methods to read and write vectors.
+        - `readContainerId`, `writeContainerId` - Methods to read and write menu identifiers.
+        - `readChunkPos`, `writeChunkPos` - Methods to read and write the chunk position.
+    - `StreamCodec#composite` - A composite method that takes in seven parameters.
 - `net.minecraft.network.codec.ByteBufCodecs`
     - `CONTAINER_ID` - A stream codec to handle menu identifiers.
     - `ROTATION_BYTE` - A packed rotation into a byte.
@@ -1955,6 +2031,7 @@ exampleMob.convertTo(
     - `TickingTracker#getTickingChunks` - Returns all chunks that are currently ticking.
 - `net.minecraft.server.packs.repository.PackRepository#isAbleToClearAnyPack` - Rebuilds the selected packs and returns whether it is different from the currently selected packs.
 - `net.minecraft.resources.DependantName` - A reference object that maps some registry object `ResourceKey` to a value. Acts similarly to `Holder` except as a functional interface.
+- `net.minecraft.tags.TagKey#streamCodec` - Constructs a stream codec for the tag key.
 - `net.minecraft.util`
     - `BinaryAnimator` - A basic animator that animates between two states using an easing function.
     - `ExtraCodecs`
@@ -2002,9 +2079,7 @@ exampleMob.convertTo(
         - `canContinueToGlide` - Returns whether the entity can stil glide in the sky.
         - `getItemBlockingWith` - Returns the stack the player is currently blocking with.
         - `canPickUpLoot` - Returns whether the entity can pick up items.
-    - `Mob`
-        - `setLootTable` - Sets an optional `ResourceKey` of the loot table the entity should use.
-        - `setLootTableSeed` - Sets the seed used to generate the loot table.
+        - `dropFromGiftLootTable` - Resolves a loot table with a gift context.
     - `PositionMoveRotation` - A helper for handling the position and rotation of the entity in context.
     - `WalkAnimationState#stop` - Stops the walking animation of the entity.
 - `net.minecraft.world.entity.ai.attributes`
@@ -2089,6 +2164,7 @@ exampleMob.convertTo(
     - `StateHolder`
         - `getValueOrElse` - Returns the value of the property, else the provided default.
         - `getNullableValue` - Returns the value of the property, or null if it does not exist.
+- `net.minecraft.world.level.block.state.properties.Property#getInternalIndex` - Converts the provided boolean to a 0 when true, or 1 otherwise.
 - `net.minecraft.world.level.border.WorldBorder#clampVec3ToBound` - Clamps the vector to within the world border.
 - `net.minecraft.world.level.chunk`
     - `ChunkSource#onSectionEmptinessChanged` - Updates the section when it has data.
@@ -2096,7 +2172,9 @@ exampleMob.convertTo(
     - `PalettedContainerRO#copy` - Creates a shallow copy of the `PalettedContainer`.
     - `UpgradeData#copy` - Creates a deep copy of `UpgradeData`.
 - `net.minecraft.world.level.chunk.storage.IOWorker#store` - Stores the writes of the chunk to the worker.
-- `net.minecraft.world.level.levelgen.SurfaceRules$Context#getSeaLevel`, `SurfaceSystem#getSeaLevel` - Gets the sea level of the generator settings.
+- `net.minecraft.world.level.levelgen`
+    - `SurfaceRules$Context#getSeaLevel`, `SurfaceSystem#getSeaLevel` - Gets the sea level of the generator settings.
+    - `WorldOptions#testWorldWithRandomSeed` - Creates a test world with a randomly generated seed.
 - `net.minecraft.world.level.lighting.LayerLightSectionStorage#lightOnInColumn` - Returns whether there is light in the zero node section position.
 - `net.minecraft.world.level.pathfinder.PathFinder#setMaxVisitedNodes` - Sets the maximum number of nodes that can be visited.
 - `net.minecraft.world.level.portal.DimensionTransition#withRotation` - Updates the entity's spawn rotation.
@@ -2118,10 +2196,17 @@ exampleMob.convertTo(
 ### List of Changes
 
 - `F3 + F` now toggles fog rendering
-- `com.mojang.blaze3d.platform.NativeImage`
-    - `getPixelRGBA`, `setPixelRGBA` are now private. These are replaced by `getPixel` and `setPixel`, respectively
-    - `getPixelsRGBA` -> `getPixels`
-- `net.minecraft.advancements.critereon.PlayerPredicate` can now match the player's input
+- `com.mojang.blaze3d.platform`
+    - `NativeImage`
+        - `getPixelRGBA`, `setPixelRGBA` are now private. These are replaced by `getPixel` and `setPixel`, respectively
+        - `getPixelsRGBA` -> `getPixels`
+    - `Window#updateDisplay` now takes in a `TraceyFrrameCapture`, or `null`
+- `net.minecraft.Util`
+    - `backgroundExecutor`, `ioPool`, and `nonCriticalIoPool` now return a `TracingExecutor` instead of an `ExecutorService`
+    - `wrapThreadWithTaskName` -> `runNamed` with its parameters flipped and no return value
+- `net.minecraft.advancements.critereon`
+    - `KilledByCrossbowTrigger` -> `KilledByArrowTrigger`, not one-to-one, takes in the stack in question
+    - `PlayerPredicate` can now match the player's input
 - `net.minecraft.client`
     - `Minecraft`
         - `debugFpsMeterKeyPress` -> `ProfilerPieChart#profilerPieChartKeyPress` obtained via `Minecraft#getDebugOverlay` and then `DebugScreenOverlay#getProfilerPieChart`
@@ -2140,14 +2225,20 @@ exampleMob.convertTo(
 - `net.minecraft.client.gui.screens`
     - `LoadingOverlay#MOJANG_STUDIOS_LOGO_LOCATION` is now public
     - `Screen#renderBlurredBackground(float)` -> `renderBlurredBackground()`
-- `net.minecraft.client.gui.screens.inventory.AbstractSignEditScreen`
-    - `sign` is now protected
-    - `renderSignBackground` no longer takes in the `BlockState`
+- `net.minecraft.client.gui.screens.inventory`
+    - `AbstractContainerScreen#renderSlotHighlight` -> `renderSlotHighlightBack`, `renderSlotHighlightFront`, now private
+    - `BookEditScreen` now takes in the `WritableBookContent`
+    - `AbstractSignEditScreen`
+        - `sign` is now protected
+        - `renderSignBackground` no longer takes in the `BlockState`
 - `net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent`
     - `getHeight()` -> `getHeight(Font)`
     - `renderImage` now takes in the `int` width and height of the rendering tooltip
 - `net.minecraft.client.gui.screens.reporting.ReportReasonSelectionScreen` now takes in a `ReportType`
-- `net.minecraft.client.gui.screens.worldselection.WorldOpenFlows#createFreshLevel` takes in a `Function<HolderLookup.Provider, WorldDimensions>` instead of `Function<RegistryAccess, WorldDimensions>`
+- `net.minecraft.client.gui.screens.worldselection`
+    - `CreateWorldScreen$DataPackReloadCookie` -> `DataPackReloadCookie`
+    - `WorldCreationContext` now takes in the `InitialWorldCreationOptions`
+    - `WorldOpenFlows#createFreshLevel` takes in a `Function<HolderLookup.Provider, WorldDimensions>` instead of `Function<RegistryAccess, WorldDimensions>`
 - `net.minecraft.client.gui.spectator.SpectatorMenuItem#renderIcon` now takes in a `float` instead of an `int` to represent the alpha value
 - `net.minecraft.client.multiplayer`
     - `ClientLevel` now takes in an `int` representing the sea level
@@ -2194,7 +2285,7 @@ exampleMob.convertTo(
     - `BannerRenderer#renderPatterns` now takes in a `boolean` determining the glint render type to use
     - `*Renderer` classes that constructed `LayerDefinition`s have now been moved to their associated `*Model` class
     - `SignRenderer$SignModel` -> `SignModel`
-- `net.minecraft.client.renderer.chunk.SectionRenderDispatcher`
+- `net.minecraft.client.renderer.chunk.SectionRenderDispatcher` now takes in a `TracingExecutor` rather than just a `Executor`
     - `$CompiledSection#hasNoRenderableLayers` -> `hasRenderableLayers`
     - `$RenderSection` now takes in a compiled `long` of the section node
         - `setOrigin` -> `setSectionNode`
@@ -2219,8 +2310,6 @@ exampleMob.convertTo(
         - `onInput` takes in a `ClientInput` instead of an `Input`
     - `TutorialStepInstance`
         - `onInput` takes in a `ClientInput` instead of an `Input`
-- `net.minecraft.commands.arguments.Coordinates`
-    - `getPosition`, `getRotation` now have overloads which take in a `boolean` representing whether the position to be relative or not
 - `net.minecraft.core`
     - `Direction`
         - `getNearest` -> `getApproximateNearest`
@@ -2294,6 +2383,7 @@ exampleMob.convertTo(
             - Also splits into `ENTITY_INTERACTION_DISTANCE_VERIFICATION_BUFFER` set to 3.0
     - `TextFilterClient` -> `ServerTextFilter`
     - `ThreadedLevelLightEngine` now takes in a `ConsecutiveExecutor` and `ChunkTaskDispatcher` instead of a `ProcessorMailbox` and a `ProcessorHandle`, respectively
+- `net.minecraft.server.packs.resources.ProfiledReloadInstance$State` is now a record
 - `net.minecraft.tags`
     - `TagLoader`
         - `build` now returns a value of lists
@@ -2317,6 +2407,8 @@ exampleMob.convertTo(
         - `getInputVector` is now protected
         - `isAlliedTo(Entity)` -> `considersEntityAsAlly`
         - `teleportTo` now takes in an additional `boolean` that determines whether the camera should be set
+        - `checkInsideBlocks()` -> `recordMovementThroughBlocks`, not one-to-one as it takes in the movement vectors
+        - `checkInsideBlocks(Set<BlockState>)` -> `collectBlockCollidedWith`, now private
     - `EntityType`
         - `create`, `loadEntityRecursive`, `loadEntitiesRecursive`, `loadStaticEntity` now takes in an `EntitySpawnReason`
         - `*StackConfig` now takes in a `Level` instead of a `ServerLevel`
@@ -2331,6 +2423,7 @@ exampleMob.convertTo(
         - `onEffectRemoved` -> `onEffectsRemoved`
         - `spawnItemParticles` is now public
         - `getLootTable` -> `Entity#getLootTable`, wrapped in optional
+    - `Shearable#shear` now takes in the `ItemStack` that is shearing the entity
     - `RelativeMovement` -> `Relative`, expanded to contain delta movement
     - `WalkAnimationState#update` now takes in an additional `float` representing the position scale when moving.
 - `net.minecraft.world.entity.ai.control.LookControl#rotateTowards` -> `Control#rotateTowards`
@@ -2343,7 +2436,9 @@ exampleMob.convertTo(
     - `MushroomCow$MushroomType` -> `$Variant`
         - `$Variant` no longer takes in the loot table
     - `Salmon` now has a variant for its size
-    - `Wolf#getBodyRollAngle` -> `#getShakeAnim`, not one-to-one as the angle is calculated within the render state
+    - `Wolf`
+        - `getBodyRollAngle` -> `#getShakeAnim`, not one-to-one as the angle is calculated within the render state
+        - `hasArmor` is removed
 - `net.minecraft.world.entity.boss.wither.WitherBoss#getHead*Rot` -> `getHead*Rots`, returns all rotations rather than just the provided index
 - `net.minecraft.world.entity.decoration`
     - `ArmorStand` default rotations are now public
@@ -2359,14 +2454,15 @@ exampleMob.convertTo(
         - `findSlotMatchingUnusedItem` -> `findSlotMatchingCraftingIngredient`
         - `swapPaint` -> `setSelectedHotbarSlot`
         - `StackedContents` -> `StackedItemContents`
-- `net.minecraft.world.entity.projectile.ThrowableItemProjectile` can now take in an `ItemStack` of the item thrown
+- `net.minecraft.world.entity.projectile`
+    - `AbstractArrow#shotFromCrossbow` is removed
+    - `Projectile#setOwnerThroughUUID` - Set the owner of the projectile by querying it through its UUID.
+    - `ThrowableItemProjectile` can now take in an `ItemStack` of the item thrown
 - `net.minecraft.world.entity.raid.Raid#getLeaderBannerInstance` -> `getOminousBannerInstance`
 - `net.minecraft.world.entity.vehicle`
-    - `Boat$Type` now takes in the boat item and the translation key for the item
+    - `Boat$Type` now takes in the supplied boat item and the translation key for the item, but no longer take in the planks they are made from
     - `ContainerEntity#*LootTable*` -> `ContainerLootTable`
 - `net.minecraft.world.item`
-    - `ArmorMaterial#repairIngredient` is now a `Predicate<ItemStack>` instead of a `Supplier<Ingredient>`
-    - `BookItem`, `EnchantedBookItem` -> `DataComponents#WRITTEN_BOOK_CONTENT`
     - `ItemStack#hurtEnemy`, `postHurtEnemy` now take in a `LivingEntity` instead of a `Player`
     - `SmithingTemplateItem` now takes in the `Item.Properties` instead of hardcoding it, also true for static initializers
     - `UseAnim` -> `ItemUseAnimation`
@@ -2392,13 +2488,23 @@ exampleMob.convertTo(
         - `$BlockStatePairKey` -> `FlowingFluid$BlockStatePairKey`, now package private
         - `getDescriptionId` -> `BlockBehaviour#getDescriptionId`, also a protected field `descriptionId`
     - `ChestBlock` constructor switched its parameter order
-- `net.minecraft.world.level.block.state.BlockBehaviour`
-    - `getOcclusionShape`, `getLightBlock`, `propagatesSkylightDown` only takes in the `BlockState`, not the `BlockGetter` or `BlockPos`
-    - `getLootTable` now returns an `Optional`, also a protected field `drops`
-    - `$BlockStateBase#getOcclusionShape`, `getLightBlock`, `getFaceOcclusionShape`, `propagatesSkylightDown`, `isSolidRender` no longer takes in the `BlockGetter` or `BlockPos`
-    - `$BlockStateBase#getOffset` no longer takes in the `BlockGetter`
-    - `$OffsetFunction#evaluate` no longer takes in the `BlockGetter`
-    - `$Properties#dropsLike` -> `overrideLootTable`
+- `net.minecraft.world.level.block.entity.BrushableBlockEntity`
+        - `brush` now takes in the level and stack performing the brushing behavior
+        - `unpackLootTable` is now private
+        - `checkReset` now takes in the server level
+- `net.minecraft.world.level.block.state`
+    - `BlockBehaviour`
+        - `getOcclusionShape`, `getLightBlock`, `propagatesSkylightDown` only takes in the `BlockState`, not the `BlockGetter` or `BlockPos`
+        - `getLootTable` now returns an `Optional`, also a protected field `drops`
+        - `$BlockStateBase#getOcclusionShape`, `getLightBlock`, `getFaceOcclusionShape`, `propagatesSkylightDown`, `isSolidRender` no longer takes in the `BlockGetter` or `BlockPos`
+        - `$BlockStateBase#getOffset` no longer takes in the `BlockGetter`
+        - `$OffsetFunction#evaluate` no longer takes in the `BlockGetter`
+        - `$Properties#dropsLike` -> `overrideLootTable`
+    - `StateHolder#findNextInCollection` now takes in a `List` instead of a `Collection`
+- `net.minecraft.world.level.block.state.properties`
+    - `DirectionProperty`, `EnumProperty#create` now takes in a `List` instead of a `Collection`
+    - `EnumProperty` now takes in a `List` instead of a `Collection`
+    - `Property#getPossibleValues` now returns a `List` instead of a `Collection`
 - `net.minecraft.world.level.chunk`
     - `ChunkAccess`
         - `addPackedPostProcess` now takes in a `ShortList` instead of a single `short`
@@ -2465,8 +2571,8 @@ exampleMob.convertTo(
     - `glGenVertexArrays`
     - `_setShaderTexture`
     - `applyModelViewMatrix`
-- `net.minecraft.client`
-    - `Options#setKey`
+- `net.minecraft.Util#wrapThreadWithTaskName(String, Supplier)`
+- `net.minecraft.client.Options#setKey`
 - `net.minecraft.client.gui.screens.inventory.EnchantmentScreen#time`
 - `net.minecraft.client.multiplayer.ClientLevel#isLightUpdateQueueEmpty`
 - `net.minecraft.client.particle.ParticleRenderType#PARTICLE_SHEET_LIT`
@@ -2527,3 +2633,5 @@ exampleMob.convertTo(
 - `net.minecraft.world.phys.AABB#getBottomCenter`
 - `net.minecraft.world.phys.shapes.Shapes#getFaceShape`
 - `net.minecraft.world.ticks.SavedTick#saveTick`
+
+TODO: Continue from KilledByArrowTrigger
