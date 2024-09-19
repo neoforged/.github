@@ -317,12 +317,17 @@ RenderSystem.setShader(MY_SHADER);
 ShaderStateShard MY_SHARD = new ShaderStateShard(MY_SHADER);
 ```
 
+- `com.mojang.blaze3d.buffers`
+    - `BufferType` - An enum that specifies the GL target buffer type.
+    - `GpuBuffer` - A wrapper around the GL buffer calls for handling the rendering of the screen.
+    - `GpuFence` - A handle for managing the sync status of the GPU fence.
 - `com.mojang.blaze3d.platform.GlStateManager`
     - `glShaderSource` now takes in a `String` rather than a `List<String>`
     - `_glMapBufferRange` - Delegates to `GL30#glMapBufferRange`.
     - `_glFenceSync` - Delegates to `GL32#glFenceSync`.
     - `_glClientWaitSync` - Delegates to `GL32#glClientWaitSync`.
     - `_glDeleteSync` - Delegates to `GL32#glDeleteSync`.
+    - `_glBuffserSubData` - Delegates to `GL15#glBufferSubData`.
 - `com.mojang.blaze3d.preprocessor.GlslPreprocessor#injectDefines` - Injects any defined sources to the top of a loaded `.*sh` file.
 - `com.mojang.blaze3d.shaders`
     - `BlendMode`, `Effect`, `EffectProgram`, `Program`, `ProgramManager`, `Shader` has been bundled into `CompiledShader`
@@ -333,7 +338,9 @@ ShaderStateShard MY_SHARD = new ShaderStateShard(MY_SHADER);
     - `setShader` now takes in the `CompiledShaderProgram`, or `ShaderProgram`
     - `clearShader` - Clears the current system shader.
     - `runAsFancy` is removed, handled internally by `LevelRenderer#getTransparencyChain`
-- `com.mojang.blaze3d.vertex.VertexBuffer#drawWithShader` will now noop when passing in a null `CompiledShaderProgram`
+- `com.mojang.blaze3d.vertex.VertexBuffer`
+    - `drawWithShader` will now noop when passing in a null `CompiledShaderProgram`
+    - `$Usage` -> `com.mojang.blaze3d.buffers.BufferUsage`
 - `net.minecraft.client.Minecraft#getShaderManager` - Returns the manager that loads all the shaders and post effects.
 - `net.minecract.client.renderer`
     - `EffectInstance` class is removed, replaced by `CompiledShaderProgram` in most cases
@@ -1521,6 +1528,18 @@ new Item(new Item.Properties()
     - `useItemDescriptionPrefix` - Creates the description id using the `item.` prefix.
 - `net.minecraft.world.level.block.state.BlockBehaviour$Properties#setId` - Sets the resource key of the block to get the default drops and description from. This property must be set.
 
+## Properties Changes
+
+`DirectionProperty` has been removed, and must now be called and referenced via `EnumProperty#create` with a `Direction` generic. Additionally, all property classes have been made final and must be constructed through one of the exposed `create` methods.
+
+- `net.minecraft.world.level.block.state.properties`
+    - `BooleanProperty` is now final
+    - `DirectionProperty` class is removed
+    - `EnumProperty` is now final
+        - `create` now takes in a `List` instead of a `Collection`
+    - `IntegerProperty` is now final
+    - `Property#getPossibleValues` now returns a `List` instead of a `Collection`
+
 ## Minor Migrations
 
 The following is a list of useful or interesting additions, changes, and removals that do not deserve their own section in the primer.
@@ -1640,6 +1659,8 @@ Fog methods for individual values have been replaced with a `FogParameters` data
     - `duplicates_allays`
     - `brewing_fuel`
     - `panda_eats_from_ground`
+    - `shulker_boxes`
+    - `bundles`
 
 ### Smarter Framerate Limiting
 
@@ -1700,6 +1721,8 @@ With the edition of the redstone wire experiments comes a new class provided by 
     - `getBlockSignal` - Returns the strength of the block signal.
 - `net.minecraft.world.level.block.state.BlockBehaviour`
     - `neighborChanged`, `$BlockStateBase#handleNeighborChanged` now takes in an `Orientation` instead of the neighbor `BlockPos`
+    - `updateShape` now takes in the `LevelReader`, `ScheduledTickAccess`, and a `RandomSource` instead of the `LevelAccessor`; the `Direction` and `BlockState` parameters are reordered
+    - `$BlockStateBase#updateShape` now takes in the `LevelReader`, `ScheduledTickAccess`, and a `RandomSource` instead of the `LevelAccessor`; the `Direction` and `BlockState` parameters are reordered
 - `net.minecraft.world.level.redstone`
     - `CollectingNeighborUpdater$ShapeUpdate#state` -> `neighborState`
     - `NeighborUpdater`
@@ -1712,6 +1735,7 @@ With the edition of the redstone wire experiments comes a new class provided by 
 
 Minecarts now have a `MinecartBehavior` class that handles how the entity should be moved and rendered.
 
+- `net.minecraft.core.dispenser.MinecartDispenseItemBehavior` - Defines how a minecart should behave when dispensed from a dispenser.
 - `net.minecraft.world.entity.vehicle`
     - `AbstractMinecart`
         - `getMinecartBehavior` - Returns the behavior of the minecart.
@@ -1725,7 +1749,14 @@ Minecarts now have a `MinecartBehavior` class that handles how the entity should
         - `isRedstoneConductor` is now public
         - `applyNaturalSlowdown` now returns the vector to slowdown by.
         - `getPosOffs` -> `MinecartBehavior#getPos`
+        - `setInitialPos` - Sets the initial position of the minecart.
+        - `createMinecart` is now abstract in its creation, meaning it can be used to create any minecart given the provided parameters
+        - `getMinecartType` is removed
+        - `getPickResult` is now abstract
+        - `$Type` and `getMinecartType` is replaced by `isRideable` and `isFurnace`, which is not one-to-one.
+    - `AbstractMinecartContainer(EntityType, double, double, double, Level)` is removed
     - `MinecartBehavior` - holds how the entity should be rendered and positions during movement.
+    - `MinecartFurnace#xPush`, `zPush` -> `push`
 - `net.minecraft.world.level.block.state.properties.RailShape#isAscending` -> `isSlope`
 - `net.minecraft.world.phys.shapes.MinecartCollisionContext` - An entity collision context that handles the collision of a minecart with some other collision object.
 
@@ -1872,6 +1903,12 @@ Profiler.get().pop();
     - `PathNavigationRegion#getProfiler` -> `Profiler#get`
 - `net.minecraft.world.ticks.LevelTicks` no longer takes in the `ProfilerFiller`
 
+### Tick Throttler
+
+To prevent the player from spamming certain actions, `TickThrottler` was added. The throttler takes in the threshold and the increment to add to the count. If the count is less than the threshold, the action can occur. The count is reduced every tick.
+
+- `net.minecraft.util.TickThrottler` - A utility for throttling certain actions from happening too often.
+
 ### List of Additions
 
 - `com.mojang.blaze3d.framegraph`
@@ -1924,6 +1961,7 @@ Profiler.get().pop();
     - `addItemSlotMouseAction` - Adds a mouse action when hovering over a slot.
 - `net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent#showTooltipWithItemInHand`- Returns whether the tooltip should be rendered when the item is in the player's hand.
 - `net.minecraft.client.gui.screens.worldselection`
+    - `CreateWorldCallback` - An interface that creates the world given the current screen, registries, level data, and path directory.
     - `CreateWorldScreen#testWorld` - Tries to open the world create screen with the provided generation settings context.
     - `InitialWorldCreationOptions` - Contains the options set when creating the world to generate.
     - `WorldCreationContextMapper` - An interface that creates the world context from the available resource reloaders and registries.
@@ -1936,6 +1974,7 @@ Profiler.get().pop();
         - `onSectionBecomingNonEmpty` - Updates the section when it has data.
     - `PlayerInfo#setTabListOrder`, `getTabListOrder` - Handles the order of players to cycle through in the player tab.
 - `net.minecraft.client.multiplayer.chat.report.ReportReason#getIncompatibleCategories` - Gets all reasons that cannot be reported for the given type.
+- `net.minecraft.client.player.LocalPlayer#getDropSpamThrottler` - Returns a throttler that determines when the player can drop the next item.
 - `net.minecract.client.renderer`
     - `CloudRenderer` - Handles the rendering and loading of the cloud texture data.
     - `DimensionSpecialEffects#isSunriseOrSunset` - Returns whether the dimension time represents sunrise or sunset in game.
@@ -2003,6 +2042,7 @@ Profiler.get().pop();
     - `GameTestHelper`
         - `absoluteAABB`, `relativeAABB` - Moves the bounding box between absolute coordinates and relative coordinates to the test location
         - `assertEntityData` - Asserts that the entity at the provided block position matches the predicate.
+    - `GameTestInfo#getTestOrigin` - Gets the origin of the spawn structure for the test.
     - `StructureUtils#getStartCorner` - Gets the starting position of the test to run.
 - `net.minecraft.network`
     - `FriendlyByteBuf`
@@ -2067,6 +2107,7 @@ Profiler.get().pop();
         - `teleportSetPosition` - Sets the position and rotation data of the entity being teleported via a `DimensionTransition`
         - `getLootTable` - Returns the `ResourceKey` of the loot table the entity should use, if present.
         - `isControlledByOrIsLocalPlayer` - Return whether the entity is the local player or is controlled by a local player.
+        - `shouldPlayLavaHurtSound` - When `true`, plays the lava hurt sound when the entity is hurt by lava.
     - `EntityType`
         - `getDefaultLootTable` now returns an `Optional` in case the loot table is not present
         - `$Builder#noLootTable` - Sets the entity type to have no loot spawn on death.
@@ -2113,6 +2154,7 @@ Profiler.get().pop();
     - `Player`
         - `handleCreativeModeItemDrop` - Handles what to do when a player drops an item from creative mode.
         - `shouldRotateWithMinecart` - Returns whether the player should also rotate with the minecart.
+        - `canDropItems` - When `true`, the player can drop items from the menu.
     - `StackedContents` - Holds a list of contents along with their associated size.
         - `$Output` - An interface that defines how the contents are accepted when picked.
 - `net.minecraft.world.entity.projectile.Projectile`
@@ -2133,6 +2175,7 @@ Profiler.get().pop();
         - `getOpenBundleModelFrontLocation`, `getOpenBundleModelBackLocation` - Returns the model locations of the bundle.
         - `toggleSelectedItem`, `hasSelectedItem`, `getSelectedItem`, `getSelectedItemStack` - Handles item selection within a bundle.
         - `getNumberOfItemsToShow` - Determines the number of items in the bundle to show at once.
+        - `getAllBundleItemColors`, `getByColor` - Handles the available links from bundle to dyed bundles.
     - `ItemStack`
         - `clearComponents` - Clears the patches made to the stack, not the item components.
         - `isBroken` - Returns wheter the stack has been broken.
@@ -2177,7 +2220,9 @@ Profiler.get().pop();
     - `WorldOptions#testWorldWithRandomSeed` - Creates a test world with a randomly generated seed.
 - `net.minecraft.world.level.lighting.LayerLightSectionStorage#lightOnInColumn` - Returns whether there is light in the zero node section position.
 - `net.minecraft.world.level.pathfinder.PathFinder#setMaxVisitedNodes` - Sets the maximum number of nodes that can be visited.
-- `net.minecraft.world.level.portal.DimensionTransition#withRotation` - Updates the entity's spawn rotation.
+- `net.minecraft.world.level.portal`
+    - `DimensionTransition#withRotation` - Updates the entity's spawn rotation.
+    - `PortalShape#findAnyShape` - Finds a `PortalShape` that can be located at the given block position facing the specific direction.
 - `net.minecraft.world.phys`
     - `AABB`
         - `clip` - Clips the vector inside the given bounding box, or returns an empty optional if there is no intersection.
@@ -2186,6 +2231,7 @@ Profiler.get().pop();
     - `Vec3`
         - `add`, `subtract` - Translates the vector and returns a new object.
         - `horizontal` - Returns the horizontal components of the vector.
+        - `projectedOn` - Gets the unit vector representing this vector projected onto another vector.
 - `net.minecraft.world.phys.shapes`
     - `CollisionContext`
         - `of(Entity, boolean)` - Creates a new entity collision context, where the `boolean` determines whether the entity can always stand on the provided fluid state.
@@ -2236,7 +2282,9 @@ Profiler.get().pop();
     - `renderImage` now takes in the `int` width and height of the rendering tooltip
 - `net.minecraft.client.gui.screens.reporting.ReportReasonSelectionScreen` now takes in a `ReportType`
 - `net.minecraft.client.gui.screens.worldselection`
-    - `CreateWorldScreen$DataPackReloadCookie` -> `DataPackReloadCookie`
+    - `CreateWorldScreen`
+        - `$DataPackReloadCookie` -> `DataPackReloadCookie`
+        - `openFresh` now has an overload that takes in the `CreateWorldCallback`
     - `WorldCreationContext` now takes in the `InitialWorldCreationOptions`
     - `WorldOpenFlows#createFreshLevel` takes in a `Function<HolderLookup.Provider, WorldDimensions>` instead of `Function<RegistryAccess, WorldDimensions>`
 - `net.minecraft.client.gui.spectator.SpectatorMenuItem#renderIcon` now takes in a `float` instead of an `int` to represent the alpha value
@@ -2352,6 +2400,7 @@ Profiler.get().pop();
     - `GameTestInfo#getOrCalculateNorthwestCorner` is now public
 - `net.minecraft.network.chat.Component#score` now takes in a `SelectorPattern`
 - `net.minecraft.network.chat.contents.ScoreContents`, `SelectorContents` is now a record
+- `net.minecraft.network.protocol.login.ClientboundGameProfilePacket` -> `ClientboundLoginFinishedPacket`
 - `net.minecraft.network.protocol.game`
     - `ClientboundMoveEntityPacket#getyRot`, `getxRot` now returns a `float` of the degrees
     - `ClientboundPlayerPositionPacket` is now a record, delta movement as well
@@ -2409,6 +2458,7 @@ Profiler.get().pop();
         - `teleportTo` now takes in an additional `boolean` that determines whether the camera should be set
         - `checkInsideBlocks()` -> `recordMovementThroughBlocks`, not one-to-one as it takes in the movement vectors
         - `checkInsideBlocks(Set<BlockState>)` -> `collectBlockCollidedWith`, now private
+    - `EntitySpawnReason#SPAWN_EGG` -> `SPAWN_ITEM_USE`, not one-to-one as this indicates the entity can be spawned from any item
     - `EntityType`
         - `create`, `loadEntityRecursive`, `loadEntitiesRecursive`, `loadStaticEntity` now takes in an `EntitySpawnReason`
         - `*StackConfig` now takes in a `Level` instead of a `ServerLevel`
@@ -2466,6 +2516,7 @@ Profiler.get().pop();
     - `ItemStack#hurtEnemy`, `postHurtEnemy` now take in a `LivingEntity` instead of a `Player`
     - `SmithingTemplateItem` now takes in the `Item.Properties` instead of hardcoding it, also true for static initializers
     - `UseAnim` -> `ItemUseAnimation`
+- `net.minecraft.world.item.crafting.ShulkerBoxColoring` -> `TransmuteRecipe`, expanded to copy any data stored on the item to the result item
 - `net.minecraft.world.item.enchantment.EnchantmentHelper`
     - `onProjectileSpawned` now takes in a `Projectile` instead of an `AbstractArrow`
 - `net.minecraft.world.level`
@@ -2473,7 +2524,8 @@ Profiler.get().pop();
         - `$IntegerValue#create` takes in a `FeatureFlagSet`
         - `$Type` takes in a `FeatureFlagSet`
     - `Level#setSpawnSettings` no longer takes in a `boolean` to determine whether to spawn friendlies
-    - `LevelAccessor#neighborShapeChanged` switches the order of the `BlockState` and neighbor `BlockPos` parameters
+    - `LevelAccessor` now implements `ScheduledTickAccess`, an interface that now contains the tick scheduling methods that were originally on `LevelAccessor`
+        - `neighborShapeChanged` switches the order of the `BlockState` and neighbor `BlockPos` parameters
     - `LevelHeightAccessor`
         - `getMinBuildHeight` -> `getMinY`
         - `getMaxBuildHeight` -> `getMaxY`, this value is one less than the previous version
@@ -2501,10 +2553,6 @@ Profiler.get().pop();
         - `$OffsetFunction#evaluate` no longer takes in the `BlockGetter`
         - `$Properties#dropsLike` -> `overrideLootTable`
     - `StateHolder#findNextInCollection` now takes in a `List` instead of a `Collection`
-- `net.minecraft.world.level.block.state.properties`
-    - `DirectionProperty`, `EnumProperty#create` now takes in a `List` instead of a `Collection`
-    - `EnumProperty` now takes in a `List` instead of a `Collection`
-    - `Property#getPossibleValues` now returns a `List` instead of a `Collection`
 - `net.minecraft.world.level.chunk`
     - `ChunkAccess`
         - `addPackedPostProcess` now takes in a `ShortList` instead of a single `short`
@@ -2539,11 +2587,13 @@ Profiler.get().pop();
     - `FluidState`
         - `tick` now takes in the `BlockState` at the current position
     - `MapColor#calculateRGBColor` -> `calculateARGBColor`
-- `net.minecraft.world.level.portal.DimensionTransition`
-    - `pos` -> `position`
-    - `speed` -> `deltaMovement`
-    - The constructor can now take in a set of `Relatives` to indicate in what motions should the positions be moved relative to another
-- `net.miencraft.world.level.saveddata.SavedData#save(File, HolderLookup$Provider)` now returns `CompoundTag`, not writing the data to file in the method
+- `net.minecraft.world.level.portal`
+    - `DimensionTransition`
+        - `pos` -> `position`
+        - `speed` -> `deltaMovement`
+        - The constructor can now take in a set of `Relatives` to indicate in what motions should the positions be moved relative to another
+    - `PortalShape#createPortalBlocks` now takes in a `LevelAccessor`
+- `net.minecraft.world.level.saveddata.SavedData#save(File, HolderLookup$Provider)` now returns `CompoundTag`, not writing the data to file in the method
 - `net.minecraft.world.level.storage.DimensionDataStorage` now implements `AutoCloseable`
     - The constructor takes in a `Path` instead of a `File`
     - `save` -> `scheduleSave` and `saveAndJoin`
@@ -2574,7 +2624,10 @@ Profiler.get().pop();
 - `net.minecraft.Util#wrapThreadWithTaskName(String, Supplier)`
 - `net.minecraft.client.Options#setKey`
 - `net.minecraft.client.gui.screens.inventory.EnchantmentScreen#time`
-- `net.minecraft.client.multiplayer.ClientLevel#isLightUpdateQueueEmpty`
+- `net.minecraft.client.multiplayer`
+    - `ClientCommonPacketListenerImpl#strictErrorHandling`
+    - `ClientLevel#isLightUpdateQueueEmpty`
+    - `CommonListenerCookie#strictErrorHandling`
 - `net.minecraft.client.particle.ParticleRenderType#PARTICLE_SHEET_LIT`
 - `net.minecraft.client.renderer`
     - `GameRenderer#resetProjectionMatrix`
@@ -2590,6 +2643,7 @@ Profiler.get().pop();
 - `net.minecraft.client.renderer.texture`
     - `AbstractTexture#blur`, `mipmap`
     - `TextureManager#bindForSetup`
+- `net.minecraft.commands.arguments.coordinates.WorldCoordinates#current`
 - `net.minecraft.core`
     - `Direction#fromDelta`
     - `Registry#getOrCreateTag`, `getTagNames`, `resetTags`
@@ -2616,6 +2670,7 @@ Profiler.get().pop();
     - `TemptingSensor#TEMPTATION_RANGE`
 - `net.minecraft.world.entity.animal`
     - `Cat#getTextureId`
+    - `Squid#setMovementVector`
     - `Wolf#isWet`
 - `net.minecraft.world.entity.boss.dragon.EnderDragon`
     - `getLatencyPos`
@@ -2633,5 +2688,3 @@ Profiler.get().pop();
 - `net.minecraft.world.phys.AABB#getBottomCenter`
 - `net.minecraft.world.phys.shapes.Shapes#getFaceShape`
 - `net.minecraft.world.ticks.SavedTick#saveTick`
-
-TODO: Continue from KilledByArrowTrigger
