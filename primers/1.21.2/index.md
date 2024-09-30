@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=24w36a&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=24w39a&tab=changelog).
 
 ## The Holder Set Transition
 
@@ -480,6 +480,7 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
 ```
 
 - `net.minecraft.client.model`
+    - `AbstractBoatModel` - A model that assumes there is a `left_paddle` and `right_paddle` that is animated according to the boat's rowing time.
     - `AgeableHierarchicalModel`, `ColorableAgeableListModel`, `AgeableListModel` -> `BabyModelTransform`
     - `AnimationUtils`
         - `animateCrossbowCharge` now takes in a `float` representing the charge duration and `int` representing the use ticks instead of a `LivingEntity`
@@ -525,6 +526,7 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
     - `ModelLayers`
         - `createRaftModelName`, `createChestRaftModelName` is removed
         - `createSignModelName` -> `createStandingSignModelName`, `createWallSignModelName`
+        - `createBoatModelName`, `createChestBoatModelName` is removed
     - `ModelPart`
         - `rotateBy` - Rotates the part using the given `Quaternionf`.
         - `$Cube#polygons`, `$Polygon`, `$Vertex` is now public
@@ -541,7 +543,9 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
         - `getChildren` - Gets all the children of the current part.
         - `transformed` - Applies a transformation to the current pose and returns a new one.
 - `net.minecraft.client.renderer.entity`
+    - `AbstractBoatRenderer` - A boat renderer that contains methods for the boat model and any additions to the boat itself.
     - `AgeableMobRenderer` - A mob renderer that takes in the baby and adult model.
+    - `BoatRenderer` now takes in a `ModelLayerLocation` instead of a `boolean`
     - `EntityRenderDispatcher` now takes in a `MapRenderer`
         - `render` no longer takes in the entity Y rotation
     - `EntityRenderer` now takes in a generic for the `EntityRenderState`
@@ -567,6 +571,7 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
         - `scale` now takes in the render state instead of the entity and no longer takes in the entity Y rotation
         - `shouldShowName` now takes in a `double` representing the squared distance to the camera
         - `getShadowRadius` now takes in the render state instead of the entity
+    - `RaftRenderer` - A raft renderer that implements the `AbstractBoatRenderer`.
     - `RenderLayerParent#getTextureLocation` is removed
 - `net.minecraft.client.renderer.entity.layers`
     - `EnergySwirlLayer#isPowered` - Returns whether the energy is powered.
@@ -955,6 +960,7 @@ this.equipmentLayerRenderer.renderLayers(
 - `net.minecraft.world.item`
     - `AnimalArmorItem` no longer extends `ArmorItem`
         - The constructor no longer takes in a boolean indicating the overlay texture, as that is now part of the `EquipmentModel`
+        - The constructor can take in an optional `SoundEvent` of the equip sound
         - `$BodyType` no takes in the allowed entities to wear the armor rather than the path factory to the texture
     - `ArmorItem` is no longer equipable
         - Basically functions as an item class where its only remaining usage is to prevent armor change when enchanted and get the associated attributes
@@ -1153,7 +1159,7 @@ public class MyContainerScreen extends AbstractContainerScreen<MyRecipeMenu> imp
     - `RecipeBookMenu` no longer takes in any generics
         - `handlePlacement` is now abstract and returns a `$PostPlaceAction`
             - This remove all basic placement recipes calls, as that would be handled internally by the `ServerPlaceRecipe`
-
+    - `RecipeCraftingHolder#setRecipeUser` no longer takes in a `Level`
 
 ## Instruments, the Datapack Edition
 
@@ -1272,6 +1278,7 @@ builder.add(Registries.TRIAL_SPAWNER_CONFIG, bootstrap -> {
 
 - `net.minecraft.world.level.block.entity.trialspawner`
     - `TrialSpawner` now takes in a `Holder` of the `TrialSpawnerConfig`
+        - `canSpawnInLevel` now takes in a `ServerLevel`
     - `TrialSpawnerConfig`
         - `CODEC` -> `DIRECT_CODEC`
         - `$Builder`, `builder` - A builder for a trial spawner configuration
@@ -1474,10 +1481,14 @@ Item exampleItem2 = new Item(new Item.Properties().component(DataComponents.USE_
     - `triggerItemUseEffects` is removed
     - `eat` is removed
 - `net.minecraft.world.entity.npc.WanderingTrader` now implements `Consumable$OverrideConsumeSound`
-- `net.minecraft.world.food.FoodProperties` is now a `ConsumableListener`
-    - `eatDurationTicks`, `eatSeconds` -> `Consumable#consumeSeconds`
-    - `usingConvertsTo` -> `DataComponents#USE_REMAINDER`,
-    - `effects` -> `ConsumeEffect`
+- `net.minecraft.world.food`
+    - `net.minecraft.world.food.FoodData`
+        - `tick` now takes in a `ServerPlayer`
+        - `getLastFoodLevel`, `getExhaustionLevel`, `setExhaustion` is removed
+    - `FoodProperties` is now a `ConsumableListener`
+        - `eatDurationTicks`, `eatSeconds` -> `Consumable#consumeSeconds`
+        - `usingConvertsTo` -> `DataComponents#USE_REMAINDER`,
+        - `effects` -> `ConsumeEffect`
 - `net.minecraft.world.item`
     - `ChorusFruitItem` class is removed
     - `HoneyBottleItem` class is removed
@@ -1502,7 +1513,7 @@ Item exampleItem2 = new Item(new Item.Properties().component(DataComponents.USE_
     - `ConsumableListener` - An interface applied to data components that can be consumed, executes once consumption is finished.
     - `SuspiciousStewEffects` now implements `ConsumableListener`
     - `UseCooldown` - A data component that defines how the cooldown for a stack should be applied.
-    - `UseRemainer` - A data component that defines how the item should be replaced once used up.
+    - `UseRemainder` - A data component that defines how the item should be replaced once used up.
     - `DeathProtection` - A data component that contains a list of `ConsumeEffect`s on what to do when using the item to survive death.
 - `net.minecraft.world.item.consume_effects.ConsumeEffect` - An effect to apply after the item has finished being consumed.
 
@@ -1661,6 +1672,9 @@ Fog methods for individual values have been replaced with a `FogParameters` data
     - `panda_eats_from_ground`
     - `shulker_boxes`
     - `bundles`
+    - `map_invisibility_equipment`
+- `minecraft:entity_type`
+    - `boat`
 
 ### Smarter Framerate Limiting
 
@@ -1769,6 +1783,7 @@ Minecarts now have a `MinecartBehavior` class that handles how the entity should
     - `Explosion` - An interface that defines how an explosion should occur.
         - `getDefaultDamageSource` - Returns the default damage source of the explosion instance.
         - `shouldAffectBlocklikeEntities` - Returns whether block entites should be affected by the explosion.
+        - `level` - Gets the `ServerLevel`
     - `ExplosionDamageCalculator#getEntityDamageAmount` now takes in an additional `float` representing the seen percent
     - `Level#explode` no longer returns anything
 - `net.minecraft.world.level.block.Block#wasExploded` now takes in a `ServerLevel` instead of a `Level`
@@ -1955,10 +1970,17 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `getWantedVisbility` - Returns the visbility of the toast to render.
         - `update` - Updates the data within the toast.
     - `TutorialToast` has a constructor that takes in an `int` to represent the time to display in milliseconds.
-- `net.minecraft.client.gui.screens.BackupConfirmScreen` has a constructor that takes in another `Component` that represents the prompt for erasing the cache.
-- `net.minecraft.client.gui.screens.inventory.AbstractContainerScreen`
-    - `BACKGROUND_TEXTURE_WIDTH`, `BACKGROUND_TEXTURE_HEIGHT` - Both set to 256.
-    - `addItemSlotMouseAction` - Adds a mouse action when hovering over a slot.
+- `net.minecraft.client.gui.screens`
+    - `BackupConfirmScreen` has a constructor that takes in another `Component` that represents the prompt for erasing the cache.
+    - `Screen`
+        - `getFont` - Returns the current font used for rendering the screen.
+        - `showsActiveEffects` - When true, shows the mob effects currently applied to the player, assuming that such functionality is added to the screen in question.
+- `net.minecraft.client.gui.screens.inventory`
+    - `AbstractContainerScreen`
+        - `BACKGROUND_TEXTURE_WIDTH`, `BACKGROUND_TEXTURE_HEIGHT` - Both set to 256.
+        - `addItemSlotMouseAction` - Adds a mouse action when hovering over a slot.
+        - `renderSlots` - Renders all active slots within the menu.
+    - `AbstractRecipeBookScreen` - A screen that has a renderable and interactable `RecipeBookComponent` supplied from the constructor.
 - `net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent#showTooltipWithItemInHand`- Returns whether the tooltip should be rendered when the item is in the player's hand.
 - `net.minecraft.client.gui.screens.worldselection`
     - `CreateWorldCallback` - An interface that creates the world given the current screen, registries, level data, and path directory.
@@ -2042,6 +2064,8 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `GameTestHelper`
         - `absoluteAABB`, `relativeAABB` - Moves the bounding box between absolute coordinates and relative coordinates to the test location
         - `assertEntityData` - Asserts that the entity at the provided block position matches the predicate.
+        - `hurt` - Hurts the entity the specified amount from a source.
+        - `kill` - Kills the entity.
     - `GameTestInfo#getTestOrigin` - Gets the origin of the spawn structure for the test.
     - `StructureUtils#getStartCorner` - Gets the starting position of the test to run.
 - `net.minecraft.network`
@@ -2053,6 +2077,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
 - `net.minecraft.network.codec.ByteBufCodecs`
     - `CONTAINER_ID` - A stream codec to handle menu identifiers.
     - `ROTATION_BYTE` - A packed rotation into a byte.
+    - `LONG` - A codec for a long, or 64 bytes.
 - `net.minecraft.server`
     - `MinecraftServer`
         - `tickConnection` - Ticks the connection for handling packets.
@@ -2064,9 +2089,13 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `DistanceManager`
         - `getSpawnCandidateChunks` - Returns all chunks that the player can spawn within.
         - `getTickingChunks` - Returns all chunks that are currently ticking.
+    - `ServerEntityGetter` - An entity getter interface implementation that operates upon the `ServerLevel`.
+        - Replcaes the missing methods from `EntityGetter`
     - `ServerPlayer`
         - `getTabListOrder` - Handles the order of players to cycle through in the player tab.
         - `getLastClientInput`, `setLastClientInput`, `getLastClientMoveIntent` - Handles how the server player interprets the client impulse.
+        - `commandSource` - Returns the player's source of commands.
+        - `createCommandSourceStack` - Creates the source stack of the player issuing the command.
     - `ThrottlingChunkTaskDispatcher` - A chunk task dispatcher that sets a maximum number of chunks that can be executing at once.
     - `TickingTracker#getTickingChunks` - Returns all chunks that are currently ticking.
 - `net.minecraft.server.packs.repository.PackRepository#isAbleToClearAnyPack` - Rebuilds the selected packs and returns whether it is different from the currently selected packs.
@@ -2121,6 +2150,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `getItemBlockingWith` - Returns the stack the player is currently blocking with.
         - `canPickUpLoot` - Returns whether the entity can pick up items.
         - `dropFromGiftLootTable` - Resolves a loot table with a gift context.
+        - `handleExtraItemsCreatedOnUse` - Handles when a living entity gets a new item as a result of using another item.
     - `PositionMoveRotation` - A helper for handling the position and rotation of the entity in context.
     - `WalkAnimationState#stop` - Stops the walking animation of the entity.
 - `net.minecraft.world.entity.ai.attributes`
@@ -2129,6 +2159,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `addPermanentModifiers` - Adds a collection of permanent modifiers to apply.
     - `AttributeMap#assignPermanentModifiers` - Copies the permanent modifiers from another map.
 - `net.minecraft.world.entity.ai.control.Control#rotateTowards` - Returns a float that rotates to some final rotation by the provided difference within a clamped value.
+- `net.minecraft.world.entity.ai.goal.Goal#getServerLevel` - Gets the server level given the entity or a level.
 - `net.minecraft.world.entity.ai.navigation.PathNavigation`
     - `updatePathfinderMaxVisitedNodes` - Updates the maximum number of nodes the entity can visit.
     - `setRequiredPathLength` - Sets the minimum length of the path the entity must take.
@@ -2147,6 +2178,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `Salmon#getSalmonScale` - Returns the scale factor to apply to the entity's bounding box.
     - `Wolf#DEFAULT_TAIL_ANGLE` - Returns the default tail angle of the wolf.
 - `net.minecraft.world.entity.boss.enderdragon.DragonFlightHistory` - Holds the y and rotation of the dragon when flying through the sky. Used for animating better motion of the dragon's parts.
+- `net.minecraft.world.entity.monster.Zombie#canSpawnInLiquids` - When true, the zombie can spawn in a liquid.
 - `net.minecraft.world.entity.player`
     - `Inventory`
         - `isUsableForCrafting` - Returns whether the state can be used in a crafting recipe.
@@ -2155,6 +2187,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `handleCreativeModeItemDrop` - Handles what to do when a player drops an item from creative mode.
         - `shouldRotateWithMinecart` - Returns whether the player should also rotate with the minecart.
         - `canDropItems` - When `true`, the player can drop items from the menu.
+        - `getPermissionLevel`, `hasPermissions` - Returns the permissions of the player.
     - `StackedContents` - Holds a list of contents along with their associated size.
         - `$Output` - An interface that defines how the contents are accepted when picked.
 - `net.minecraft.world.entity.projectile.Projectile`
@@ -2165,6 +2198,11 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `onItemBreak` - Handles what happens when the item that shot the projectile breaks.
     - `shouldBounceOnWorldBorder` - Returns whether the projectile should bounce off the world border.
     - `$ProjectileFactory` - Defines how a projectile is spawned from some `ItemStack` by an entity.
+- `net.minecraft.world.entity.vehicle`
+    - `AbstractBoat` - An entity that represents a boat.
+    - `AbstractChestBoat` - An entity that represent a boat with some sort of inventory.
+    - `ChestRaft` - An entity that represents a raft with some sort of inventory.
+    - `Raft` - An entity that represents a raft.
 - `net.minecraft.world.inventory.AbstractContainerMenu`
     - `addInventoryHotbarSlots` - Adds the hotbar slots for the given container at the x and y positions.
     - `addInventoryExtendedSlots` - Adds the player inventory slots for the given container at the x and y positions.
@@ -2175,7 +2213,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `getOpenBundleModelFrontLocation`, `getOpenBundleModelBackLocation` - Returns the model locations of the bundle.
         - `toggleSelectedItem`, `hasSelectedItem`, `getSelectedItem`, `getSelectedItemStack` - Handles item selection within a bundle.
         - `getNumberOfItemsToShow` - Determines the number of items in the bundle to show at once.
-        - `getAllBundleItemColors`, `getByColor` - Handles the available links from bundle to dyed bundles.
+        - `getByColor` - Handles the available links from bundle to dyed bundles.
     - `ItemStack`
         - `clearComponents` - Clears the patches made to the stack, not the item components.
         - `isBroken` - Returns wheter the stack has been broken.
@@ -2277,9 +2315,13 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `AbstractSignEditScreen`
         - `sign` is now protected
         - `renderSignBackground` no longer takes in the `BlockState`
+    - `EffectRenderingInventoryScreen` -> `Screen#hasActiveEffects`, `EffectsInInventory`. Not one-to-one as `EffectsInInventory` now acts as a helper class to a screen to render its effects at the specified location.
 - `net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent`
     - `getHeight()` -> `getHeight(Font)`
     - `renderImage` now takes in the `int` width and height of the rendering tooltip
+- `net.minecraft.client.gui.screens.recipebook`
+    - `GhostSlots#render` no longer takes in an x and y offset.
+    - `RecipeBookComponent` no longer takes in an x and y offset.
 - `net.minecraft.client.gui.screens.reporting.ReportReasonSelectionScreen` now takes in a `ReportType`
 - `net.minecraft.client.gui.screens.worldselection`
     - `CreateWorldScreen`
@@ -2292,7 +2334,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `ClientLevel` now takes in an `int` representing the sea level
         - `getSkyColor` now returns a single `int` instead of a `Vec3`
         - `getCloudColor` now returns a single `int` instead of a `Vec3`
-        - `$ClientLevelData` now takes in a `FeatureFlagSet`
+        - `setGameTime`, `setDayTime` -> `setTimeFromServer`
     - `TagCollector` -> `RegistryDataCollector$TagCollector`, now package-private
 - `net.minecraft.client.player`
     - `AbstractClientPlayer#getFieldOfViewModifier` now takes in a boolean representing whether the camera is in first person and a float representing the partial tick
@@ -2388,6 +2430,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `SHULKER_BOX` -> `shulkerBoxInteraction`, now private
     - `BANNER` -> `bannerInteraction`, now private
     - `DYED_ITEM` -> `dyedItemIteration`, now private
+- `net.minecraft.core.dispenser.BoatDispenseItemBehavior` now takes in the `EntityType` to spawn rather that the variant and chest boat boolean
 - `net.minecraft.data.loot`
     - `BlockLootSubProvider`
         - `HAS_SHEARS` -> `hasShears`
@@ -2404,6 +2447,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
 - `net.minecraft.network.protocol.game`
     - `ClientboundMoveEntityPacket#getyRot`, `getxRot` now returns a `float` of the degrees
     - `ClientboundPlayerPositionPacket` is now a record, delta movement as well
+    - `ClientboundSetTimePacket` is now a record
     - `ClientboundRotateHeadPacket#getYHeadRot` now returns a `float` of the degrees
     - `ClientboundTeleportEntityPacket#getyRot`, `getxRot` now returns a `float` of the degrees
     - `ServerboundPlayerInputPacket` is now a record, taking in an `Input`
@@ -2448,22 +2492,36 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `BlockableEventLoop#waitForTasks` is now protected
     - `ProcessorMailbox` no longer implements `AutoCloseable`
 - `net.minecraft.util.worldupdate.WorldUpgrader` implements `AutoCloseable`
+- `net.minecraft.world.LockCode` now takes in an `ItemPredicate` instead of a `String` representing the item name
+- `net.minecraft.world.effect`
+    - `MobEffect#applyEffectTick`, `applyInstantenousEffect`, `onMobRemoved`, `onMobHurt` now takes in the `ServerLevel`
+    - `MobEffectInstance#onMobRemoved`, `onMobHurt` now takes in the `ServerLevel`
 - `net.minecraft.world.entity`
     - `AgeableMob$AgeableMobGroupData` now has a public constructor
     - `AnimationState#getAccumulatedTime` -> `getTimeInMillis`
-    - `Entity`
+    - `Entity` no longer implements `CommandSource`
         - `setOnGroundWithMovement` now takes in an additional `boolean` representing whether there is any horizontal collision.
         - `getInputVector` is now protected
         - `isAlliedTo(Entity)` -> `considersEntityAsAlly`
         - `teleportTo` now takes in an additional `boolean` that determines whether the camera should be set
         - `checkInsideBlocks()` -> `recordMovementThroughBlocks`, not one-to-one as it takes in the movement vectors
         - `checkInsideBlocks(Set<BlockState>)` -> `collectBlockCollidedWith`, now private
+        - `kill` now takes in the `ServerLevel`
+        - `hurt` has been marked as deprecated, to be replaced by `hurtServer` and `hurtClient`
+            - `hurtOrSimulate` acts as a helper to determine which to call, also marked as deprecated
+        - `spawnAtLocation` now takes in a `ServerLevel`
+        - `isInvulnerableTo` -> `isInvulnerableToBase`, now protected and final
+            - `isInvulnerableTo` is moved to `LivingEntity#isInvulnerableTo`
+        - `teleportSetPosition` now public and takes in a `PositionMoveRotation` and `Relative` set instead of the `DimensionTransition`
+        - `createCommandSourceStack` -> `createCommandSourceStackForNameResolution`, not one to one as it takes in the `ServerLevel`
+        - `mayInteract` now takes in the `ServerLevel` instead of just the `Level`
     - `EntitySpawnReason#SPAWN_EGG` -> `SPAWN_ITEM_USE`, not one-to-one as this indicates the entity can be spawned from any item
     - `EntityType`
         - `create`, `loadEntityRecursive`, `loadEntitiesRecursive`, `loadStaticEntity` now takes in an `EntitySpawnReason`
         - `*StackConfig` now takes in a `Level` instead of a `ServerLevel`
     - `EquipmentTable` now has a constructor that takes in a single float representing the slot drop chance for all equipment slots
     - `MobSpawnType` -> `EntitySpawnReason`
+    - `Leashable#tickLeash` now takes in the `ServerLevel`
     - `LivingEntity`
         - `getScale` is now final
         - `onAttributeUpdated` is now protected
@@ -2473,13 +2531,45 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `onEffectRemoved` -> `onEffectsRemoved`
         - `spawnItemParticles` is now public
         - `getLootTable` -> `Entity#getLootTable`, wrapped in optional
-    - `Shearable#shear` now takes in the `ItemStack` that is shearing the entity
+        - `getBaseExperienceReward` now takes in the `ServerLevel`
+        - `triggerOnDeathMobEffects` now takes in the `ServerLevel`
+        - `canAttack` is removed
+        - `dropEquipment` now takes in the `ServerLevel`
+        - `dropExperience` now takes in the `ServerLevel`
+        - `dropFromLootTable` now takes in the `ServerLevel`
+        - `actuallyHurt`, `doHurtTarget` now takes in the `ServerLevel`
+    - `Mob`
+        - `pickUpItem`, `wantsToPickUp` now takes in the `ServerLevel`
+        - `equipItemIfPossible` now takes in the `ServerLevel`
+        - `customServerAiStep` now takes in the `ServerLevel`
+        - `dropPreservedEquipment` now takes in the `ServerLevel`
+    - `NeutralMob`
+        - `isAngryAt`, `isAngryAtAllPlayers` now takes in the `ServerLevel`
+        - `playerDied` now takes in the `ServerLevel`
+    - `Shearable#shear` now takes in the `ServerLevel` and `ItemStack` that is shearing the entity
     - `RelativeMovement` -> `Relative`, expanded to contain delta movement
     - `WalkAnimationState#update` now takes in an additional `float` representing the position scale when moving.
+- `net.minecraft.world.entity.ai.behavior`
+    - `StartAttacking` now takes in a `$TargetFinder` and additionally a `$StartAttackingCondition`
+        - Both are functional interfaces that replace the previous functions/predicates, though with an extra `ServerLevel` parameter
+    - `StopAttackingIfTargetInvalid` now takes in a `$TargetErasedCallback` and/or a `$StopAttackCondition`
+        - Both are functional interfaces that replace the previous consumers/predicates, though with an extra `ServerLevel` parameter
 - `net.minecraft.world.entity.ai.control.LookControl#rotateTowards` -> `Control#rotateTowards`
+- `net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal` now takes in a `$Selector`
+     - It is a functional interface that replaces the previous predicate, though with an extra `ServerLevel` parameter
+- `net.minecraft.world.entity.ai.memory.NearestVisibleLivingEntities` now takes in a `ServerLevel`
 - `net.minecraft.world.entity.ai.sensing`
-    - `NearestLivingEntitySensor#radiusXZ`, `radiusY` -> `Attributes#FOLLOW_RANGE`
-    - `Sensor#TARGETING_RANGE` is now private
+    - `NearestLivingEntitySensor`
+        - `radiusXZ`, `radiusY` -> `Attributes#FOLLOW_RANGE`
+        - `isMatchingEntity` now takes in a `ServerLevel`
+    - `Sensor`
+        - `TARGETING_RANGE` is now private
+        - `isEntityTargetable`, `isEntityAttackable`, `isEntityAttackableIgnoringLineOfSight` now take in a `ServerLevel`
+        - `wasEntityAttackableLastNTicks`, `rememberPositives` now delas with `BiPredicate`s instead of `Predicate`s
+- `net.minecraft.world.entity.ai.targeting.TargetingConditions`
+    - `selector` now takes in a `$Selector`
+        - It is a functional interface that replaces the previous predicate, though with an extra `ServerLevel` parameter
+    - `test` now takes in a `ServerLevel`
 - `net.minecraft.world.entity.ai.village.poi.PoiRecord#codec`, `PoiSection#codec` -> `$Packed#CODEC`
 - `net.minecraft.world.entity.animal`
     - `Fox$Type` -> `$Variant`
@@ -2489,6 +2579,9 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `Wolf`
         - `getBodyRollAngle` -> `#getShakeAnim`, not one-to-one as the angle is calculated within the render state
         - `hasArmor` is removed
+- `net.minecraft.world.entity.animal.horse.AbstractHorse#followMommy` now takes in a `ServerLevel`
+- `net.minecraft.world.entity.boss.enderdragon.EnderDragon#onCrystalDestroyed` now takes in a `ServerLevel`
+- `net.minecraft.world.entity.boss.enderdragon.phases.DragonPhaseInstance#doServerTick` now takes in a `ServerLevel`
 - `net.minecraft.world.entity.boss.wither.WitherBoss#getHead*Rot` -> `getHead*Rots`, returns all rotations rather than just the provided index
 - `net.minecraft.world.entity.decoration`
     - `ArmorStand` default rotations are now public
@@ -2496,8 +2589,11 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `isNoBasePlate` -> `showBasePlate`
     - `PaintingVariant` now takes in a title and author `Component`
 - `net.minecraft.world.entity.item.ItemEntity#getSpin` is now static
+- `net.minecraft.world.entity.monster.Monster#isPreventingPlayerRest` now takes in a `ServerLevel`
 - `net.minecraft.world.entity.monster.breeze.Breeze#getSnoutYPosition` -> `getFiringYPosition`
+- `net.minecraft.world.entity.monster.hoglin.HoglinBase#hurtAndThrowTarget` now takes in a `ServerLevel`
 - `net.minecraft.world.entity.monster.piglin.PiglinAi#isWearingGold` -> `#isWearingSafeArmor`
+- `net.minecraft.world.entity.npc.InventoryCarrier#pickUpItem` now takes in a `ServerLevel`
 - `net.minecraft.world.entity.player`
     - `Player#disableShield` now takes in the stack to apply the cooldown to
     - `Inventory`
@@ -2511,8 +2607,14 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
 - `net.minecraft.world.entity.raid.Raid#getLeaderBannerInstance` -> `getOminousBannerInstance`
 - `net.minecraft.world.entity.vehicle`
     - `Boat$Type` now takes in the supplied boat item and the translation key for the item, but no longer take in the planks they are made from
-    - `ContainerEntity#*LootTable*` -> `ContainerLootTable`
+    - `ContainerEntity`
+        - `*LootTable*` -> `ContainerLootTable`
+        - `chestVehicleDestroyed` now takes in a `ServerLevel`
+    - `VehicleEntity`
+        - `destroy` now takes in a `seerverLevel`
+        - `getDropItem` is now protected
 - `net.minecraft.world.item`
+    - `BoatItem` now takes in an `EntityType` instead of the variant and chest boolean
     - `ItemStack#hurtEnemy`, `postHurtEnemy` now take in a `LivingEntity` instead of a `Player`
     - `SmithingTemplateItem` now takes in the `Item.Properties` instead of hardcoding it, also true for static initializers
     - `UseAnim` -> `ItemUseAnimation`
@@ -2523,7 +2625,9 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `GameRules` takes in a `FeatureFlagSet` during any kind of construction
         - `$IntegerValue#create` takes in a `FeatureFlagSet`
         - `$Type` takes in a `FeatureFlagSet`
-    - `Level#setSpawnSettings` no longer takes in a `boolean` to determine whether to spawn friendlies
+    - `Level`
+        - `setSpawnSettings` no longer takes in a `boolean` to determine whether to spawn friendlies
+        - `getGameRules` -> `ServerLevel#getGameRules`
     - `LevelAccessor` now implements `ScheduledTickAccess`, an interface that now contains the tick scheduling methods that were originally on `LevelAccessor`
         - `neighborShapeChanged` switches the order of the `BlockState` and neighbor `BlockPos` parameters
     - `LevelHeightAccessor`
@@ -2559,6 +2663,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `getTicksForSerialization` now takes in a `long` of the game time
         - `$TicksToSave` -> `$PackedTicks`
     - `ChunkSource#setSpawnSettings` no longer takes in a `boolean` to determine whether to spawn friendlies
+    - `LevelChunk#postProcessGeneration` now takes in a `ServerLevel`
     - `Palette#copy` now takes in a `PaletteResize`
 - `net.minecraft.world.level.chunk.status.WorldGenContext` now takes in an `Executor` or the main thread rather than a processor handle mail box
 - `net.minecraft.world.level.chunk.storage`
@@ -2582,10 +2687,13 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `FlowingFluid`
         - `spread` now takes in the `BlockState` at the current position
         - `getSlopeDistance` previous parameters have been merged into a `$SpreadContext` object
+        - `spread`, `getNewLiquid`, `canConvertToSource`, `getSpread` now takes in a `ServerLevel`
     - `Fluid`
         - `tick` now takes in the `BlockState` at the current position
+        - `tick` and `randomTick` now take in the `ServerLevel`
     - `FluidState`
         - `tick` now takes in the `BlockState` at the current position
+        - `tick` and `randomTick` now take in the `ServerLevel`
     - `MapColor#calculateRGBColor` -> `calculateARGBColor`
 - `net.minecraft.world.level.portal`
     - `DimensionTransition`
@@ -2594,9 +2702,11 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - The constructor can now take in a set of `Relatives` to indicate in what motions should the positions be moved relative to another
     - `PortalShape#createPortalBlocks` now takes in a `LevelAccessor`
 - `net.minecraft.world.level.saveddata.SavedData#save(File, HolderLookup$Provider)` now returns `CompoundTag`, not writing the data to file in the method
-- `net.minecraft.world.level.storage.DimensionDataStorage` now implements `AutoCloseable`
-    - The constructor takes in a `Path` instead of a `File`
-    - `save` -> `scheduleSave` and `saveAndJoin`
+- `net.minecraft.world.level.storage
+    - `DimensionDataStorage` now implements `AutoCloseable`
+        - The constructor takes in a `Path` instead of a `File`
+        - `save` -> `scheduleSave` and `saveAndJoin`
+    - `LevelData#getGameRules` -> `ServerLevelData#getGameRules`
 - `net.minecraft.world.phys.BlockHitResult` now takes in a boolean representing if the world border was hit
     - Adds in two helpers `hitBorder`, `isWorldBorderHit`
 - `net.minecraft.world.ticks`
@@ -2622,6 +2732,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `_setShaderTexture`
     - `applyModelViewMatrix`
 - `net.minecraft.Util#wrapThreadWithTaskName(String, Supplier)`
+- `net.minecraft.advancements.critereon.EntitySubPredicates#BOAT`
 - `net.minecraft.client.Options#setKey`
 - `net.minecraft.client.gui.screens.inventory.EnchantmentScreen#time`
 - `net.minecraft.client.multiplayer`
@@ -2688,3 +2799,5 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
 - `net.minecraft.world.phys.AABB#getBottomCenter`
 - `net.minecraft.world.phys.shapes.Shapes#getFaceShape`
 - `net.minecraft.world.ticks.SavedTick#saveTick`
+
+TODO: Continue from `LockCode`
