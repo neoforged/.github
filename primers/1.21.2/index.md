@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=24w39a&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=24w40a&tab=changelog).
 
 ## The Holder Set Transition
 
@@ -377,7 +377,9 @@ ShaderStateShard MY_SHARD = new ShaderStateShard(MY_SHADER);
     - `ShaderProgramConfig` - The definition of the program shader JSON.
     - `Sheets#translucentCullBlockSheet` is removed
     - `SkyRenderer` now implements `AutoCloseable`
-- `net.minecraft.client.renderer.entity.ItemRenderer#getFoilBufferDirect` is removed, replaced by `getFoilBuffer`
+- `net.minecraft.client.renderer.entity.ItemRenderer`
+    - `getFoilBufferDirect` is removed, replaced by `getFoilBuffer`
+    - `ITEM_COUNT_BLIT_OFFSET` -> `ITEM_DECORATION_BLIT_OFFSET`
 
 ## Entity Render States
 
@@ -520,6 +522,7 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
         - `getRandomModelPart` -> `getRandomBodyPart`
         - `getArmPose` - Returns the arm pose of the player given its render state.
     - `RaftModel#createBodyModel` -> `createRaftModel`
+    - `WardenModel#getTendrilsLayerModelParts`, `getHeartLayerModelParts`, `getBioluminescentLayerModelParts`, `getPulsatingSpotsLayerModelParts` now take in the `WardenRenderState`
     - `WaterPatchModel` -> `BoatModel#createWaterPatch` and `Model$Simple`
 - `net.minecraft.client.model.geom`
     - `ModelLayerLocation` is now a record
@@ -587,6 +590,7 @@ renderers.register(MyEntityTypes.MY_ENTITY, MyEntityRenderer::new);
     - `StuckInBodyLayer` now takes in the model to apply the stuck objects to, the texture of the stuck objects, and the placement style of the objects
         - `numStuck` now takes in the render state instead of the entity
         - `renderStuckItem` is now private
+    - `WardenEmissiveLayer` -> `LivingEntityEmissiveLayer`, a more generalized implementation
 - `net.minecraft.client.renderer.entity.player.PlayerRenderer`
     - `renderRightHand`, `renderLeftHand` now take in a `ResourceLocation` instead of the `AbstractClientPlayer` and a `boolean` whether to render the left and/or right sleeve
     - `setupRotations` now takes in the render state instead of the entity and parameter information
@@ -636,6 +640,7 @@ public class MyUnbakedModel implements UnbakedModel {
     - `VariantSelector` - A utility for constructing the state definitions from the model descriptor.
 - `net.minecraft.client.renderer.block.model`
     - `BlockModel`
+        - `MISSING_MATERIAL` - The material of the missing block texture.
         - `bake` no longer takes in the `ModelBaker` and `BlockModel`
         - `$LoopException` class is removed
 - `net.minecraft.client.renderer.block.model.multipart.MultiPart` now implements `UnbakedBlockStateModel`
@@ -961,6 +966,7 @@ this.equipmentLayerRenderer.renderLayers(
     - `AnimalArmorItem` no longer extends `ArmorItem`
         - The constructor no longer takes in a boolean indicating the overlay texture, as that is now part of the `EquipmentModel`
         - The constructor can take in an optional `SoundEvent` of the equip sound
+        - The constructor can take in a `boolean` representing whether the armor should be damaged if the entity is hurt
         - `$BodyType` no takes in the allowed entities to wear the armor rather than the path factory to the texture
     - `ArmorItem` is no longer equipable
         - Basically functions as an item class where its only remaining usage is to prevent armor change when enchanted and get the associated attributes
@@ -970,6 +976,7 @@ this.equipmentLayerRenderer.renderLayers(
     - `ArmorMaterials` -> `.equipment.ArmorMaterials`
     - `BookItem`, `EnchantedBookItem` -> `DataComponents#WRITTEN_BOOK_CONTENT`
     - `BundleItem` now takes in a `ResourceLocation` for the model rather than just strings
+        - `$Mutable#setSelectedItem` -> `toggleSelectedItem`
     - `ComplexItem` class is removed
     - `ElytraItem` class is removed, now just and item with `DataComponents#GLIDER`
     - `Equippable` -> `.equipment.Equippable`, now a record which defines how an item can be equipped
@@ -990,6 +997,7 @@ this.equipmentLayerRenderer.renderLayers(
             - `equippableUnswappable` - Sets an equippable commponent that cannot be swapped via a key shortcut.
             - `overrideDescription` - Sets the translation key of the item.
             - `overrideModel` - Sets the model resource location.
+        - `getCraftingRemainingItem`, `hasCraftingRemainingItem` -> `getCraftingRemainder`
     - `ItemNameBlockItem` class is removed, just a normal `Item` `useItemDescriptionPrefix` as a property
     - `ItemStack`
         - `isValidRepairItem` - Returns whether the stack can be repaired by this stack.
@@ -1067,99 +1075,6 @@ return InteractionResult.SUCCESS.withoutItem();
     - `ItemUtils#startUsingInstantly` now returns an `InteractionResult`
     - `JukeboxPlayable#tryInsertIntoJukebox` now returns an `InteractionResult`
 - `net.minecraft.world.level.block.state.BlockBehaviour#useItemOn`, `$BlockStateBase#useItemOn` now returns an `InteractionResult`
-
-## Recipe Books
-
-`RecipeBookComponent`s have been modified somewhat to hold a generic instance of the menu to render. As such, the component no longer implements `PlacedRecipe` and instead takes in a generic representing the `RecipeBookMenu`. The menu is passed into the component via its constructor instead of through the `init` method. This also menas that `RecipeBookMenu` does not have any associated generics. To create a component, the class needs to be extended.
-
-```java
-// Assume some MyRecipeMenu extends AbstractContainerMenu
-public class MyRecipeBookComponent extends RecipeBookComponent<MyRecipeMenu> {
-
-    public MyRecipeBookComponent(MyRecipeMenu menu) {
-        super(menu);
-        // ...
-    }
-
-    @Override
-    protected void initFilterButtonTextures() {
-        // ...
-    }
-
-    @Override
-    protected boolean isCraftingSlot(Slot slot) {
-        // ...
-    }
-
-    @Override
-    protected void selectMatchingRecipes(RecipeCollection collection, StackedItemContents contents, RecipeBook book) {
-        // ...
-    }
-
-    @Override
-    protected Component getRecipeFilterName() {
-        // ...
-    }
-
-    @Override
-    protected void setupGhostRecipeSlots(GhostSlots slots, RecipeHolder<?> holder) {
-
-    }
-}
-
-public class MyContainerScreen extends AbstractContainerScreen<MyRecipeMenu> implements RecipeUpdateListener {
-
-    public AbstractFurnaceScreen(MyRecipeMenu menu, ...) {
-        super(menu, ...);
-        this.recipeBookComponent = new MyRecipeBookComponent(menu);
-    }
-    
-
-    // See AbstractFurnaceScreen for a full implementation
-}
-```
-
-- `net.minecraft.client.gui.screens.inventory.AbstractFurnaceScreen`
-    - `recipeBookComponent` is now private
-    - `AbstractFurnaceScreen(T, AbstractFurnaceRecipeBookComponent, Inventory, Component, ResourceLocation, ResourceLocation, ResourceLocation)` - `AbstractFurnaceRecipeBookComponent` has been replaced with a `Component` as the recipe book is not constructed internally.
-- `net.minecraft.client.gui.screens.recipebook`
-    - `AbstractFurnaceReipceBookComponent`, `BlastingFurnaceReipceBookComponent`, `SmeltingFurnaceReipceBookComponent`, `SmokingFurnaceReipceBookComponent` -> `FurnaceReipceBookComponent`
-    - `GhostRecipe` -> `GhostSlots` not one-to-one, as the recipe itself is stored as a private field in `RecipeBookComponent` as a `RecipeHolder`
-    - `OverlayRecipeComponent()` -> `OverlayRecipeComponent(SlotSelectTime, boolean)`
-        - `init` takes in a `boolean` representing whether the recipe book is filtering instead of computing it from the `Minecraft` instance
-        - `$OverlayRecipeButton` is now an abstract package-private class
-        - `$Pos` is now a record
-    - `RecipeBookComponent`
-        - `init` no longer takes in a `RecipeBookMenu`
-        - `initVisuals` is now private
-        - `initFilterButtonTextures` is now abstract
-        - `updateCollections` now takes in another boolean representing if the book is filtering
-        - `renderTooltip` now takes in a nullable `Slot` instead of an `int` representing the slot index
-        - `renderGhostRecipe` no longer takes in a float representing the delay time
-        - `setupGhostRecipe` no longer takes in the `List<Slot>` to place. That is stored within the component itself
-    - `RecipeBookPage()` -> `RecipeBookPage(SlotSelectTime, boolean)`
-        - `updateCollections` now takes in a boolean representing if the book is filtering
-        - `getMinecraft` is removed
-    - `RecipeBookTabButton#startAnimation(Minecraft)` -> `startAnimation(ClientRecipeBook, boolean)`
-    - `RecipeButton()` -> `RecipeButton(SlotSelectTime)`
-        - `init` now takes in a boolean representing if the book is filtering
-    - `RecipeCollection`
-        - `canCraft` -> `selectMatchingRecipes`
-        - `getRecipes`, `getDisplayRecipes` -> `getFittingRecipes`
-    - `SlotSelectTime` - Represents the current index of the slot selected by the player
-    - `RecipeButton#getResultItem` - Returns the result of the recipe.
-- `net.minecraft.recipebook`
-    - `PlaceRecipe` -> `PlaceRecipeHelper`
-        - `addItemToSlot` -> `$Output#addItemToSlot`
-    - `ServerPlaceRecipe` is not directly accessible anymore, instead it is accessed and returned as a `RecipeBookMenu$PostPlaceAction` via `#placeRecipe`
-        - `$CraftingMenuAccess` - Defines how the placable recipe menu can be interacted with.
-- `net.minecraft.stats.RecipeBook#isFiltering(RecipeBookMenu)` is removed
-- `net.minecraft.world.inventory`
-    - `AbstractCraftingMenu` - A menu for a crafting interface.
-    - `RecipeBookMenu` no longer takes in any generics
-        - `handlePlacement` is now abstract and returns a `$PostPlaceAction`
-            - This remove all basic placement recipes calls, as that would be handled internally by the `ServerPlaceRecipe`
-    - `RecipeCraftingHolder#setRecipeUser` no longer takes in a `Level`
 
 ## Instruments, the Datapack Edition
 
@@ -1551,13 +1466,96 @@ new Item(new Item.Properties()
     - `IntegerProperty` is now final
     - `Property#getPossibleValues` now returns a `List` instead of a `Collection`
 
-## Minor Migrations
+## Recipes, now in Registry format (TODO)
 
-The following is a list of useful or interesting additions, changes, and removals that do not deserve their own section in the primer.
+Recipes have been upgraded to a data pack registry, similar to how loot tables are handled. They are still queried in the same fashion, it just simply using a pseudo-registry-backed instance. Some of the more common changes is that `RecipeHolder` may be replaced by `RecipeDisplayId`, `RecipeDisplay`, or `RecipeDisplayEntry` if the holder itself is not needed. With this, there are a few changes to how recipe books are handled.
 
-### Language File Removals and Renames
+### Recipe Books
 
-All removals and renames to translations keys within `assets/minecraft/lang` are now shown in a `deprecated.json`.
+`RecipeBookComponent`s have been modified somewhat to hold a generic instance of the menu to render. As such, the component no longer implements `PlacedRecipe` and instead takes in a generic representing the `RecipeBookMenu`. The menu is passed into the component via its constructor instead of through the `init` method. This also menas that `RecipeBookMenu` does not have any associated generics. To create a component, the class needs to be extended.
+
+```java
+// Assume some MyRecipeMenu extends AbstractContainerMenu
+public class MyRecipeBookComponent extends RecipeBookComponent<MyRecipeMenu> {
+
+    public MyRecipeBookComponent(MyRecipeMenu menu, List<RecipeBookComponent.TabInfo> tabInfos) {
+        super(menu, tabInfos);
+        // ...
+    }
+
+    @Override
+    protected void initFilterButtonTextures() {
+        // ...
+    }
+
+    @Override
+    protected boolean isCraftingSlot(Slot slot) {
+        // ...
+    }
+
+    @Override
+    protected void selectMatchingRecipes(RecipeCollection collection, StackedItemContents contents) {
+        // ...
+    }
+
+    @Override
+    protected Component getRecipeFilterName() {
+        // ...
+    }
+
+    @Override
+    protected void fillGhostRecipe(GhostSlots slots, RecipeDisplay display, SlotDisplay.ResolutionContext ctx) {
+
+    }
+}
+
+public class MyContainerScreen extends AbstractContainerScreen<MyRecipeMenu> implements RecipeUpdateListener {
+
+    public MyContainerScreen(MyRecipeMenu menu, List<RecipeBookComponent.TabInfo> tabInfos, ...) {
+        super(menu, ...);
+        this.recipeBookComponent = new MyRecipeBookComponent(menu, tabInfos);
+    }
+    
+
+    // See AbstractFurnaceScreen for a full implementation
+}
+```
+
+### Recipe Displays
+
+However, how does a recipe understand what should be displayed in a recipe book? This falls under two new static registries: the `RecipeDisplay` and the `SlotDisplay`.
+
+The `SlotDisplay` represents what displays in a single slot within a recipe. The display only has one method (ignoring types): `resolve`. `resolve` takes in the `$ResolutionContext` holding the registry data and the `$ResolutionOutput` which accepts the stacks that will be displayed in this slot. `SlotDisplay` also has a lot of helper implementations, such as `$Composite` that takes in a list of displays or `$ItemStackSlotDisplay` that takes in the stack to display. The display is registered by its `$Type`, which takes in the map codec and stream codec.
+
+The slot also has methods to get for the associated stacks that can be displayed via `resolveForStacks` and `resolveForFirstStack`.
+
+```java
+public static record MySlotDisplay() implements SlotDisplay {
+
+    @Override
+    public void resolve(SlotDisplay.ResolutionContext ctx, SlotDisplay.ResolutionOutput output) {
+        // Call output.accept(...) to display items
+    }
+
+    @Override
+    public SlotDisplay.Type<? extends SlotDisplay> type() {
+        // Return the registered object here registered to Registries#SLOT_DISPLAY
+    }
+}
+```
+
+`RecipeDisplay` represents how a recipe is displayed. As an implementation detail, the `RecipeDisplay` only needs to be aware of the result (via `result` slot display) and the place the recipe is being used (via `craftingStation` slot display) as those are the only two details the recipe book cares about. However, it is recommended to also have slot displays for the ingredients and then have those consumed by your `RecipeBookComponent`. The display is registered by its `$Type`, which takes in the map codec and stream codec.
+
+
+```java
+public record MyRecipeDisplay(SlotDisplay result, SlotDisplay craftingStation, ...) implements RecipeDisplay {
+
+    @Override
+    public RecipeDisplay.Type<? extends RecipeDisplay> type() {
+        // Return the registered object here registered to Registries#RECIPE_DISPLAY
+    }
+}
+```
 
 ### Recipe Placements
 
@@ -1591,6 +1589,7 @@ public class MyRecipe implements Recipe<RecipeInput> {
 If an `Optional<Ingredient>` is used, they can be tested via `Ingredient#testOptionalIngredient`.
 
 - `net.minecraft.world.item.crafting`
+    - `Ingredient#display` - Returns the `SlotDisplay` that shows this ingredient.
     - `PlacementInfo` - Defines all ingredients necessary to construct the result of a recipe.
     - `Recipe`
         - `getToastSymbol` -> `getCategoryIconItem`
@@ -1602,6 +1601,228 @@ If an `Optional<Ingredient>` is used, they can be tested via `Ingredient#testOpt
     - `ShapelessRecipe` now takes in a `List<Ingredient>` instead of a `NonNullList<Ingredient>`
     - `SmithingTransformRecipe`, `SmithingTrimRecipe` now takes in `Optional<Ingredient>`s instead of `Ingredient`s
     - `SuspiciousStewRecipe` class is removed
+
+### Recipe Changes
+
+There have been a few changes within the recipe class itself, which mirror all of the above changes. First, `canCraftInDimensions` is removed and now hardcoded into the match function. `getResultItem` and `getCategoryIconItem` has been replaced by `RecipeDisplay` via `display`. `getRemainingItems` has moved to `CraftingRecipe`. Finally, all recipes now return their `BasicRecipeBookCategory` via `recipeBookCategory`.
+
+```java
+public class MyRecipe implements Recipe<RecipeInput> {
+
+    @Override
+    public String group() {
+        // Return here what `getGroup` was
+    }
+
+    @Override
+    public List<RecipeDisplay> display() {
+        return List.of(
+            // Some recipe display instance
+            // RecipeDisplay#result should return `getResultItem`
+            // RecipeDisplay#craftingStation should return `getCategoryIconItem`
+        )
+    }
+
+    @Override
+    public BasicRecipeBookCategory recipeBookCategory() {
+        // Functions similar to the book category passed into the recipe builders during data generation
+        return BasicRecipeBookCategory.CRAFTING_MISC;
+    }
+}
+```
+
+### Technical Changes
+
+- `net.minecraft.advancements.AdvancementRewards` now takes in a list of `ResourceKey`s instead of `ResourceLocation`s for the recipe
+    - `$Builder#recipe`, `addRecipe` now takes in a `ResourceKey`
+- `net.minecraft.advancements.critereon`
+    - `PlayerPredicate` now takes in a `ResourceKey` for the recipe map
+        - `$Builder#addRecipe` now takes in a `ResourceKey`
+    - `RecipeCraftedTrigger`
+        - `trigger` now takes in a `ResourceKey`
+        - `$TriggerInstance` now takes in a `ResourceKey`
+        - `$TriggerInstance#craftedItem`, `crafterCraftedItem` now takes in a `ResourceKey`
+    - `RecipeUnlockedTrigger`
+        - `unlocked` now takes in a `ResourceKey`
+        - `$TriggerInstance` now takes in a `ResourceKey`
+- `net.minecraft.client`
+    - `ClientRecipeBook`
+        - `setupCollections` -> `rebuildCollections`, not one-to-one
+        - `getCollection(RecipeBookCategories)` -> `getCollection(RecipeBookCategory)`
+        - `add`, `remove` - Handles adding/removing a recipe entry to display within the recipe book.
+        - `addHighLight`, `removeHighlight`, `hasHighlight` - Handles if the entry is highlighted when filtered or selected by the player.
+    - `RecipeBookCategories` -> `net.minecraft.client.gui.screens.recipebook.BasicRecipeBookCategory`, `SearchRecipeBookCategory`; not one-to-one
+        - This can also be replaced by `RecipeBookComponent$TabInfo`
+- `net.minecraft.client.gui.components.toasts`
+    - `RecipeToast(RecipeHolder)` -> `RecipeToast()`, now private
+    - `addOrUpdate` now takes in a `RecipeDisplay` instead of a `RecipeHolder`
+- `net.minecraft.client.gui.screens.inventory.AbstractFurnaceScreen`
+    - `recipeBookComponent` is now private
+    - `AbstractFurnaceScreen(T, AbstractFurnaceRecipeBookComponent, Inventory, Component, ResourceLocation, ResourceLocation, ResourceLocation)` - `AbstractFurnaceRecipeBookComponent` has been replaced with a `Component` as the recipe book is not constructed internally and now takes in a list of `RecipeBookComponent$TabInfo`
+- `net.minecraft.client.gui.screens.recipebook`
+    - `AbstractFurnaceReipceBookComponent`, `BlastingFurnaceReipceBookComponent`, `SmeltingFurnaceReipceBookComponent`, `SmokingFurnaceReipceBookComponent` -> `FurnaceReipceBookComponent`
+    - `GhostRecipe` -> `GhostSlots` not one-to-one, as the recipe itself is stored as a private field in `RecipeBookComponent` as a `RecipeHolder`
+        - `addResult` -> `setResult`, not one-to-one
+        - `addIngredient` -> `setIngredient`, not one-to-one
+    - `OverlayRecipeComponent()` -> `OverlayRecipeComponent(SlotSelectTime, boolean)`
+        - `init` takes in a `SlotDisplay$ResolutionContext` containing registry data to display within the components and a `boolean` representing whether the recipe book is filtering instead of computing it from the `Minecraft` instance
+        - `getLastRecipeClicked` now returns a `RecipeDisplayId`
+        - `$OverlayRecipeButton` is now an abstract package-private class, taking in the `SlotDisplay$ResolutionContext`
+        - `$Pos` is now a record
+    - `RecipeBookComponent` no longer implements `RecipeShownListener`
+        - The constructor takes in a list of `$TabInfo`s containing the tabs shown in the book
+        - `init` no longer takes in a `RecipeBookMenu`
+        - `initVisuals` is now private
+        - `initFilterButtonTextures` is now abstract
+        - `updateCollections` now takes in another boolean representing if the book is filtering
+        - `renderTooltip` now takes in a nullable `Slot` instead of an `int` representing the slot index
+        - `renderGhostRecipe` no longer takes in a float representing the delay time
+        - `setupGhostRecipe` -> `fillGhostRecipe`, no longer takes in the `List<Slot>` to place, that is stored within the component itself
+        - `selectMatchingRecipes` no longer takes in the `RecipeBook`
+        - `recipesShown` now takes in a `RecipeDisplayId`
+        - `setupGhostRecipeSlots` -> `fillGhostRecipe`, taking in the `SlotDisplay$ResolutionContext`
+        - `$TabInfo` - A record that denotes the icons and categories of recipe to display within a recipe book page.
+    - `RecipeBookPage()` -> `RecipeBookPage(RecipeBookComponent, SlotSelectTime, boolean)`
+        - `updateCollections` now takes in a boolean representing if the book is filtering
+        - `getMinecraft` is removed
+        - `addListener` is removed
+        - `getLastRecipeClicked` now returns a `RecipeDisplayId`
+        - `recipesShown` now takes in a `RecipeDisplayId`
+        - `getRecipeBook` now returns a `ClientRecipeBook`
+    - `RecipeBookTabButton` now takes in a `RecipeBookComponent$TabInfo`
+        - `startAnimation(Minecraft)` -> `startAnimation(ClientRecipeBook, boolean)`
+        - `getCategory` now returns a `RecipeBookCategory`
+    - `RecipeButton()` -> `RecipeButton(SlotSelectTime)`
+        - `init` now takes in a `boolean` representing if the book is filtering and a `SlotDisplay$ResolutionContext` holding the registry data
+        - `getRecipe` -> `getCurrentRecipe`, not one-to-one
+        - `getDisplayStack` - Returns the result stack of the recipe.
+        - `getTooltipText` now takes in the `ItemStack`
+    - `RecipeCollection(RegistryAccess, List<RecipeHolder>)` -> `RecipeCollection(List<RecipeDisplayEntry>)`
+        - `canCraft` ->  `selectRecipes`
+        - `getRecipes`, `getDisplayRecipes` -> `getSelectedRecipes`
+        - `registryAccess`, `hasKnownRecipes`, `updateKnownRecipes` is removed
+        - `isCraftable` now takes in a `RecipeDisplayId`
+        - `hasFitting` -> `hasAnySelected`
+        - `getRecipes` now returns a list of `RecipeDisplayEntry`s
+    - `RecipeShownListener` class is removed
+    - `RecipeUpdateListener`
+        - `getRecipeBookComponent` is removed
+        - `fillGhostRecipe` -> Fills the ghost recipe given the `RecipeDisplay`
+    - `SlotSelectTime` - Represents the current index of the slot selected by the player.
+- `net.minecraft.client.multiplayer`
+    - `ClientPacketListener#getRecipeManager` -> `recipes`, returns `RecipeAccess`
+    - `ClientRecipeContainer` - A client side implementation of the `RecipeAccess` when synced from the server.
+    - `MultiPlayerGameMode#handlePlaceRecipe` now takes in a `RecipeDisplayId`
+    - `SessionSearchTrees#updateRecipes` now takes in a `Level` instead of the `RegistryAccess$Frozen`
+- `net.minecraft.client.player.LocalPlayer#removeRecipeHightlight` now takes in a `RecipeDisplayId`
+- `net.minecraft.commands.SharedSuggestionProvider#getRecipeNames` is removed as it can be queried from the registry access
+- `net.minecraft.commands.arguments.ResourceLocationArgument`
+    - `getRecipe` -> `ResourceKeyArgument#getRecipe`
+    - `getAdvancement` -> `ResourceKeyArgument#getAdvancement`
+- `net.minecraft.commands.synchronization.SuggestionProviders#ALL_RECIPES` is removed
+- `net.minecraft.core.component.DataComponents#RECIPES` now takes in a list of `ResourceKey`s
+- `net.minecraft.data.recipes`
+    - `RecipeBuilder#save` now takes in a `ResourceKey` instead of a `ResourceLocation`
+    - `RecipeOutput#accept` now takes in a `ResourceKey` instead of a `ResourceLocation`
+    - `RecipeProvider#trimSmithing` now takes in a `ResourceKey` instead of a `ResourceLocation`
+- `net.minecraft.network.protocol.game`
+    - `ClientboundPlaceGhostRecipePacket` - A packet that contains the container id and the `RecipeDisplay`
+    - `ClientboundRecipeBookAddPacket` - A packet that adds entries to the recipe book
+    - `ClientboundRecipeBookRemovePacket` - A packet that removes entries to the recipe book
+    - `ClientboundRecipeBookSettingsPacket` - A packet that specifies the settings of the recipe book
+    - `ClientboundRecipePacket` class is removed
+    - `ClientboundUpdateRecipesPacket` is now a record, taking in the property sets of the recipes and the stonecutter recipes
+        - `getRecipes` is removed
+    - `ServerboundPlaceRecipePacket` is now a record
+    - `ServerboundRecipeBookSeenRecipePacket` is now a record
+- `net.minecraft.recipebook`
+    - `PlaceRecipe` -> `PlaceRecipeHelper`
+        - `addItemToSlot` -> `$Output#addItemToSlot`
+        - `placeRecipe` now takes in a `Recipe` instead of the `RecipeHolder`
+            - There is an overload that takes in two more ints that represent the pattern height and width for a `ShapedRecipe`, or just the first two integers repeated
+    - `RecipeBook`
+        - `add`, `contains`, `remove` -> `ServerRecipeBook#add`, `contains`, `remove`
+        - `addHighlight`, `removeHighlight`, `willHighlight` -> `ServerRecipeBook#addHighlight`, `removeHighlight`, `ClientRecipeBook#hasHighlight`
+        - `bookSettings` is now protected
+    - `RecipeBookSettings#read`, `write` is now private
+    - `ServerPlaceRecipe` is not directly accessible anymore, instead it is accessed and returned as a `RecipeBookMenu$PostPlaceAction` via `#placeRecipe`
+        - `$CraftingMenuAccess` - Defines how the placable recipe menu can be interacted with.
+    - `ServerRecipeBook`
+        - `fromNbt` now takes in a predicate of a `ResourceKey` instead of the `RecipeManager`
+        - `copyOverData` - Reads the data from another recipe book.
+        - `$DisplayResolver` - Resoluves the recipes to display by passing in a `RecipeDisplayEntry`
+- `net.minecraft.stats.RecipeBook#isFiltering(RecipeBookMenu)` is removed
+- `net.minecraft.world.entity.player`
+    - `Player#awardRecipesByKey` now takes in a list of `ResourceKey`s
+    - `StackedItemContents#canCraft` overloads that take in a list of ingredient infos
+- `net.minecraft.world.inventory`
+    - `AbstractCraftingMenu` - A menu for a crafting interface.
+    - `AbstractFurnaceMenu` now takes in the `RecipePropertySet` key
+    - `CraftingMenu#slotChangedCraftingGrid` now takes in a `ServerLevel` instead of a `Level`
+    - `ItemCombinerMenu` now takes in an `ItemCombinerMenuSlotDefinition`
+        - `mayPickup` now defaults to `true`
+    - `ItemCombinerMenuSlotDefinition#hasSlot`, `getInputSlotIndexes` is removed
+    - `RecipeBookMenu` no longer takes in any generics
+        - `handlePlacement` is now abstract and returns a `$PostPlaceAction`, taking in an additional `ServerLevel`
+            - This remove all basic placement recipes calls, as that would be handled internally by the `ServerPlaceRecipe`
+    - `RecipeCraftingHolder#setRecipeUser` no longer takes in a `Level`
+- `net.minecraft.world.item.crafting`
+    - `AbstractCookingRecipe` now implements `SingleItemRecipe`
+        - The constructor no longer takes in the `RecipeType`, making the user override the `getType` method
+        - `getExperience` -> `experience`
+        - `getCookingTime` -> `cookingTime`
+        - `furnaceIcon` - Returns the icon of the furnace.
+        - `$Serializer` - A convenience implementation for the cooking recipe serializer instance.
+    - `BasicRecipeBookCategory` - The vanilla recipe book categories.
+    - `CookingBookCategory` now has an integer id
+    - `CraftingRecipe#defaultCrafingRemainder` - Gets the stacks that should remain behind in the crafting recipe.
+    - `CustomRecipe$Serializer` - A convenience implementation for the custom recipe serializer instance.
+    - `Recipe#getRemainingItems` -> `CraftingRecipe#getRemainingItems`
+    - `RecipeAccess` - An accessor that returns the property sets that contain the inputs of available recipes.
+    - `RecipeBookCategory` - A unifying interface that denotes a category within the recipe book.
+    - `RecipeCache#get` now takes in a `ServerLevel` instead of a `Level`
+    - `RecipeHolder` now takes in a `ResourceKey`
+    - `RecipeManager` now extends `SimplePreparableReloadLsitener<RecipeMap>` and implements `RecipeAccess`
+        - `prepare` - Creates the recipe map from the recipe registry
+        - `logImpossibleRecipes`, `hasErrorsLoading` is removed
+        - `getRecipeFor` now takes in a `ResourceKey` where there was a `ResourceLocation` repviously
+        - `getRecipesFor`, `getAllRecipesFor` -> `RecipeMap#getRecipesFor`
+        - `byType` is removed
+        - `getRemainingItemsFor` is Removed
+        - `byKey`.`byKeyTyped` now takes in a `ResourceKey`
+        - `getOrderedRecipes` is revmoed
+        - `getSynchronizedRecipes` -> `getSynchronizedItemProperties`, `getSynchronizedStonecutterRecipes`; not one-to-one
+        - `getRecipeIds` is removed
+        - `getRecipeFromDisplay` - Gets the recipe display info given its id.
+        - `listDisplaysForRecipe` - Accepts a list of display entries of the recipes to display.
+        - `replaceRecipes` is removed
+        - `$CachedCheck#getRecipeFor` now takes in a `ServerLevel` instead of a `Level`
+        - `$ServerDisplayInfo` - A record that links a display entry to its recipe holder.
+    - `RecipeMap` - A class which maps recipe holders by their recipe type and resource key.
+    - `RecipePropertySet` - A set of ingredients that can be used as input to a given recipe slot. Used to only allow specific inputs to slots on screens.
+    - `SelectableRecipe` - A record that holds the slot display and its associated recipe. Currently only used for the stonecutting menu.
+    - `SimpleCookingSerializer` -> `AbstractCookingRecipe$Serializer`
+    - `SingleItemRecipe` no longer takes in the `RecipeType` or `RecipeSerializer`
+        - `ingredient`, `result`, `group` is now private
+        - `input`, `result` - The slots of the recipe.
+- `net.minecraft.world.item.crafting.display`
+    - `RecipeDisplay` - A display handler to show the contents of a recipe.
+    - `RecipeDisplayEntry` - A record that links the recipe display to its identifier, category, and crafting requirements.
+    - `RecipeDisplayId` - An identifier for the recipe display.
+    - `SlotDisplay` - A display handler to show the contents of a slot within a recipe.
+- `net.minecraft.world.level.Level#getRecipeManager` -> `recipeAccess`, returns `RecipeAccess` on level but `RecipeManager` on `ServerLevel`
+- `net.minecraft.world.level.block.CrafterBlock#getPotentialResults` now takes in a `ServerLevel` instead of a `Level`
+- `net.minecraft.world.level.block.entity.CampfireBlockEntity`
+    - `getCookableRecipe` is removed
+    - `placeFood` now takes in a `ServerLevel` instead of a `Level`
+
+## Minor Migrations
+
+The following is a list of useful or interesting additions, changes, and removals that do not deserve their own section in the primer.
+
+### Language File Removals and Renames
+
+All removals and renames to translations keys within `assets/minecraft/lang` are now shown in a `deprecated.json`.
 
 ### Critereons, Supplied with HolderGetters
 
@@ -1648,6 +1869,7 @@ Fog methods for individual values have been replaced with a `FogParameters` data
     - `field_masoned`
 - `minecraft:block`
     - `bats_spawnable_on`
+    - `pale_oak_logs`
 - `minecraft:damage_type`
     - `mace_smash`
 - `minecraft:item`
@@ -1673,6 +1895,8 @@ Fog methods for individual values have been replaced with a `FogParameters` data
     - `shulker_boxes`
     - `bundles`
     - `map_invisibility_equipment`
+    - `pale_oak_logs`
+    - `gaze_disguise_equipment`
 - `minecraft:entity_type`
     - `boat`
 
@@ -1959,9 +2183,11 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `Minecraft`
         - `saveReport` - Saves a crash report to the given file.
         - `triggerResourcePackRecovery` - A function that attempts to save the game when a compilation exception occurs, currently used by shaders when loading.
+    - `Options#highContrastBlockOutline` - When enabled, provides a greater contrast when hovering over a block in range.
     - `ScrollWheelHandler` - A handler for storing information when a mouse wheel is scrolled.
 - `ItemSlotMouseAction` - An interface that defines how the mouse interacts with a slot when hovering over.
 - `net.minecraft.client.gui.components`
+    - `AbstractSelectionList#setSelectedIndex` - Sets the selected entry based on its index.
     - `AbstractWidget#playButtonClickSound` - Plays the button click sound.
     - `DebugScreenOverlay#getProfilerPieChart` - Gets the pie chart profiler renderer.
 - `net.minecraft.client.gui.components.debugchart.AbstractDebugChart#getFullHeight` - Returns the height of the rendered chart.
@@ -1996,6 +2222,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `onSectionBecomingNonEmpty` - Updates the section when it has data.
     - `PlayerInfo#setTabListOrder`, `getTabListOrder` - Handles the order of players to cycle through in the player tab.
 - `net.minecraft.client.multiplayer.chat.report.ReportReason#getIncompatibleCategories` - Gets all reasons that cannot be reported for the given type.
+- `net.minecraft.client.particle.TrailParticle` - A particle to trail from its current position to the target position.
 - `net.minecraft.client.player.LocalPlayer#getDropSpamThrottler` - Returns a throttler that determines when the player can drop the next item.
 - `net.minecract.client.renderer`
     - `CloudRenderer` - Handles the rendering and loading of the cloud texture data.
@@ -2045,19 +2272,24 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `getYRot` - Returns the Y rotation of a given direction.
         - `getNearest` - Returns the nearest direction given some XYZ coordinate, or the fallback direction if no direction is nearer.
         - `getUnitVec3` - Returns the normal unit vector.
+        - `$Axis#getPositive`, `getNegative`, `getDirections` - Gets the directions along the axis.
     - `HolderLookup$Provider`
         - `listRegistries` - Returns the registry lookups for every registry.
         - `allRegistriesLifecycle` - Returns the lifecycle of all registries combined.
     - `HolderSet#isBound` - Returns whether the set is bound to some value.
+    - `Registry$PendingTags#size` - Gets the number of tags to load.
 - `net.minecraft.core.component`
     - `DataComponentHolder#getAllOfType` - Returns all data components that are of the specific class type.
     - `DataComponentPredicate`
         - `someOf` - Constructs a data component predicate where the provided map contains the provided component types.
         - `$Builder#expect` - Adds that we should expect the data component has some value.
     - `PatchedDataComponentMap#clearPatch` - Clears all patches to the data components on the object.
+- `net.minecraft.core.particles.TargetColorParticleOption` - A particle option that specifies a target location and a color of the particle.
 - `net.minecraft.data.DataProvider`
     - `saveAll` - Writes all values in a resource location to value map to the `PathProvider` using the provided codec.
     - `saveStable` - Writes a value to the provided path given the codec.
+- `net.minecraft.data.loot.BlockLootSubProvider#createMossyCarpetBlockDrops` - Creates a loot table for a mossy carpet block.
+- `net.minecraft.data.worldgen.Pools#createKey` - Creates a `ResourceKey` for a template pool.
 - `net.minecraft.data.models.EquipmentModelProvider` - A model provider for equipment models, only includes vanilla bootstrap.
 - `net.minecraft.data.info.DatapackStructureReport` - A provider that returns the structure of the datapack.
 - `net.minecraft.gametest.framework`
@@ -2077,13 +2309,19 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
 - `net.minecraft.network.codec.ByteBufCodecs`
     - `CONTAINER_ID` - A stream codec to handle menu identifiers.
     - `ROTATION_BYTE` - A packed rotation into a byte.
-    - `LONG` - A codec for a long, or 64 bytes.
+    - `LONG` - A stream codec for a long, or 64 bytes.
+    - `OPTIONAL_VAR_INT` - A stream codec for an optional integer, serializing `0` when not present, or one above the stored value.
+        - `-1` cannot be sent properly using this stream codec.
+- `net.minecraft.network.protocol.game`
+    - `ClientboundEntityPositionSyncPacket` - A packet that syncs the entity's position.
+    - `ClientboundPlayerRotationPacket` - A packet that contains the player's rotation.
 - `net.minecraft.server`
     - `MinecraftServer`
         - `tickConnection` - Ticks the connection for handling packets.
         - `reportPacketHandlingException` - Reports a thrown exception when attempting to handle a packet
         - `pauseWhileEmptySeconds` - Determines how many ticks the server should be paused for when no players are on.
     - `SuppressedExceptionCollector` - A handler for exceptions that were supressed by the server.
+- `net.minecraft.server.commands.LookAt` - An interface that defines what should happen to an entity when the command is run, typically moving it to look at another.
 - `net.minecraft.server.level`
     - `ChunkTaskDispatcher` - A task scheduler for chunks.
     - `DistanceManager`
@@ -2114,6 +2352,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `easeInOutSine` - A cosine function that starts at (0,0) and alternates between 1 and 0 every pi.
         - `packDegrees`, `unpackDegrees` - Stores and reads a degree in `float` form to a `byte`.
     - `RandomSource#triangle` - Returns a random `float` between the two `floats` (inclusive, exclusive) using a trangle distribution.
+    - `StringRepresentable$EnumCodec#byName` - Gets the enum by its string name or the provided supplier value if null.
     - `TriState` - An enum that represents three possible states: true, false, or default.
 - `net.minecraft.util.datafix.ExtraDataFixUtils`
     - `patchSubType` - Rewrites the second type to the third type within the first type.
@@ -2137,6 +2376,9 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `getLootTable` - Returns the `ResourceKey` of the loot table the entity should use, if present.
         - `isControlledByOrIsLocalPlayer` - Return whether the entity is the local player or is controlled by a local player.
         - `shouldPlayLavaHurtSound` - When `true`, plays the lava hurt sound when the entity is hurt by lava.
+        - `onRemoval` - A method that gets called when the entity is removed.
+        - `cancelLerp` - Stops any lerped movement.
+        - `forceSetRotation` - Sets the rotation of the entity.
     - `EntityType`
         - `getDefaultLootTable` now returns an `Optional` in case the loot table is not present
         - `$Builder#noLootTable` - Sets the entity type to have no loot spawn on death.
@@ -2151,6 +2393,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `canPickUpLoot` - Returns whether the entity can pick up items.
         - `dropFromGiftLootTable` - Resolves a loot table with a gift context.
         - `handleExtraItemsCreatedOnUse` - Handles when a living entity gets a new item as a result of using another item.
+        - `isLookingAtMe` - Checks whether the provided entity is looking at this entity.
     - `PositionMoveRotation` - A helper for handling the position and rotation of the entity in context.
     - `WalkAnimationState#stop` - Stops the walking animation of the entity.
 - `net.minecraft.world.entity.ai.attributes`
@@ -2234,8 +2477,11 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `getBlockAndLiquidCollisions` - Returns the block and liquid collisions of the entity within the bounding box.
         - `clipIncludingBorder` - Gets the block hit result for the specified clip context, clamped by the world border if necessary.
     - `EmptyBlockAndTintGetter` - A dummy `BlockAndTintGetter` instance.
+    - `GameType#isValidId` - Checks whether the id matches an existing game type.
     - `LevelHeightAccessor#isInsideBuildHeight` - Returns whether the specified Y coordinate is within the bounds of the level.
-- `net.minecraft.world.level.block.Block#UPDATE_SKIP_SHAPE_UPDATE_ON_WIRE` - A block flag that, when enabled, does not update the shape of a redstone wire.
+- `net.minecraft.world.level.block`
+    - `Block#UPDATE_SKIP_SHAPE_UPDATE_ON_WIRE` - A block flag that, when enabled, does not update the shape of a redstone wire.
+    - `BonemealableFeaturePlacerBlock` - A block that places a configured feature and can be bonemealed.
 - `net.minecraft.world.level.block.entity.trialspawner.TrialSpawnerData#resetStatistics` - Resets the data of the spawn to an empty setting, but does not clear the current mobs or the next spawning entity.
 - `net.minecraft.world.level.block.piston.PistonMovingBlockEntity#getPushDirection` - Returns the push direction of the moving piston.
 - `net.minecraft.world.level.block.state`
@@ -2256,6 +2502,12 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
 - `net.minecraft.world.level.levelgen`
     - `SurfaceRules$Context#getSeaLevel`, `SurfaceSystem#getSeaLevel` - Gets the sea level of the generator settings.
     - `WorldOptions#testWorldWithRandomSeed` - Creates a test world with a randomly generated seed.
+- `net.minecraft.world.level.levelgen.feature.treedecorators.TreeDecorator$Context#checkBlock` - Checks if the block at the given position matches the predicate.
+- `net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate`
+    - `getJigsaws` - Returns the jigsaw blocks that are at the provided position with the given rotation.
+    - `getJointType` - Returns the joint type of the jigsaw block.
+    - `$JigsawBlockInfo` - A record which contains the block info for a jigsaw block.
+        - Most methods that involve jigsaws have replaced the `$StructureBlockInfo` with a `$JigsawBlockInfo`.
 - `net.minecraft.world.level.lighting.LayerLightSectionStorage#lightOnInColumn` - Returns whether there is light in the zero node section position.
 - `net.minecraft.world.level.pathfinder.PathFinder#setMaxVisitedNodes` - Sets the maximum number of nodes that can be visited.
 - `net.minecraft.world.level.portal`
@@ -2299,13 +2551,21 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `Options#setModelPart` is now public, replaces `toggleModelPart` but without broadcasting the change
     - `ParticleStatus` -> `net.minecraft.server.level.ParticleStatus`
 - `net.minecraft.client.animation.KeyframeAnimations#animate` now takes in a `Model` instead of a `HierarchicalModel`
-- `net.minecraft.client.gui.components.PlayerFaceRenderer#draw(GuiGraphics, ResourceLocation, int, int, int, int)` takes in a `PlayerSkin` instead of a `ResourceLocation`
+- `net.minecraft.client.gui.Font$StringOutput` now takes in the `Font` and an optional background color
+    - `finish` no longer has in any parameters
+- `net.minecraft.client.gui.components`
+    - `AbstractSelectionList`
+        - `replaceEntries` is now public
+        - `getRowTop`, `getRowBottom` is now public
+    - `PlayerFaceRenderer#draw(GuiGraphics, ResourceLocation, int, int, int, int)` takes in a `PlayerSkin` instead of a `ResourceLocation`
 - `net.minecraft.client.gui.components.toasts`
-    - `RecipeToast(RecipeHolder)` -> `RecipeToast(ItemStack, ItemStack)`
     - `Toast`
         - `Toast$Visibility render(GuiGraphics, ToastComponent, long)` -> `void render(GuiGraphics, Font, long)`
         - `slotCount` - `occupiedSlotCount`
     - `ToastComponent` -> `ToastManager`
+- `net.minecraft.client.gui.font.glyphs.BakedGlyph`
+    - `render` now takes in a single integer representing the color instead of four floats
+    - `$Effect` now takes in a single integer representing the color instead of four floats
 - `net.minecraft.client.gui.screens`
     - `LoadingOverlay#MOJANG_STUDIOS_LOGO_LOCATION` is now public
     - `Screen#renderBlurredBackground(float)` -> `renderBlurredBackground()`
@@ -2368,6 +2628,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `update` now takes in a `LongOpenHashSet` that holds the currently loaded section nodes
         - `$GraphState` is now package-private
         - `addSectionsInFrustum` now takes in a list to add the render sections to
+    - `ShapeRenderer#renderShape` now takes in a single integer for the color instead of four floats
     - `ViewArea`
         - `repositionCamera` now takes in the `SectionPos` instead of two `double`s
         - `getRenderSectionAt` -> `getRenderSection`
@@ -2446,10 +2707,12 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
 - `net.minecraft.network.protocol.login.ClientboundGameProfilePacket` -> `ClientboundLoginFinishedPacket`
 - `net.minecraft.network.protocol.game`
     - `ClientboundMoveEntityPacket#getyRot`, `getxRot` now returns a `float` of the degrees
-    - `ClientboundPlayerPositionPacket` is now a record, delta movement as well
+    - `ClientboundPlayerPositionPacket` is now a record, taking in a `PositionMoverotation` representing the change
+        - `relativeArguments` -> `relatives`
+        - `yRot`, `xRot` -> `ClientboundPalyerRotationPacket`
     - `ClientboundSetTimePacket` is now a record
     - `ClientboundRotateHeadPacket#getYHeadRot` now returns a `float` of the degrees
-    - `ClientboundTeleportEntityPacket#getyRot`, `getxRot` now returns a `float` of the degrees
+    - `ClientboundTeleportEntityPacket` is now a record, where the necessary parameters are passed into the packet instead of the entity
     - `ServerboundPlayerInputPacket` is now a record, taking in an `Input`
 - `net.minecraft.resources.RegistryDataLoader$Loader#loadFromNetwork` now takes in a `$NetworkedRegistryData`, which contains the packed registry entries
 - `net.minecraft.server`
@@ -2474,11 +2737,13 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `teleportTo` takes in a `boolean` that determines whether the camera should be set
         - `INTERACTION_DISTANCE_VERIFICATION_BUFFER` -> `BLOCK_INTERACTION_DISTANCE_VERIFICATION_BUFFER`
             - Also splits into `ENTITY_INTERACTION_DISTANCE_VERIFICATION_BUFFER` set to 3.0
+        - `findRespawnPositionAndUseSpawnBlock` now deals with `TeleportTransition`
     - `TextFilterClient` -> `ServerTextFilter`
     - `ThreadedLevelLightEngine` now takes in a `ConsecutiveExecutor` and `ChunkTaskDispatcher` instead of a `ProcessorMailbox` and a `ProcessorHandle`, respectively
 - `net.minecraft.server.packs.resources.ProfiledReloadInstance$State` is now a record
 - `net.minecraft.tags`
-    - `TagLoader`
+    - `TagEntry$Lookup#element` now takes in a `boolean` representing if the element is required
+    - `TagLoader` now takes in an `$ElementLookup`, which functions the same as its previous function parameter
         - `build` now returns a value of lists
         - `loadAndBuild` -> `loadTagsFromNetwork`, `loadTagsForExistingRegistries`, `loadTagsForRegistry`, `buildUpdatedLookups`
     - `TagNetworkSerialization$NetworkPayload`
@@ -2486,6 +2751,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `applyToRegistry` -> `resolve`
 - `net.minecraft.util`
     - `FastColor` -> `ARGB`
+        - `scaleRGB` overload with an alpha integer and three floats.
     - `Mth#color` -> `ARGB#color`
 - `net.minecraft.util.profiling.metrics.MetricCategory#MAIL_BOXES` -> `CONSECUTIVE_EXECUTORS`
 - `net.minecraft.util.thread`
@@ -2493,6 +2759,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `ProcessorMailbox` no longer implements `AutoCloseable`
 - `net.minecraft.util.worldupdate.WorldUpgrader` implements `AutoCloseable`
 - `net.minecraft.world.LockCode` now takes in an `ItemPredicate` instead of a `String` representing the item name
+    - `addToTag`, `fromTag` now takes in a `HolderLookup$Provider`
 - `net.minecraft.world.effect`
     - `MobEffect#applyEffectTick`, `applyInstantenousEffect`, `onMobRemoved`, `onMobHurt` now takes in the `ServerLevel`
     - `MobEffectInstance#onMobRemoved`, `onMobHurt` now takes in the `ServerLevel`
@@ -2515,6 +2782,9 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `teleportSetPosition` now public and takes in a `PositionMoveRotation` and `Relative` set instead of the `DimensionTransition`
         - `createCommandSourceStack` -> `createCommandSourceStackForNameResolution`, not one to one as it takes in the `ServerLevel`
         - `mayInteract` now takes in the `ServerLevel` instead of just the `Level`
+        - `setOldRot` is now public
+        - `changeDimension` -> `teleport`, returns `ServerPlayer` given `TeleportTransition`
+        - `canChangeDimensions` -> `canTeleport`
     - `EntitySpawnReason#SPAWN_EGG` -> `SPAWN_ITEM_USE`, not one-to-one as this indicates the entity can be spawned from any item
     - `EntityType`
         - `create`, `loadEntityRecursive`, `loadEntitiesRecursive`, `loadStaticEntity` now takes in an `EntitySpawnReason`
@@ -2538,6 +2808,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `dropExperience` now takes in the `ServerLevel`
         - `dropFromLootTable` now takes in the `ServerLevel`
         - `actuallyHurt`, `doHurtTarget` now takes in the `ServerLevel`
+        - `hasLineOfSight` overload with clip contexts and a eye y supplier
     - `Mob`
         - `pickUpItem`, `wantsToPickUp` now takes in the `ServerLevel`
         - `equipItemIfPossible` now takes in the `ServerLevel`
@@ -2546,6 +2817,10 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `NeutralMob`
         - `isAngryAt`, `isAngryAtAllPlayers` now takes in the `ServerLevel`
         - `playerDied` now takes in the `ServerLevel`
+    - `PortalProcessor#getPortalDestination` now returns a `TeleportTransition`
+    - `PositionMoveRotation`
+        - `of(ClientboundPlayerPositionPacket)` -> `ofEntityUsingLerpTarget(Entity)`
+        - `of(DimensionTransition)` -> `of(TeleportTransition)`
     - `Shearable#shear` now takes in the `ServerLevel` and `ItemStack` that is shearing the entity
     - `RelativeMovement` -> `Relative`, expanded to contain delta movement
     - `WalkAnimationState#update` now takes in an additional `float` representing the position scale when moving.
@@ -2554,6 +2829,8 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - Both are functional interfaces that replace the previous functions/predicates, though with an extra `ServerLevel` parameter
     - `StopAttackingIfTargetInvalid` now takes in a `$TargetErasedCallback` and/or a `$StopAttackCondition`
         - Both are functional interfaces that replace the previous consumers/predicates, though with an extra `ServerLevel` parameter
+    - `MeleeAttack#create` can now take in a predicate to test the mob for
+    - `Swim` now takes in a generic representing the mob
 - `net.minecraft.world.entity.ai.control.LookControl#rotateTowards` -> `Control#rotateTowards`
 - `net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal` now takes in a `$Selector`
      - It is a functional interface that replaces the previous predicate, though with an extra `ServerLevel` parameter
@@ -2621,6 +2898,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
 - `net.minecraft.world.item.crafting.ShulkerBoxColoring` -> `TransmuteRecipe`, expanded to copy any data stored on the item to the result item
 - `net.minecraft.world.item.enchantment.EnchantmentHelper`
     - `onProjectileSpawned` now takes in a `Projectile` instead of an `AbstractArrow`
+- `net.minecraft.world.item.enchantment.effects.DamageItem` -> `ChangeItemDamage`
 - `net.minecraft.world.level`
     - `GameRules` takes in a `FeatureFlagSet` during any kind of construction
         - `$IntegerValue#create` takes in a `FeatureFlagSet`
@@ -2644,7 +2922,10 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `$BlockStatePairKey` -> `FlowingFluid$BlockStatePairKey`, now package private
         - `getDescriptionId` -> `BlockBehaviour#getDescriptionId`, also a protected field `descriptionId`
     - `ChestBlock` constructor switched its parameter order
-- `net.minecraft.world.level.block.entity.BrushableBlockEntity`
+    - `Portal#getPortalDestination` now returns `TeleportTransition`
+- `net.minecraft.world.level.block.entity`
+    - `AbstractFurnaceBlockEntity#serverTick` now takes in a `ServerLevel` instead of a `Level`
+    - `BrushableBlockEntity`
         - `brush` now takes in the level and stack performing the brushing behavior
         - `unpackLootTable` is now private
         - `checkReset` now takes in the server level
@@ -2677,6 +2958,7 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `BlendingData` now has a packed and unpacked state for serializing the interal data as a simple object
 - `net.minecraft.world.level.levelgen.material.MaterialRuleList` now takes in an array instead of a list
 - `net.minecraft.world.level.levelgen.placement.PlacementContext#getMinBuildHeight` -> `getMinY`
+- `net.minecraft.world.level.levelgen.structure.pools.StructurePoolElement#getShuffledJigsawBlocks` now returns a `StructureTemplate$JigsawBlockInfo`
 - `net.minecraft.world.level.lighting`
     - `LevelLightEngine#lightOnInSection` -> `lightOnInColumn`
     - `LightEngine`
@@ -2696,13 +2978,13 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
         - `tick` and `randomTick` now take in the `ServerLevel`
     - `MapColor#calculateRGBColor` -> `calculateARGBColor`
 - `net.minecraft.world.level.portal`
-    - `DimensionTransition`
+    - `DimensionTransition` -> `TeleportTransition`
         - `pos` -> `position`
         - `speed` -> `deltaMovement`
         - The constructor can now take in a set of `Relatives` to indicate in what motions should the positions be moved relative to another
     - `PortalShape#createPortalBlocks` now takes in a `LevelAccessor`
 - `net.minecraft.world.level.saveddata.SavedData#save(File, HolderLookup$Provider)` now returns `CompoundTag`, not writing the data to file in the method
-- `net.minecraft.world.level.storage
+- `net.minecraft.world.level.storage`
     - `DimensionDataStorage` now implements `AutoCloseable`
         - The constructor takes in a `Path` instead of a `File`
         - `save` -> `scheduleSave` and `saveAndJoin`
@@ -2793,11 +3075,10 @@ To prevent the player from spamming certain actions, `TickThrottler` was added. 
     - `BannerPatternItem#getDisplayName`
     - `ItemStack#LIST_STREAM_CODEC`
 - `net.minecraft.world.level.BlockGetter#getMaxLightLevel`
+- `net.minecraft.world.level.block.entity.JigsawBlockEntity$JointType#byName`
 - `net.minecraft.world.level.block.state.BlockBehaviour#isOcclusionShapeFullBlock`
 - `net.minecraft.world.level.chunk.ChunkAccess#setBlendingData`
 - `net.minecraft.world.level.storage.loot.LootDataType#deserialize`
 - `net.minecraft.world.phys.AABB#getBottomCenter`
 - `net.minecraft.world.phys.shapes.Shapes#getFaceShape`
 - `net.minecraft.world.ticks.SavedTick#saveTick`
-
-TODO: Continue from `LockCode`
