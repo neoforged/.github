@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.2-pre1&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.2-pre2&tab=changelog).
 
 ## The Holder Set Transition
 
@@ -317,6 +317,7 @@ RenderSystem.setShader(MY_SHADER);
 ShaderStateShard MY_SHARD = new ShaderStateShard(MY_SHADER);
 ```
 
+- `com.mojang.blaze3d.ProjectionType` - An enum which holds the logic for how a projection matrix should be rendered.
 - `com.mojang.blaze3d.buffers`
     - `BufferType` - An enum that specifies the GL target buffer type.
     - `GpuBuffer` - A wrapper around the GL buffer calls for handling the rendering of the screen.
@@ -339,6 +340,8 @@ ShaderStateShard MY_SHARD = new ShaderStateShard(MY_SHADER);
     - `setShader` now takes in the `CompiledShaderProgram`, or `ShaderProgram`
     - `clearShader` - Clears the current system shader.
     - `runAsFancy` is removed, handled internally by `LevelRenderer#getTransparencyChain`
+    - `setProjectionMatrix` now takes in a `ProjectionType` than just the `VertexSorting`
+    - `getVertexSorting` -> `getProjectionType`; not one-to-one, but the `VertexSorting` is accessible on the `ProjectionType`
 - `com.mojang.blaze3d.vertex.VertexBuffer`
     - `drawWithShader` will now noop when passing in a null `CompiledShaderProgram`
     - `$Usage` -> `com.mojang.blaze3d.buffers.BufferUsage`
@@ -372,7 +375,9 @@ ShaderStateShard MY_SHARD = new ShaderStateShard(MY_SHADER);
         - `getName` is removed, replaced with `ShaderProgram#configId`
         - `process` no longer takes in the `DeltaTracker`
         - `$TargetBundle` - Handles the getting and replacement of resource handles within the chain.
-    - `RenderType#entityTranslucentCull`, `entityGlintDirect` is removed
+    - `RenderType`
+        - `entityTranslucentCull`, `entityGlintDirect` is removed
+        - `armorTranslucent` - A render type which renders armor that can have a translucent texture.
     - `ShaderDefines` - The defined values and flags used by the shader as constants.
     - `ShaderManager` - The resource listener that loads the shaders.
     - `ShaderProgram` - An identifier for a shader.
@@ -967,7 +972,7 @@ this.equipmentLayerRenderer.renderLayers(
 - `net.minecraft.world.item`
     - `AnimalArmorItem` no longer extends `ArmorItem`
         - The constructor no longer takes in a boolean indicating the overlay texture, as that is now part of the `EquipmentModel`
-        - The constructor can take in an optional `SoundEvent` of the equip sound
+        - The constructor can take in an optional `Holder<SoundEvent>` of the equip sound
         - The constructor can take in a `boolean` representing whether the armor should be damaged if the entity is hurt
         - `$BodyType` no takes in the allowed entities to wear the armor rather than the path factory to the texture
     - `ArmorItem` is no longer equipable
@@ -1002,6 +1007,7 @@ this.equipmentLayerRenderer.renderLayers(
         - `getCraftingRemainingItem`, `hasCraftingRemainingItem` -> `getCraftingRemainder`
     - `ItemNameBlockItem` class is removed, just a normal `Item` `useItemDescriptionPrefix` as a property
     - `ItemStack`
+        - `ITEM_NON_AIR_CODEC` -> `Item#CODEC`
         - `isValidRepairItem` - Returns whether the stack can be repaired by this stack.
         - `nextDamageWillBreak` - Checks if the next damage taken with break the item.
         - `getDescriptionId` -> `getItemName`, not one-to-one, as now it returns the full component
@@ -2363,7 +2369,9 @@ For a brief description, the context key system is effectively a general typed d
 - `net.minecraft.data.DataProvider`
     - `saveAll` - Writes all values in a resource location to value map to the `PathProvider` using the provided codec.
     - `saveStable` - Writes a value to the provided path given the codec.
-- `net.minecraft.data.loot#BlockLootSubProvider#createMossyCarpetBlockDrops` - Creates a loot table for a mossy carpet block.
+- `net.minecraft.data.loot#BlockLootSubProvider`
+    - `createMossyCarpetBlockDrops` - Creates a loot table for a mossy carpet block.
+    - `createShearsOrSlikTouchOnlyDrop` - Creates a loot table that can only drop its item when mined with shears or an item with the silk touch enchantment.
 - `net.minecraft.data.worldgen.Pools#createKey` - Creates a `ResourceKey` for a template pool.
 - `net.minecraft.data.models.EquipmentModelProvider` - A model provider for equipment models, only includes vanilla bootstrap.
 - `net.minecraft.data.info.DatapackStructureReport` - A provider that returns the structure of the datapack.
@@ -2455,6 +2463,7 @@ For a brief description, the context key system is effectively a general typed d
         - `onRemoval` - A method that gets called when the entity is removed.
         - `cancelLerp` - Stops any lerped movement.
         - `forceSetRotation` - Sets the rotation of the entity.
+        - `isControlledByClient` - Returns whether the entity is controlled by client inputs.
     - `EntityType`
         - `getDefaultLootTable` now returns an `Optional` in case the loot table is not present
         - `$Builder#noLootTable` - Sets the entity type to have no loot spawn on death.
@@ -2822,6 +2831,7 @@ For a brief description, the context key system is effectively a general typed d
     - `TextFilterClient` -> `ServerTextFilter`
     - `ThreadedLevelLightEngine` now takes in a `ConsecutiveExecutor` and `ChunkTaskDispatcher` instead of a `ProcessorMailbox` and a `ProcessorHandle`, respectively
 - `net.minecraft.server.packs.resources.ProfiledReloadInstance$State` is now a record
+- `net.minecraft.sounds.SoundEvent` is now a record
 - `net.minecraft.tags`
     - `TagEntry$Lookup#element` now takes in a `boolean` representing if the element is required
     - `TagLoader` now takes in an `$ElementLookup`, which functions the same as its previous function parameter
@@ -2890,6 +2900,7 @@ For a brief description, the context key system is effectively a general typed d
         - `dropFromLootTable` now takes in the `ServerLevel`
         - `actuallyHurt`, `doHurtTarget` now takes in the `ServerLevel`
         - `hasLineOfSight` overload with clip contexts and a eye y supplier
+        - `makePoofParticles` is now public
     - `Mob`
         - `pickUpItem`, `wantsToPickUp` now takes in the `ServerLevel`
         - `equipItemIfPossible` now takes in the `ServerLevel`
