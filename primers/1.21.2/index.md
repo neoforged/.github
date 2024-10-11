@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.2-pre2&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.2-pre3&tab=changelog).
 
 ## The Holder Set Transition
 
@@ -1797,6 +1797,7 @@ public static final RecipeBookCategory EXAMPLE_CATEGORY = Registry.register(
         - `handlePlacement` is now abstract and returns a `$PostPlaceAction`, taking in an additional `ServerLevel`
             - This remove all basic placement recipes calls, as that would be handled internally by the `ServerPlaceRecipe`
     - `RecipeCraftingHolder#setRecipeUser` no longer takes in a `Level`
+    - `SmithingMenu#hasRecipeError` - Returns whether the recipe had an error when placing items in the inventory.
 - `net.minecraft.world.item.crafting`
     - `AbstractCookingRecipe` now implements `SingleItemRecipe`
         - The constructor no longer takes in the `RecipeType`, making the user override the `getType` method
@@ -2525,6 +2526,7 @@ For a brief description, the context key system is effectively a general typed d
     - `applyOnProjectileSpawned` - Applies any additional configurations from the given level and `ItemStack`.
     - `onItemBreak` - Handles what happens when the item that shot the projectile breaks.
     - `shouldBounceOnWorldBorder` - Returns whether the projectile should bounce off the world border.
+    - `setOwnerThroughUUID` - Set the owner of the projectile by querying it through its UUID.
     - `$ProjectileFactory` - Defines how a projectile is spawned from some `ItemStack` by an entity.
 - `net.minecraft.world.entity.vehicle`
     - `AbstractBoat` - An entity that represents a boat.
@@ -2581,7 +2583,10 @@ For a brief description, the context key system is effectively a general typed d
 - `net.minecraft.world.level.border.WorldBorder#clampVec3ToBound` - Clamps the vector to within the world border.
 - `net.minecraft.world.level.chunk`
     - `ChunkSource#onSectionEmptinessChanged` - Updates the section when it has data.
-    - `LevelChunkSection#copy` - Makes a shallow copy of the chunk section.
+    - `LevelChunkSection`
+        - `copy` - Makes a shallow copy of the chunk section.
+        - `setUnsavedListener` - Adds a listener which takes in the chunk position whenever the chunk is marked dirty.
+        - `$UnsavedListener` - A consumer of a chunk position called when the chunk is marked dirty.
     - `PalettedContainerRO#copy` - Creates a shallow copy of the `PalettedContainer`.
     - `UpgradeData#copy` - Creates a deep copy of `UpgradeData`.
 - `net.minecraft.world.level.chunk.storage.IOWorker#store` - Stores the writes of the chunk to the worker.
@@ -2970,8 +2975,8 @@ For a brief description, the context key system is effectively a general typed d
         - `swapPaint` -> `setSelectedHotbarSlot`
         - `StackedContents` -> `StackedItemContents`
 - `net.minecraft.world.entity.projectile`
-    - `AbstractArrow#shotFromCrossbow` is removed
-    - `Projectile#setOwnerThroughUUID` - Set the owner of the projectile by querying it through its UUID.
+    - `AbstractArrow#inGround` -> `IN_GROUND`, now an `EntityDataAccessor`
+        - Protected accessible via `isInGround` and `setInGround`
     - `ThrowableItemProjectile` can now take in an `ItemStack` of the item thrown
 - `net.minecraft.world.entity.raid.Raid#getLeaderBannerInstance` -> `getOminousBannerInstance`
 - `net.minecraft.world.entity.vehicle`
@@ -3034,11 +3039,14 @@ For a brief description, the context key system is effectively a general typed d
     - `ChunkAccess`
         - `addPackedPostProcess` now takes in a `ShortList` instead of a single `short`
         - `getTicksForSerialization` now takes in a `long` of the game time
+        - `unsaved` is now private
+        - `setUnsaved` -> `markUnsaved`, `tryMarkSaved`
         - `$TicksToSave` -> `$PackedTicks`
     - `ChunkSource#setSpawnSettings` no longer takes in a `boolean` to determine whether to spawn friendlies
     - `LevelChunk#postProcessGeneration` now takes in a `ServerLevel`
     - `Palette#copy` now takes in a `PaletteResize`
 - `net.minecraft.world.level.chunk.status.WorldGenContext` now takes in an `Executor` or the main thread rather than a processor handle mail box
+    - The construtor also takes in a `LevelChunk$UnsavedListener` for when a chunk is marked as dirty
 - `net.minecraft.world.level.chunk.storage`
     - `ChunkSerializer` -> `SerializableChunkData`
     - `ChunkStorage#write` now takes in a supplied `CompoundTag` instead of the instance itself
@@ -3162,7 +3170,9 @@ For a brief description, the context key system is effectively a general typed d
     - `getHeadPartYOffset`
 - `net.minecraft.world.entity.monster.Zombie#supportsBreakDoorGoal`
 - `net.minecraft.world.entity.npc.Villager#setChasing`, `isChasing`
-- `net.minecraft.world.entity.projectile.ThrowableProjectile(EntityType, LivingEntity, Level)`
+- `net.minecraft.world.entity.projectile`
+    - `AbstractArrow#shotFromCrossbow`
+    - `ThrowableProjectile(EntityType, LivingEntity, Level)`
 - `net.minecraft.world.item`
     - `BannerPatternItem#getDisplayName`
     - `ItemStack#LIST_STREAM_CODEC`
