@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.2-pre3&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.2-pre4&tab=changelog).
 
 ## The Holder Set Transition
 
@@ -2582,6 +2582,7 @@ For a brief description, the context key system is effectively a general typed d
 - `net.minecraft.world.level.block.state.properties.Property#getInternalIndex` - Converts the provided boolean to a 0 when true, or 1 otherwise.
 - `net.minecraft.world.level.border.WorldBorder#clampVec3ToBound` - Clamps the vector to within the world border.
 - `net.minecraft.world.level.chunk`
+    - `ChunkAccess#canBeSerialized` - Returns true, allows the chunk to be written to disk.
     - `ChunkSource#onSectionEmptinessChanged` - Updates the section when it has data.
     - `LevelChunkSection`
         - `copy` - Makes a shallow copy of the chunk section.
@@ -2642,8 +2643,11 @@ For a brief description, the context key system is effectively a general typed d
     - `Options#setModelPart` is now public, replaces `toggleModelPart` but without broadcasting the change
     - `ParticleStatus` -> `net.minecraft.server.level.ParticleStatus`
 - `net.minecraft.client.animation.KeyframeAnimations#animate` now takes in a `Model` instead of a `HierarchicalModel`
-- `net.minecraft.client.gui.Font$StringOutput` now takes in the `Font` and an optional background color
-    - `finish` is now package private
+- `net.minecraft.client.gui.Font`
+    - `drawInBatch(String, float, float, int, boolean, Matrix4f, MultiBufferSource, Font.DisplayMode, int, int, boolean)` is removed and should use the `Component` replacement
+        - There is also a delegate that sets the inverse depth boolean to true by default for the `Component` `drawInBatch` method
+    - `$StringRenderOutput` now takes in the `Font`, an optional background color, and a boolean representing if inverse depth should be use when drawing the text
+    - `$StringRenderOutput#finish` is now package private
 - `net.minecraft.client.gui.components`
     - `AbstractSelectionList`
         - `replaceEntries` is now public
