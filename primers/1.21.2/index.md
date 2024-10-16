@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.2-pre4&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.2-pre5&tab=changelog).
 
 ## The Holder Set Transition
 
@@ -2355,11 +2355,13 @@ For a brief description, the context key system is effectively a general typed d
         - `getNearest` - Returns the nearest direction given some XYZ coordinate, or the fallback direction if no direction is nearer.
         - `getUnitVec3` - Returns the normal unit vector.
         - `$Axis#getPositive`, `getNegative`, `getDirections` - Gets the directions along the axis.
+    - `GlobalPos#isCloseEnough` - Returns whether the distance from this position to another block position in a dimension is within the given radius.
     - `HolderLookup$Provider`
         - `listRegistries` - Returns the registry lookups for every registry.
         - `allRegistriesLifecycle` - Returns the lifecycle of all registries combined.
     - `HolderSet#isBound` - Returns whether the set is bound to some value.
     - `Registry$PendingTags#size` - Gets the number of tags to load.
+    - `Vec3i#distChessboard` - Gets the maximum absolute distance between the vector components.
 - `net.minecraft.core.component`
     - `DataComponentHolder#getAllOfType` - Returns all data components that are of the specific class type.
     - `DataComponentPredicate`
