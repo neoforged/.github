@@ -65,11 +65,17 @@ As these changes are permeated throughout the entire codebase, they will be list
 
 ## Gui Render Types
 
-Gui rendering methods within `GuiGraphics` now take in a `Function<ResourceLocation, RenderType>` to determine how to render the image.
+Gui rendering methods within `GuiGraphics` now take in a `Function<ResourceLocation, RenderType>` to determine how to render the image. Also, `blit` methods now require the size of the PNG to be specified.
 
 ```java
 // For some GuiGraphics graphics
-graphics.blit(RenderType::guiTextured, ...);
+graphics.blit(
+    // How to render the texture
+    RenderType::guiTextured,
+    // The previous texture parameters
+    ...,
+    // The size of the PNG to use
+    256, 256);
 ```
 
 This means methods that provided helpers towards setting the texture or other properties that could be specified within a shader have been removed.
