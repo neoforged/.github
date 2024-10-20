@@ -1309,7 +1309,6 @@ Item exampleItem = new Item(new Item.Properties().component(DataComponents.CONSU
     // Can have multiple
     .onConsume(
         // Teleports the entity randomly in a 50 block radius
-        // NOTE: CURRENTLY BUGGED, only allows for 8 block raidus
         new TeleportRandomlyConsumeEffect(100f)
     )
     .build()
