@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.2-pre5&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.2-rc2&tab=changelog).
 
 ## The Holder Set Transition
 
@@ -2414,10 +2414,12 @@ For a brief description, the context key system is effectively a general typed d
     - `SuppressedExceptionCollector` - A handler for exceptions that were supressed by the server.
 - `net.minecraft.server.commands.LookAt` - An interface that defines what should happen to an entity when the command is run, typically moving it to look at another.
 - `net.minecraft.server.level`
+    - `ChunkHolder#hasChangesToBroadcast` - Returns whether there is any updates within the chunk to send to the clients.
     - `ChunkTaskDispatcher` - A task scheduler for chunks.
     - `DistanceManager`
         - `getSpawnCandidateChunks` - Returns all chunks that the player can spawn within.
         - `getTickingChunks` - Returns all chunks that are currently ticking.
+    - `ServerChunkCache#onChunkReadyToSend` - Adds a chunk holder to broadcast to a queue.
     - `ServerEntityGetter` - An entity getter interface implementation that operates upon the `ServerLevel`.
         - Replcaes the missing methods from `EntityGetter`
     - `ServerPlayer`
