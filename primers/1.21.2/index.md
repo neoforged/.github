@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.2-rc2&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.2&tab=changelog).
 
 ## The Holder Set Transition
 
