@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=24w45a&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=24w46a&tab=changelog).
 
 ## Client Items
 
@@ -366,7 +366,7 @@ SelectItemModelProperties.ID_MAPPER.put(
 
 ### Conditional Property Model
 
-Conditional property models, as defined by the `minecraft:condition` unbaked model type, are functionally similar to ranged property models, except now it switches on boolean. These are usually combined with range dispatch, such as when pulling the bow. The item property is defined via a `ConditionalItemModelProperty`, which takes in the stack, level, entity, and some seeded value to get a true of false statement. All properties can be found within `net.minecraft.client.renderer.item.properties.conditional.*` and are registered in `ConditionalItemModelProperties`, such as `minecraft:damaged`, for if the item is damaged, or `minecraft:has_component`, if it has a given data component.
+Conditional property models, as defined by the `minecraft:condition` unbaked model type, are functionally similar to ranged property models, except now it switches on boolean. These are usually combined with range dispatch, such as when pulling the bow. The item property is defined via a `ConditionalItemModelProperty`, which takes in the stack, level, entity,  some seeded value, and the current display context to get a true of false statement. All properties can be found within `net.minecraft.client.renderer.item.properties.conditional.*` and are registered in `ConditionalItemModelProperties`, such as `minecraft:damaged`, for if the item is damaged, or `minecraft:has_component`, if it has a given data component.
 
 ```json5
 // For some item 'examplemod:example_item'
@@ -392,7 +392,7 @@ Conditional property models, as defined by the `minecraft:condition` unbaked mod
 }
 ```
 
-To create your own `ConditionalItemModelProperty`, you need to implement the `get` method register the `MapCodec` associated for the `type` field. `get` takes in the stack, level, entity, and seeded value and returns a boolean to be interpreted by `on_true` and `on_false`, respectively.
+To create your own `ConditionalItemModelProperty`, you need to implement the `get` method register the `MapCodec` associated for the `type` field. `get` takes in the stack, level, entity, seeded value, and display context and returns a boolean to be interpreted by `on_true` and `on_false`, respectively.
 
 Then, the `MapCodec` needs to be registered to `ConditionalItemModelProperties#ID_MAPPER`, though this field is private by default, so some access changes or reflection needs to be applied.
 
@@ -417,7 +417,7 @@ public record TimePeriod(int month, MinMaxBounds.Ints dates, boolean enabled) im
     }
 
     @Override
-    public boolean get(ItemStack stack, @Nullable ClientLevel level, @Nullable LivingEntity entity, int seed) {
+    public boolean get(ItemStack stack, @Nullable ClientLevel level, @Nullable LivingEntity entity, int seed, ItemDisplayContext context) {
         return this.enabled;
     }
 
@@ -517,7 +517,9 @@ Special dynamic models, as defined by the `minecraft:special` unbaked model type
 
 To create your own `SpecialModelRenderer`, you need to implement both the renderer and the `$Unbaked` model to read the data from the JSON. The `$Unbaked` model creates the `SpecialModelRenderer` via `bake` and is registered using a `MapCodec` for its `type`. The `SpecialModelRenderer` then extracts the necessary data from the stack needed to render via `extractArgument` and passes that to the `render` method. If you do not need any information from the stack, you can implement `NoDataSpecialModelRenderer` instead.
 
-Then, the `MapCodec` needs to be registered to `SpecialModelRenderers#ID_MAPPER`, though this field is private by default, so some access changes or reflection needs to be applied. If your item is a held block, it also needs to be added to the `SpecialModelRenderers#STATIC_BLOCK_MAPPING` for specific rendering scenarios (e.g. in minecart, or picked up by endermen). As this map is immutable, you will either need to replace it or hook into `SpecialBlockModelRenderer` and somehow add to the stored map there.
+Then, the `MapCodec` needs to be registered to `SpecialModelRenderers#ID_MAPPER`, though this field is private by default, so some access changes or reflection needs to be applied.
+
+If your item is a held block, it also needs to be added to the `SpecialModelRenderers#STATIC_BLOCK_MAPPING` for specific rendering scenarios via `BlockRenderDispatcher#renderSingleBLock` (e.g. in minecart, or picked up by endermen). Both the default model renderer and the special model renderer are called in this method; allowing for both the static block model and the dynamic special model to be rendered at the same time. As this map is immutable, you will either need to replace it or hook into `SpecialBlockModelRenderer` and somehow add to the stored map there.
 
 ```java
 // The special renderer
@@ -739,6 +741,7 @@ ItemModels.ID_MAPPER.put(
     - `Minecraft`
         - `getEquipmentModels` is removed, only directly accessible in the `EntityRendererProvider$Context#getEquipmentAssets`
         - `getItemModelResolver` - Returns the updater for resolving the current model to be rendered in the `ItemStackRenderState$LayerRenderState`.
+    - `KeyMapping#get` - Gets a key mapping based on its translation key.
 - `net.minecraft.client.color.item`
     - `Constant` - A constant to tint the item texture.
     - `CustomModelDataSource` - Gets the color to tint based on an index in the `DataComponent#CUSTOM_MODEL_DATA` data component. If no index is found or is out of bounds, then the default color is used.
@@ -826,6 +829,7 @@ ItemModels.ID_MAPPER.put(
         - `getModel`, `resolveItemModel` is removed
     - `LivingEntityRenderer#itemRenderer` -> `itemModelResolver`, not one-to-one
     - `OminousItemSpawnerRenderer` now uses the `ItemClusterRenderState`
+    - `SkeletonRenderer#getArmPose` -> `AbstractSkeletonRenderer#getArmPose`
     - `SnowGolemRenderer` now uses the `SnowGolemRenderState`
 - `net.minecraft.client.renderer.entity.layers`
     - `CrossArmsItemLayer` now uses the `HoldingEntityRenderState`
@@ -885,13 +889,13 @@ ItemModels.ID_MAPPER.put(
     - `ConditionalItemModelProperty` - Represents a property that returns some boolean.
     - `CustomModelDataProperty` - If the current index is set to true within `DataComponents#CUSTOM_MODEL_DATA`.
     - `Damaged` - If the item is damaged.
+    - `ExtendedView` - If the display context is a gui and the shift key is down.
     - `FishingRodCast` - If the fishing rod is being used.
     - `HasComponent` - Whether it has the associated data component.
     - `IsCarried` - If the item is being carried in the current menu.
+    - `IsKeybindDown` - If the key mapping is being pressed.
     - `IsSelected` - If the item is selected in the hotbar.
-    - `IsShiftDown` - If the shift key is down.
     - `IsUsingItem` - If the item is being used.
-    - `IsXmas` - If the current time period is christmas.
 - `net.minecraft.client.renderer.item.properties.numeric`
     - `BundleFullness` - A threshold based on the bundle contents.
     - `CompassAngle` - A threshold on the currrent angle state.
@@ -911,24 +915,28 @@ ItemModels.ID_MAPPER.put(
     - `Charge` - A case based on the charge type of a crowssbow.
     - `CustomModelDataProperty` - If the current index is set to the string within `DataComponents#CUSTOM_MODEL_DATA`.
     - `DisplayContext` - A case based on the display context.
+    - `HolderType` - A case based on the holding entity's type.
     - `ItemBlockState` - A case based on getting a property value from an item holding the block state properties.
+    - `LocalTime` - A case based on a simple date format pattern.
     - `MainHand` - A case based on the arm holding the item.
     - `SelectItemModelProperties` - Contains all potential select-cased property types.
     - `SelectItemModelProperty` - Represents a property that returns some cased selection.
     - `TrimMaterialProperty` - A case based on the trim material on the item.
 - `net.minecraft.client.renderer.special`
-    - `BannerSpecialRenderer` - A item renderer for a banner.
-    - `BedSpecialRenderer` - A item renderer for a bed.
-    - `ChestSpecialRenderer` - A item renderer for a chest.
-    - `ConduitSpecialRenderer` - A item renderer for a conduit.
-    - `DecoratedPotSpecialRenderer` - A item renderer for a decorated pot.
-    - `NoDataSpecialModelRenderer` - A item renderer that does not need to read any data from the stack.
-    - `ShieldSpecialRenderer` - A item renderer for a shield.
-    - `ShulkerBoxSpecialRenderer` - A item renderer for a shulker box.
-    - `SkullSpecialRenderer` - A item renderer for a skull.
+    - `BannerSpecialRenderer` - An item renderer for a banner.
+    - `BedSpecialRenderer` - An item renderer for a bed.
+    - `ChestSpecialRenderer` - An item renderer for a chest.
+    - `ConduitSpecialRenderer` - An item renderer for a conduit.
+    - `DecoratedPotSpecialRenderer` - An item renderer for a decorated pot.
+    - `HangingSignSpecialRenderer` - An item renderer for a hanging sign.
+    - `NoDataSpecialModelRenderer` - An item renderer that does not need to read any data from the stack.
+    - `ShieldSpecialRenderer` - An item renderer for a shield.
+    - `ShulkerBoxSpecialRenderer` - An item renderer for a shulker box.
+    - `SkullSpecialRenderer` - An item renderer for a skull.
     - `SpecialModelRenderer` - Represents a model that reads data from the stack and renders the object without needing the render state.
     - `SpecialModelRenderers` - Contains all potential special renderers.
-    - `TridentSpecialRenderer` - A item renderer for a trident.
+    - `StandingSignSpecialRenderer` - An item renderer for a standing sign.
+    - `TridentSpecialRenderer` - An item renderer for a trident.
 - `net.minecraft.client.resources.model`
     - `BakedModel`
         - `isCustomRenderer` is removed, replaced by the special renderer system
@@ -1013,6 +1021,7 @@ ItemModels.ID_MAPPER.put(
     - `getBirchColor` -> `FOLIAGE_BIRCH`
     - `getDefaultColor` -> `FOLIAGE_DEFAULT`
     - `getMangroveColor` -> `FOLIAGE_MANGROVE`
+- `net.minecraft.world.level.block.RenderShape#ENTITYBLOCK_ANIMATED` is removed
 - `net.minecraft.world.level.block.entity`
     - `BannerBlockEntity#fromItem` is removed
     - `BedBlockEntitty#setColor` is removed
@@ -1084,6 +1093,35 @@ public class MyLoader extends SimpleJsonResourceReloadListener<ExampleObject> {
 - `net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener` now takes in a resource key for a registry, or a file to id converter instead of just a string
     - `scanDirectory` now takes in a resource key for a registry, or a file to id converter instead of just a string
 
+### MetadataSectionSerializer, replaced by Codecs
+
+`MetadataSectionSerializer` has been removed in favor of using `Codec`s to serialize the metadata sections. As such all `MetadataSectionSerializer`s have been replaced by its `MetadataSectionType` instead, which holds the name of the section and the codec for the metadata section.
+
+- `net.minecraft.client.renderer.texture`
+    - `HttpTexture` -> `SkinTextureDownloader`, not one-to-one as the new class is just a utility that returns the content to store
+    - `MissingTextureAtlasSprite`
+        - `getTexture` -> `generateMissingImage`, not one-to-one
+        - `getMissingImage(int, int)` is now public
+    - `SpriteLoader#loadAndStitch` now takes in a collection of `MetadataSectionType`s rather than `MetadataSectionSerializer`s
+- `net.minecraft.client.resources.SkinManager` no longer takes in the `TextureManager`
+    - `getOrLoad` now returns an `Optional<PlayerSkin>` future instead of just the `PlayerSkin`
+- `net.minecraft.client.resources.metadata.animation`
+    - `AnimationFrame` is now a record
+    - `AnimationMetadataSection` is now a record
+    - `AnimationMetadataSectionSerializer` class is removed
+    - `VillagerMetaDataSection` -> `VillagerMetadataSection`
+    - `VillagerMetadataSectionSerializer` class is removed
+- `net.minecraft.client.resources.metadata.texture`
+    - `TextureMetadataSection` is now a record
+    - `TextureMetadataSectionSerializer` class is removed
+- `net.minecraft.server.packs.PackResources#getMetadataSection` now takes in a `MetadataSectionType` instead of a `MetadataSectionSerializer`
+- `net.minecraft.server.packs.metadata`
+    - `MetadataSectionSerializer` is removed in favor of section codecs
+    - `MetadataSectionType` is a now a record instead of a `MetadataSectionSerializer` extension
+- `net.minecraft.server.packs.resources.ResourceMetadata`
+    - `getSection` now takes in a `MetadataSectionType` instead of a `MetadataSectionSerializer`
+    - `copySections` now takes in a collection of `MetadataSectionType`s instead of a `MetadataSectionSerializer`s
+
 ### Music, now with Volume Controls
 
 The background music is now handled through a `MusicInfo` class, which also stores the volume along with the associated `Music`.
@@ -1105,10 +1143,12 @@ The background music is now handled through a `MusicInfo` class, which also stor
     - `tall_flowers` -> `bee_attractive`
 - `minecraft:item`
     - `tall_flowers`, `flowers` is removed
-    - `skeleton_preferred_weapon`
-    - `drowned_preferred_weapon`
-    - `piglin_preferred_weapon`
-    - `pillager_preferred_weapon`
+    - `trim_templates` is removed
+    - `skeleton_preferred_weapons`
+    - `drowned_preferred_weapons`
+    - `piglin_preferred_weapons`
+    - `pillager_preferred_weapons`
+    - `wither_skeleton_disliked_weapons`
 
 ### List of Additions
 
@@ -1120,6 +1160,7 @@ The background music is now handled through a `MusicInfo` class, which also stor
 - `net.minecraft.client.gui.components.events.GuiEventListener#getBorderForArrowNavigation` - Returns the `ScreenRectangle` bound to the current direction.
 - `net.minecraft.client.gui.navigation.ScreenRectangle#transformAxisAligned` - Creates a new `ScreenRectangle` by transforming the position using the provided `Matrix4f`.
 - `net.minecraft.client.gui.narration.NarratableEntry#getNarratables` - Returns the list of narratable objects within the current object.
+- `net.minecraft.client.gui.screens.recipebook.RecipeCollection#EMPTY` - An empty collection of recipes.
 - `net.minecraft.client.gui.screens.worldselection`
     - `ExperimentsScreen$ScrollArea` - Represents a narratable scroll area of the currently available experiments.
     - `SwitchGrid#layout` - Returns the layout of the grid to visit.
@@ -1128,14 +1169,28 @@ The background music is now handled through a `MusicInfo` class, which also stor
     - `VillagerLikeModel#translateToArms` - Translates the pose stack such that the current relative position is at the entity's arms.
 - `net.minecraft.client.model.geom.EntityModelSet#vanilla` - Creates a new model set with all vanilla models. 
 - `net.minecraft.client.multiplayer.PlayerInfo#setShowHat`, `showHat` - Handles showing the hat layer of the player in the tab overlay.
-- `net.minecraft.client.renderer.blockentity.HangingSignRenderer`
-    - `$AttachmentType` - An enum which represents where the model is attached to, given its properies.
-    - `$ModelKey` - A key for the model that combines the `WoodType` with its `$AttachmentType`.
+- `net.minecraft.client.renderer.blockentity`
+    - `AbstractSignRenderer` - How a sign should render as a block entity.
+    - `HangingSignRenderer`
+        - `createSignModel` - Creates a sign model given the wood and the attachment location.
+        - `renderInHand` - Renders the model in the entity's hand.
+        - `$AttachmentType` - An enum which represents where the model is attached to, given its properies.
+        - `$ModelKey` - A key for the model that combines the `WoodType` with its `$AttachmentType`.
+    - `SignRenderer`
+        - `renderInHand` - Renders the model in the entity's hand.
 - `net.minecraft.client.renderer.entity.EntityRenderer#getShadowStrength` - Returns the raw opacity of the display's shadow.
 - `net.minecraft.client.renderer.entity.layers.CrossedArmsItemLayer#applyTranslation` - Applies the translation to render the item in the model's arms.
+- `net.minecraft.client.renderer.texture`
+    - `ReloadableTexture` - A texture that can be reloaded from its associated contents.
+    - `TextureContents` - Holds the image and metadata associated with a given texture.
+    - `TextureManager`
+        - `registerAndLoad` - Registers a reloadable texture with the given name.
+        - `registerForNextReload` - Registers a texture by its resource location to be loaded on next reload.
 - `net.minecraft.commands.SharedSuggestionProvider#MATCH_SPLITTER` - Defines a matcher that matches a period, underscore, or forward slash.
 - `net.minecraft.core.BlockPos$TraversalNodeStatus` - A marker indicating whether the `BlockPos` should be used, skipped, or stopped from any further traversal.
-- `net.minecraft.core.component.PatchedDataComponentMap#toImmutableMap` - Returns either the immutable patch or a copy of the current map.
+- `net.minecraft.core.component.PatchedDataComponentMap`
+    - `toImmutableMap` - Returns either the immutable patch or a copy of the current map.
+    - `hasNonDefault` - Returns whether there is a custom value for the data component instead of just the default.
 - `net.minecraft.data.PackOutput$PathProvider#json` - Gets the JSON path from a resource key.
 - `net.minecraft.data.loot.BlockLootSubProvider#createMultifaceBlockDrops` - Drops a block depending on the block face mined.
 - `net.minecraft.data.worldgen.placement.PlacementUtils#HEIGHTMAP_NO_LEAVES` - Creates a y placement using the `Heightmap$Types#MOTION_BLOCKING_NO_LEAVES` heightmap.
@@ -1155,8 +1210,11 @@ The background music is now handled through a `MusicInfo` class, which also stor
     - `Mob#getPreferredWeaponType` - Gets the tag that represents the weapons the entity wants to pick up.
 - `net.minecraft.world.entity.ai.attributes.AttributeMap#resetBaseValue` - Resets the attribute instance to its default value.
 - `net.minecraft.world.entity.monster.creaking`
-    - `Creaking#activate`, `deactivate` - Handles the activateion of the brain logic for the creaking.
-    - `CreakingTransient`
+    - `Creaking`
+        - `activate`, `deactivate` - Handles the activateion of the brain logic for the creaking.
+        - `setTransient`, `isTransient` - Handles the home position.
+        - `blameSourceForDamage` - Finds the player responsible for the damage.
+        - `tearDown` - Handles when the creaking is destroyed.
         - `creakingDeathEffects` - Handles the death of a creaking.
         - `playerIsStuckInYou` - Checks whether there are at least four players stuck in a creaking.
         - `setTearingDown`, `isTearingDown` - Handles the tearing down state.
@@ -1169,7 +1227,9 @@ The background music is now handled through a `MusicInfo` class, which also stor
     - `ItemStack`
         - `getCustomName` - Returns the custom name of the item, or `null` if no component exists.
         - `immutableComponents` - Returns either the immutable patch or a copy of the stack component map.
+        - `hasNonDefault` - Returns whether there is a custom value for the data component instead of just the default.
 - `net.minecraft.world.item.component.CustomData#parseEntityId` - Reads the entity id off of the component.
+- `net.minecraft.world.item.crafting.Ingredient#isEmpty` - Returns whether the ingredient has no values.
 - `net.minecraft.world.item.trading.Merchant#stillValid` - Checks whether the merchant can still be accessed by the player.
 - `net.minecraft.world.level`
     - `Level#dragonParts` - Returns the list of entities that are the parts of the ender dragon.
@@ -1208,6 +1268,9 @@ The background music is now handled through a `MusicInfo` class, which also stor
     - `AbstractWidget#clicked` -> `isMouseOver`, already exists
 - `net.minecraft.client.gui.components.toasts.TutorialToast` now requires a `Font` as the first argument in its constructor
 - `net.minecraft.client.gui.font.glyphs.BakedGlyph$Effect` and `$GlyphInstance` now take in the color and offset of the text shadow
+- `net.minecraft.client.gui.screens`
+    - `LoadingOverlay#registerTextures` now takes in a `TextureManager` instead of the `Minecraft` instance
+    - `TitleScreen#preloadResources` -> `registerTextures`, not one-to-one
 - `net.minecraft.client.gui.screens.debug.GameModeSwitcherScreen$GameModeSlot` is now a static inner class
 - `net.minecraft.client.gui.screens.reporting.ChatSelectionScreen$Entry`, `$PaddingEntry` are now static inner classes
 - `net.minecraft.client.gui.screens.worldselection.SwitchGrid$Builder#build` no longer takes in a `Consumer<LayoutElement>`
@@ -1219,6 +1282,7 @@ The background music is now handled through a `MusicInfo` class, which also stor
 - `net.minecraft.client.particle.CherryParticle` -> `FallingLeavesParticle`, not one-to-one as the new class has greater configuration for its generalization
 - `net.minecraft.client.player.ClientInput#tick` no longer takes in any parameters
 - `net.minecraft.client.renderer`
+    - `CubeMap#preload` -> `registerTextures`, not one-to-one
     - `LevelRenderer`
         - `renderLevel` no longer takes in the `LightTexture`
         - `onChunkLoaded` -> `onChunkReadyToRender`
@@ -1226,6 +1290,7 @@ The background music is now handled through a `MusicInfo` class, which also stor
         - `program` now returns the `ShaderProgram` with the given `programId`
     - `ScreenEffectRenderer#renderScreenEffect` now takes in a `MultiBufferSource`
     - `SectionOcclusionGraph#onChunkLoaded` -> `onChunkReadyToRender`
+    - `Sheets#createSignMaterial`, `createHangingSignMaterial` now has an overload that takes in a `ResourceLocation`
     - `SkyRenderer`
         - `renderSunMoonAndStars`, `renderSunriseAndSunset` now takes in a `MultiBufferSource$BufferSource` instead of a `Tesselator`
         - `renderEndSky` no longer takes in the `PoseStack`
@@ -1235,6 +1300,7 @@ The background music is now handled through a `MusicInfo` class, which also stor
     - `HangingSignRenderer`
         - `createHangingSignLayer` now takes in a `HangingSignRenderer$AttachmentType`
         - `$HangingSignModel` is now replaced with a `Model$Simple`, though its fields can be obtained from the root
+    - `SkullBlockRenderer#getRenderType` now has an overload that takes in a `ResourceLocation` to override representing the player's texture
 - `net.minecraft.client.renderer.entity.AbstractHorseRenderer`, `DonkeyRenderer` no longer takes in a float scale
 - `net.minecraft.client.renderer.entity.layers.CrossedArmsItemLayer` now requires the generic `M` to be a `VillagerLikeModel`
 - `net.minecraft.client.renderer.entity.state.CreakingRenderState#isActive` -> `eyesGlowing`
@@ -1264,24 +1330,30 @@ The background music is now handled through a `MusicInfo` class, which also stor
     - `LivingEntity`
         - `isLookingAtMe` no longer takes in a `Predicate<LivingEntity>`, and array of `DoubleSupplier`s is now an array of `double`s
         - `hasLineOfSight` takes in a double instead of a `DoubleSupplier`
-- `net.minecraft.world.entity.monster.creaking.CreakingTransient#tearDown` no longer takes in a `DamageSource`
+- `net.minecraft.world.entity.animal.Bee#attractsBees` is now public
 - `net.minecraft.world.entity.player`
     - `Inventory#setPickedItem` -> `addAndPickItem`
     - `Player#getPermissionLevel` is now public
+    - `StackedContents$IngredientInfo` is now an interface that acts like a predicate for accepting some item.
 - `net.minecraft.world.entity.projectile.FishingHook` no longer takes in the `ItemStack`
 - `net.minecraft.world.inventory.Slot#getNoItemIcon` now returns a single `ResourceLocation` rather than a pair of them
 - `net.minecraft.world.item`
     - `Item$TooltipContext#of` now takes in the `Player` viewing the item
     - `MobBucketItem` now requires a `Mob` entity type
+- `net.minecraft.world.item.crafting`
+    - `Ingredient` now implements `StackedContents$IngredientInfo<Holder<Item>>`
+        - `items` now returns a stream instead of a list
+    - `PlacementInfo#slotInfo` -> `slotsToIngredientIndex`, not one-to-one
 - `net.minecraft.world.level.Level#addParticle` now takes in a boolean representing if the particle should always be shown
 - `net.minecraft.world.level.block`
     - `Block#getCloneItemStack` -> `state.BlockBehaviour#getCloneItemStack`, now protected
     - `CherryLeavesBlock` -> `ParticleLeavesBlock`
     - `CreakingHeartBlock#canSummonCreaking` -> `isNaturalNight`
-    - `MultifaceBlock` is no longer abstract
+    - `MultifaceBlock` is no longer abstract and implements `SimpleWaterloggedBlock`
         - `getSpreader` -> `MultifaceSpreadeableBlock#getSpreader`
     - `SculkVeinBlock` is now an instance of `MultifaceSpreadeableBlock`
     - `SnowyDirtBlock#isSnowySetting` is now protected
+- `net.minecraft.world.level.block.entity.BeehiveBlockEntity#addOccupant` now takes in a `Bee` rather than an `Entity`
 - `net.minecraft.world.level.block.state.BlockBehaviour#getCloneItemStack`, `$BlockStateBase#getCloneItemStack` now takes in a boolean representing if there is infinite materials and whether the current block data should be saved.
 - `net.minecraft.world.level.chunk.ChunkGenerator#createStructures` now takes in the `Level` resource key, only used for profiling
 - `net.minecraft.world.level.levelgen.feature.configurations`
@@ -1295,6 +1367,7 @@ The background music is now handled through a `MusicInfo` class, which also stor
 - `net.minecraft.client.gui.components.AbstractSelectionList`
     - `clickedHeader`
     - `isValidMouseClick`
+- `net.minecraft.client.gui.screens.recipebook.RecipeCollection#hasSingleResultItem`
 - `net.minecraft.client.model`
     - `DrownedModel#getArmPose`, now part of the `ArmedEntityRenderState`
     - `FelineModel#CAT_TRANSFORMER`
@@ -1302,12 +1375,27 @@ The background music is now handled through a `MusicInfo` class, which also stor
     - `PlayerModel#getArmPose`, now part of the `ArmedEntityRenderState`
     - `SkeletonModel#getArmPose`, now part of the `ArmedEntityRenderState`
     - `VillagerModel#BABY_TRANSFORMER`
+- `net.minecraft.client.renderer.texture`
+    - `AbstractTexture`
+        - `load`
+        - `reset`
+    - `PreloadedTexture`
+    - `TextureManager`
+        - `getTexture(ResourceLocation, AbstractTexture)`
+        - `register(String, DynamicTexture)`
+        - `preload`
 - `net.minecraft.server.level.TicketType#POST_TELEPORT`
 - `net.minecraft.world.entity.LivingEntity#deathScore`
 - `net.minecraft.world.entity.ai.navigation.FlyingPathNavigation`, `GroundPathNavigation`
     - `canPassDoors`, `setCanPassDoors`
     - `canOpenDoors`
+- `net.minecraft.world.entity.monster.creaking.CreakingTransient`
+- `net.minecraft.world.entity.player.StackedItemContents#convertIngredientContents`
 - `net.minecraft.world.item.ItemStack#clearComponents`
+- `net.minecraft.world.item.crafting.PlacementInfo`
+    - `ingredientToContents`
+    - `unpackedIngredients`
+    - `$SlotInfo`
 - `net.minecraft.world.level.block.CreakingHeartBlock$CreakingHeartState`
 - `net.minecraft.world.level.block.entity.BlockEntity#onlyOpCanSetNbt`
 - `net.minecraft.world.level.block.entity.trialspawner.TrialSpawnerData#setEntityId`
