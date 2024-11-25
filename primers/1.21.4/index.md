@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.4-pre1&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.4-pre2&tab=changelog).
 
 ## Client Items
 
@@ -1337,8 +1337,10 @@ The background music is now handled through a `MusicInfo` class, which also stor
     - `ClientboundSetHeldSlotPacket` is now a record
     - `ServerboundMoveVehiclePacket` is now a record
     - `ServerboundPickItemPacket` -> `ServerboundPickItemFromBlockPacket`, `ServerboundPickItemFromEntityPacket`; not one-to-one
-- `net.minecraft.server.level.ServerLevel#sendParticles` now has an overload that takes in the override limiter distance and whether the particle should always be shown
-    - Other overloads that take in the override limiter now also take in the boolean for if the particle should always be shown
+- `net.minecraft.server.level
+    - `ServerLevel#sendParticles` now has an overload that takes in the override limiter distance and whether the particle should always be shown
+        - Other overloads that take in the override limiter now also take in the boolean for if the particle should always be shown
+    - `ServerPlayer#doCheckFallDamage` -> `Entity#doCheckFallDamage`
 - `net.minecraft.util`
     - `ARGB#from8BitChannel` is now private, with individual float components obtained from `alphaFloat`, `redFloat`, `greenFloat`, and `blueFloat`
     - `SpawnUtil#trySpawnMob` now takes in a boolean that, when false, allows the entity to spawn regardless of collision status with the surrounding area
@@ -1358,12 +1360,15 @@ The background music is now handled through a `MusicInfo` class, which also stor
     - `LivingEntity`
         - `isLookingAtMe` no longer takes in a `Predicate<LivingEntity>`, and array of `DoubleSupplier`s is now an array of `double`s
         - `hasLineOfSight` takes in a double instead of a `DoubleSupplier`
+- `net.minecraft.world.entity.ai.behavior.AcquirePoi#create` now has overloads which take in a `BiPredicate<ServerLevel, BlockPos>` for filtering POI locations
 - `net.minecraft.world.entity.animal.Bee#attractsBees` is now public
 - `net.minecraft.world.entity.monster.Shulker#getProgressAabb`, `getProgressDeltaAabb` now take in a movement `Vec3`
 - `net.minecraft.world.entity.player`
-    - `Inventory#setPickedItem` -> `addAndPickItem`
+    - `Inventory`
+        - `setPickedItem` -> `addAndPickItem`
+        - `findSlotMatchingCraftingIngredient` now takes in an `ItemStack` to compare against
     - `Player#getPermissionLevel` is now public
-    - `StackedContents$IngredientInfo` is now an interface that acts like a predicate for accepting some item.
+    - `StackedContents$IngredientInfo` is now an interface that acts like a predicate for accepting some item
 - `net.minecraft.world.entity.projectile.FishingHook` no longer takes in the `ItemStack`
 - `net.minecraft.world.inventory.Slot#getNoItemIcon` now returns a single `ResourceLocation` rather than a pair of them
 - `net.minecraft.world.item`
@@ -1384,6 +1389,10 @@ The background music is now handled through a `MusicInfo` class, which also stor
     - `SculkVeinBlock` is now an instance of `MultifaceSpreadeableBlock`
     - `SnowyDirtBlock#isSnowySetting` is now protected
 - `net.minecraft.world.level.block.entity`
+    - `AbstractFurnaceBlockEntity`
+        - `litTime` -> `litTimeRemaining`
+        - `litDuration` -> `litTotalTime`
+        - `cookingProgress` -> `cookingTimer`
     - `BeehiveBlockEntity#addOccupant` now takes in a `Bee` rather than an `Entity`
     - `CreakingHeartBlockEntity#setCreakingInfo` - Sets the creaking the block entity is attached to.
 - `net.minecraft.world.level.block.state.BlockBehaviour#getCloneItemStack`, `$BlockStateBase#getCloneItemStack` now takes in a boolean representing if there is infinite materials and whether the current block data should be saved.
