@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.4-pre2&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.4-pre3&tab=changelog).
 
 ## Client Items
 
@@ -1340,7 +1340,7 @@ The background music is now handled through a `MusicInfo` class, which also stor
 - `net.minecraft.server.level
     - `ServerLevel#sendParticles` now has an overload that takes in the override limiter distance and whether the particle should always be shown
         - Other overloads that take in the override limiter now also take in the boolean for if the particle should always be shown
-    - `ServerPlayer#doCheckFallDamage` -> `Entity#doCheckFallDamage`
+    - `ServerPlayer#doCheckFallDamage` -> `Entity#doCheckFallDamage`, now final
 - `net.minecraft.util`
     - `ARGB#from8BitChannel` is now private, with individual float components obtained from `alphaFloat`, `redFloat`, `greenFloat`, and `blueFloat`
     - `SpawnUtil#trySpawnMob` now takes in a boolean that, when false, allows the entity to spawn regardless of collision status with the surrounding area
