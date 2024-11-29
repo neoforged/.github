@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.4-rc1&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.4-rc3&tab=changelog).
 
 ## Client Items
 
@@ -1164,11 +1164,14 @@ The background music is now handled through a `MusicInfo` class, which also stor
 
 ### List of Additions
 
+- `com.mojang.blaze3d.platform.Window#isMinimized` - Returns whether the application window is minimized.
 - `com.mojang.blaze3d.vertex.VertexBuffer`
     - `uploadStatic` - Immediately uploads the provided vertex data via the `Consumer<VertexConsumer>` using the `Tesselator` with a `STATIC_WRITE` `VertexBuffer`.
     - `drawWithRenderType` - Draws the current buffer to the screen with the given `RenderType`.
 - `com.mojang.math.MatrixUtil#isIdentity` - Checks whether the current `Matrix4f` is an identity matrix.
-- `net.minecraft.SuppressForbidden` - An annotation that holds some reason, usually related to needing the sysout stream.
+- `net.minecraft`
+    - `SuppressForbidden` - An annotation that holds some reason, usually related to needing the sysout stream.
+    - `Util#maxAllowedExecutorThreads` - Returns the number of available processors clamped between one and the maximum number of threads.
 - `net.minecraft.client.gui.components.events.GuiEventListener#getBorderForArrowNavigation` - Returns the `ScreenRectangle` bound to the current direction.
 - `net.minecraft.client.gui.navigation.ScreenRectangle#transformAxisAligned` - Creates a new `ScreenRectangle` by transforming the position using the provided `Matrix4f`.
 - `net.minecraft.client.gui.narration.NarratableEntry#getNarratables` - Returns the list of narratable objects within the current object.
