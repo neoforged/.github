@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=25w03a&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=25w04a&tab=changelog).
 
 ## Handling the Removal of Block Entities Properly
 
@@ -55,32 +55,68 @@ Most of the `Block` subclasses that had previous public or protected `VoxelShape
 
 ## Weapons, Tools, and Armor: Removing the Redundancies
 
-There have been a lot of updates to weapons, tools, and armor that removes the reliance on the hardcoded base classes of `SwordItem`, `DiggerItem`, and `ArmorItem`, respectively. These have been replaced with their associated data components `WEAPON` for damage, `TOOL` for mining, and `ARMOR` for protection. Additionally, the missing attributes are usually specified by setting the `ATTRIBUTE_MODIFIERS`, `MAX_DAMAGE`, `MAX_STACK_SIZE`, `DAMAGE`, `REPAIRABLE`, and `ENCHANTABLE`. Given that pretty much all of the non-specific logic has moved to a data component, these classes have now been completely removed. Use one of the available item property methods or call `Item$Properties#component` directly to set up each item as a weapon, tool, armor, or some combination of the three.
+There have been a lot of updates to weapons, tools, and armor that removes the reliance on the hardcoded base classes of `SwordItem`, `DiggerItem`, and `ArmorItem`, respectively. These have been replaced with their associated data components `WEAPON` for damage, `TOOL` for mining, `ARMOR` for protection, and `BLOCKS_ATTACKS` for shields. Additionally, the missing attributes are usually specified by setting the `ATTRIBUTE_MODIFIERS`, `MAX_DAMAGE`, `MAX_STACK_SIZE`, `DAMAGE`, `REPAIRABLE`, and `ENCHANTABLE`. Given that pretty much all of the non-specific logic has moved to a data component, these classes have now been completely removed. Use one of the available item property methods or call `Item$Properties#component` directly to set up each item as a weapon, tool, armor, or some combination of the three.
 
+- `net.minecraft.core.component.DataComponents`
+    - `UNBREAKABLE` is now a `Unit` instance
+    - `HIDE_ADDITIONAL_TOOLTIP`, `HIDE_TOOLTIP` have been bundled in `TOOLTIP_DISPLAY`, taking in a `TooltipDisplay`
+    - `BLOCKS_ATTACKS` - A component that determines whether a held item can block an attack from some damage source
+    - `INSTRUMENT` now takes in an `InstrumentComponent`
+    - `PROVIDES_TRIM_MATERIAL`, `PROVIDES_BANNER_PATTERNS` handles a provider for their associated types.
+    - `BEES` now takes in a `Bees` component
+    - `BREAK_SOUND` - The sound to play when the item breaks.
+- `net.minecraft.data.recipes`
+    - `RecipeProvider#trimSmithing` now takes in the key for the `TrimPattern`
+    - `SmithingTrimRecipeBuilder` now takes in a holder for the `TrimPattern`
+- `net.minecraft.world.entity.LivingEntity`
+    - `blockUsingShield` -> `blockUsingItem`
+    - `blockedByShield` -> `blockedByItem`
+    - `hurtCurrentlyUsedShield` is removed
+    - `canDisableBlocking` -> `getSecondsToDisableBlocking`, not one-to-one
+- `net.minecraft.world.entity.player.Player#disableShield` -> `net.minecraft.world.item.component.BlocksAttacks#disable`
 - `net.minecraft.world.item`
+    - `AnimalArmorItem` class is removed
     - `ArmorItem` class is removed
     - `AxeItem` now extends `Item`
+    - `BannerPatternItem` class is removed
     - `DiggerItem` class is removed
+    - `FireworkStarItem` class is removed
     - `HoeItem` now extends `Item`
-    - `Item$Properties`
-        - `tool` - Sets the item as a tool.
-        - `pickaxe` - Sets the item as a pickaxe.
-        - `sword` - Sets the item as a sword.
+    - `InstrumentItem` no longer takes in the tag key
+    - `Item`
+        - `getBreakingSound` is removed
+        - `$Properties`
+            - `tool` - Sets the item as a tool.
+            - `pickaxe` - Sets the item as a pickaxe.
+            - `sword` - Sets the item as a sword.
+            - `axe` - Sets the item as an axe.
+            - `hoe` - Sets the item as a hoe.
+            - `shovel` - Sets the item as a shovel.
+            - `trimMaterial` - Sets the item as providing a trim material.
+    - `ItemStack#getBreakingSound` is removed
     - `PickaxeItem` class is removed
     - `ShovelItem` now extends `Item`
     - `SwordItem` class is removed
     - `ToolMaterial#applyToolProperties` now takes in a boolean of whether the weapon can disable a blocker (e.g., shield)
 - `net.minecraft.world.item.component`
+    - `Bees` - A component that holds the occupants of a beehive.
+    - `BlocksAttacks` - A component for blocking an attack with a held item.
+    - `InstrumentComponent` - A component that holds the sound an instrument plays.
+    - `ProvidesTrimMaterial` - A compnoent that provides a trim material to use on some armor.
     - `Tool` now takes in a boolean representing if the tool can destroy blocks in creative
-    - `Weapon` - A data component that holds how much damage the item can do and whether it disables blockers (e.g., shield).
+    - `Unbreakable` class is removed
+    - `Weapon` - A data component that holds how much damage the item can do and for how long it disables blockers (e.g., shield).
 - `net.minecraft.world.item.equipment`
+    - `AllowedEntitiesProvider` - A functional interface for getting the entities that are allowed to handle the associated logic.
     - `ArmorMaterial`
         - `humanoidProperties` -> `Item$Properties#humanoidArmor`
+        - `animalProperties` -> `Item$Properties#wolfArmor`, `horseArmor`
         - `createAttributes` is now public
     - `Equippable`
         - `equipOnInteract` - When true, the item can be equipped to another entity when interacting with them.
         - `saddle` - Creates an equippable for a saddle.
         - `equipOnTarget` - Equips the item onto the target entity.
+
 
 ### Extrapolating the Saddles: Equipment Changes
 
@@ -118,6 +154,7 @@ Finally, equippables can now specify whether wearing one will contribute to the 
     - `MULE_SADDLE`
     - `ZOMBIE_HORSE_SADDLE`
     - `SKELETON_HORSE_SADDLE`
+    - `trimAssetPrefix` - Returns the prefix applied to the texture containing the armor trims for the associated type.
 - `net.minecraft.world.entity`
     - `EntityEquipment` - A map of slots to item stacks representing the equipment of the entity.
     - `EquipmentSlot`
@@ -325,12 +362,65 @@ For a quick explanation, the game test system is broken into test functions, tes
 
 The data component system can now be represented on arbitrary objects through the use of the `DataComponentGetter`. As the name implies, the getter is responsible for getting the component from the associated type key. Both block entities and entities use the `DataComponentGetter` to allow querying the internal data, such as variant information or custom names. They both also have methods for collecting the data components from another holder (via `applyImplicitComponents` or `applyImplicitComponent`). Block entities also contain a method for collection to another holder via `collectImplicitComponents`.
 
+### Items
+
+`ItemSubPredicate`s have been completely replaced with `DataComponentPredicate`s. Each sub predicate has its appropriate analog within the system.
+
+- `net.minecraft.advancements.critereon.*` -> `net.minecraft.core.component.predicates.*`
+    - `ItemAttributeModifiersPredicate` -> `AttributeModifiersPredicate`
+    - `ItemBundlePredicate`  -> `BundlePredicate`
+    - `ItemContainerPredicate` -> `ContainerPredicate`
+    - `ItemCustomDataPredicate` -> `CustomDataPredicate`
+    - `ItemDamagePredicate` -> `DamagePredicate`
+    - `ItemEnchantmentsPredicate` -> `EnchantmentsPredicate`
+    - `ItemFireworkExplosionPredicate` -> `FireworkExplosionPredicate`
+    - `ItemFireworksPredicate` -> `FireworksPredicate`
+    - `ItemJukeboxPlayablePredicate` -> `JukeboxPlayablePredicate`
+    - `ItemPotionsPredicate` -> `PotionsPredicate`
+    - `ItemPredicate` now takes in a `DataComponentExactPredicate` for the required components and a map of component types to `DataComponentPredicate` for subtypes
+    - `ItemSubPredicate` -> `DataComponentPredicate`, not one-to-one
+    - `ItemSubPredicates` -> `DataComponentPredicates`, not one-to-one
+    - `ItemTrimPredicate` -> `TrimPredicate`
+    - `ItemWritableBookPredicate` -> `WritableBookPredicate`
+    - `ItemWrittenBookPredicate` -> `WrittenBookPredicate`
+    - `NbtPredicate#matches` now takes in a `DataComponentGetter` instead of an `ItemStack`
+    - `SingleComponentItemPredicate` now implements `DataComponentPredicate` instead of `ItemSubPredicate`
+        - `matches(ItemStack, T)` -> `matches(T)`
+- `net.minecraft.core.component.DataComponentPredicate` -> `DataComponentExactPredicate`
+- `net.minecraft.core.registries.Registries#ITEM_SUB_PREDICATE_TYPE` -> `DATA_COMPONENT_PREDICATE_TYPE`, not one-to-one
+- `net.minecraft.world.item.AdventureModePredicate` no longer takes in a boolean to show in tooltip
+- `net.minecraft.world.item`
+    - `BannerItem#appendHoverTextFromBannerBlockEntityTag` is removed
+    - `Item#appendHoverText(ItemStack, Item.TooltipContext, List<Component>, TooltipFlag)` -> `appendHoverText(ItemStack, Item.TooltipContext, TooltipDisplay, Consumer<Component>, TooltipFlag)`, now deprecated
+    - `ItemStack`
+        - `addToTooltip` is now public
+        - `addDetailsToTooltip` - Appends the component details of an item to the tooltip.
+    - `JukeboxPlayable#showInTooltip` is removed
+- `net.minecraft.world.item.component`
+    - `BlockItemStateProperties` now implements `TooltipProvider`
+    - `ChargedProjectiles` now implements `TooltipProvider`
+    - `CustomData` now implements `TooltipProvider`
+    - `DyedItemColor#showInTooltip` is removed
+    - `ItemAttributeModifiers#showInTooltip` is removed
+    - `ItemContainerContents` now implements `TooltipProvider`
+    - `SeededContainerLoot` now implements `TooltipProvider`
+    - `TooltipDisplay` - A component that handles what should be hidden within an item's tooltip.
+    - `TooltipProvider#addToTooltip` now takes in a `DataComponentGetter`
+- `net.minecraft.world.item.enchantment.ItemEnchantments#showInTooltip` is removed
+- `net.minecraft.world.item.equipment.trim.ArmorTrim#showInTooltip` is removed
+- `net.minecraft.world.item.trading.ItemCost` now takes in a `DataComponentExactPredicate` instead of a `DataComponentPredicate`
+- `net.minecraft.world.level.block.Block#appendHoverText` is removed
+- `net.minecraft.world.level.block.entity`
+    - `BannerPatternLayers` now implements `TooltipProvider`
+    - `PotDecorations` now implements `TooltipProvider`
+- `net.minecraft.world.level.saveddata.maps.MapId` now implements `TooltipProvider`
+
 ### Entities
 
-Some `EntitySubPredicate`s for entity variants have been transformed into data components stored on the held item due to a recent change on `EntityPredicate` now taking in a `DataComponentPredicate` for matching the slots on an entity.
+Some `EntitySubPredicate`s for entity variants have been transformed into data components stored on the held item due to a recent change on `EntityPredicate` now taking in a `DataComponentExactPredicate` for matching the slots on an entity.
 
 - `net.minecraft.advancements.critereon`
-    - `EntityPredicate` now takes in a `DataComponentPredicate` to match the equipment slots checked
+    - `EntityPredicate` now takes in a `DataComponentExactPredicate` to match the equipment slots checked
     - `EntitySubPredicate`
         - `AXOLTOL` -> `DataComponents#AXOLOTL_VARIANT`
         - `FOX` -> `DataComponents#FOX_VARIANT`
@@ -355,7 +445,7 @@ Some `EntitySubPredicate`s for entity variants have been transformed into data c
 - `net.minecraft.core.component`
     - `DataComponentGetter` - A getter that obtains data components from some object.
     - `DataComponentHolder`, `DataComponentMap` now extends `DataComponentGetter`
-    - `DataComponentPredicate` is now a predicate of a `DataComponentGetter`
+    - `DataComponentExactPredicate` is now a predicate of a `DataComponentGetter`
         - `expect` - A predicate that expects a certain value for a data component.
         - `test(DataComponentHolder)` is removed
     - `DataComponents`
@@ -380,7 +470,10 @@ Some `EntitySubPredicate`s for entity variants have been transformed into data c
     - `Parrot$Variant#STREAM_CODEC`
     - `Rabbit$Variant#STREAM_CODEC`
     - `Salmon$Variant#STREAM_CODEC`
-    - `TropicalFish#getVariant` -> `getPattern`
+    - `TropicalFish`
+        - `getVariant` -> `getPattern`
+        - `$Pattern` now implements `TooltipProvider`
+    - `WolfVariant` is now a record, taking in an `$AssetInfo` and a `SpawnPrioritySelectors`
 - `net.minecraft.world.entity.animal.axolotl.Axolotl$Variant#STREAM_CODEC`
 - `net.minecraft.world.entity.animal.horse`
     - `Llama$Variant#STREAM_CODEC`
@@ -389,11 +482,99 @@ Some `EntitySubPredicate`s for entity variants have been transformed into data c
     - `VARIANT_MAP_CODEC` is removed
     - `VARIANT_CODEC` is now private
 - `net.minecraft.world.entity.npc.VillagerDataHolder#getVariant`, `setVariant` are removed
+- `net.minecraft.world.entity.variant.VariantUtils`- A utility for getting the variant info of an entity.
 - `net.minecraft.world.item`
     - `ItemStack#copyFrom` - Copies the component from the getter.
     - `MobBucketItem#VARIANT_FIELD_CODEC` -> `TropicalFish$Pattern#STREAM_CODEC`
 - `net.minecraft.world.level.block.entity.BlockEntity#applyImplicitComponents` now takes in a `DataComponentGetter`
     - `$DataComponentInput` -> `DataComponentGetter`
+- `net.minecraft.world.level.Spawner` methods now takes in a `CustomData` instead of the `ItemStack` itself
+
+#### Spawn Conditions
+
+To allow entities to spawn variants randomly but within given conditions, a new registry called `SPAWN_CONDITION_TYPE` was added. These take in `SpawnCondition`s: a selector that acts like a predicate to take in the context to see whether the given variant can spawn there. All of the variants are thrown into a list and then ordered based on the selected priorty stored in the `SpawnProritySelectors`. Those with a higher priority will be checked first, with multiple of the same priority selected in the order they are provided. Then, all variants on the same priority level where a condition has been met is selected at random.
+
+```json5
+// For some object where there are spawn conditions
+[
+    {
+        // The spawn condition being checked
+        "condition": {
+            "type": "minecraft:biome",
+            // Will check that the biome the variant is attempting to spawn in is in the forest
+            "biomes": "#minecraft:is_forest"
+        },
+        // Will check this condition first
+        "priority": 1
+    },
+    {
+        // States that the condition will always be true
+        "priority": 0
+    }
+]
+```
+
+- `net.minecraft.core.registries.Registries#SPAWN_CONDITION_TYPE`
+- `net.minecraft.world.entity.variant`
+    - `BiomeCheck` - A spawn condition that checks whether the entity is in one of the given biomes.
+    - `MoonBrightnessCheck` - A spawn condition that checks the brightness of the moon.
+    - `PriorityProvider` - An interface which orders the condition selectors based on some priority integer.
+    - `SpawnCondition` - Checks whether an entity can spawn at this location.
+    - `SpawnConditions` - The available spawn conditions to choose from.
+    - `SpawnContext` - An object holding the current position, level, and biome the entity is being spawned within.
+    - `SpawnPrioritySelectors` - A list of spawn conditions to check against the entity. Used to select a random variant to spawn in a given location.
+    - `StructureCheck` - A spawn condition that checks whether the entity is within a structure.
+
+#### Variant Datapack Registries
+
+Frog, cat, and pig variants are datapack registry objects, meaning that most references now need to be referred to through the `RegistryAccess` or `HolderLookup$Provider` instance.
+
+For a frog or cat:
+
+```json5
+// A file located at:
+// - `data/examplemod/frog_variant/example_frog.json`
+// - `data/examplemod/cat_variant/example_cat.json`
+{
+    // Points to a texture at `assets/examplemod/textures/entity/cat/example_cat.png`
+    "asset_id": "examplemod:entity/cat/example_cat",
+    "spawn_conditions": [
+        // The conditions for this variant to spawn
+        {
+            "priority": 0
+        }
+    ]
+}
+```
+
+For a pig:
+```json5
+// A file located at:
+// - `data/examplemod/pig_variant/example_pig.json``
+{
+    // Points to a texture at `assets/examplemod/textures/entity/pig/example_pig.png`
+    "asset_id": "examplemod:entity/pig/example_pig",
+    // Defines the `PigVariant$ModelType` that's used to select what entity model to render the pig variant with
+    "model": "cold",
+    "spawn_conditions": [
+        // The conditions for this variant to spawn
+        {
+            "priority": 0
+        }
+    ]
+}
+```
+
+- `net.minecraft.data.loot.EntityLootSubProvider#killedByFrogVariant` now takes in a `HolderGetter` for the `FrogVariant`
+- `net.minecraft.data.tags.CatVariantTagsProvider` class is removed
+- `net.minecraft.tags.CatVariantTags` class is removed
+- `net.minecraft.world.entity.animal`
+    - `CatVariant(ResourceLocation)` -> `CatVariant(ClientAsset, SpawnPrioritySelectors)`
+    - `CatVariants` - Holds the keys for all vanilla cat variants.
+    - `FrogVariant` -> `.frog.FrogVariant`
+        - `FrogVariant(ResourceLocation)` -> `FrogVariant(ClientAsset, SpawnPrioritySelectors)`
+    - `PigVariant` - A class which defines the common-sideable rendering information and biome spawns of a given pig.
+    - `TemperatureVariants` - An interface which holds the `ResourceLocation`s that indicate an entity within a different temperature.
 
 ## Minor Migrations
 
@@ -462,6 +643,85 @@ Click and hover events on a `MutableComponent` have been reworked into `MapCodec
         - `$ItemStackInfo` is removed, replaced by `$ShowItem`
         - `$LegacyConverter` interface is removed
 
+### Client Assets
+
+Raw `ResourceLocation`s within client-facing files for identifiers or textures are being replaced with objects defining an idenfitier along with a potential texture path. There are three main objects to be aware of: `ClientAsset`, `ModelAndTexture`, and `MaterialAssetGroup`.
+
+`ClientAsset` is an id/texture pair used to point to a texture location. By default, the texture path is contructed from the id, with the path prefixed with `textures` and suffixed with the PNG extension.
+
+`ModelAndTexture` is a object/client asset pair used when a renderer should select between multiple models. Usually, the renderer creates a map of the object type to the model, and the object provided to the `ModelAndTexture` is used as a lookup into the map.
+
+`MaterialAssetGroup` is a handler for rendering an equipment asset with some trim material. It takes in the base texture used to overlay onto the armor along with any overrides for a given equipment asset.
+
+- `net.minecraft.advancements.DisplayInfo` now takes in a `ClientAsset` instead of only a `ResourceLocation` for the background texture
+- `net.minecraft.core.ClientAsset` - An object that holds an identifier and a path to some texture.
+- `net.minecraft.world.entity.variant.ModelAndTexture` - Defines a model with its associated texture.
+- `net.minecraft.world.item.equipment.trim`
+    - `MaterialAssetGroup` - An asset defines some base and the permutations based on the equipment worn.
+    - `TrimMaterial` now takes in a `MaterialAssetGroup` instead of the raw base and overrides
+
+### Texture Atlas Reworks
+
+The texture atlas logic has been finalized into a registry codec system; however, the querying of the atlas data has changed. First, all atlas identifiers are stored within `AtlasIds` while the corresponding texture location is stored within `Sheets`. To get a material from an atlas, a `MaterialMapper` is used as a wrapper around the texture location and the associated prefix to append to the material. The `Material` can then be obtained using `apply` by passing in the id of the material you would like to use.
+
+For example:
+
+```java
+// Found in sheets
+public static final MaterialMapper ITEMS_MAPPER = new MaterialMapper(TextureAtlas.LOCATION_BLOCKS, "item");
+public static final MaterialMapper BLOCKS_MAPPER = new MaterialMapper(TextureAtlas.LOCATION_BLOCKS, "block");
+
+// Finds the texture for the material at `assets/examplemod/textures/item/example_item.png`
+public static final Material EXAMPLE_ITEM = ITEMS_MAPPER.apply(ResourceLocation.fromNamespaceAndPath("examplemod", "example_item"));
+
+// Finds the texture for the material at `assets/examplemod/textures/block/example/block.png`
+public static final Material EXAMPLE_BLOCK = ITEMS_MAPPER.apply(ResourceLocation.fromNamespaceAndPath("examplemod", "example/block"));
+```
+
+- `net.minecraft.client.data.AtlasProvider` - A data provider for generating the providers of a texture atlas.
+- `net.minecraft.client.data.models.ItemModelGenerators`
+    - `SLOT_*` -> `TRIM_PREFIX_*`, now public and `ResourceLocation`s
+    - `TRIM_MATERIAL_MODELS` is now public
+    - `generateTrimmableItem` now takes in a `ResourceLocation` instead of a `String`
+    - `$TrimMaterialData` is now public, taking in a `MaterialAssetGroup` instead of the name and override materials
+- `net.minecraft.client.renderer`
+    - `MaterialMapper` - An object that stores the location of the atlas texture and the prefix applied to the ids within the texture.
+    - `Sheets`
+        - `*_MAPPER` - `MaterialMapper`s for each texture atlas texture.
+        - `createBedMaterial(ResourceLocation)` is removed
+        - `createShulkerMaterial(ResourceLocation)` is removed
+        - `createSignMaterial(ResourceLocation)` is removed
+        - `chestMaterial(String)`, `chestMaterial(ResourceLocation)` are removed
+        - `createDecoratedPotMaterial(ResourceLocation)` is removed
+- `net.minecraft.client.renderer.blockentity.ConduitRenderer#MAPPER` - A mapper to get the conduit textures from the block atlas.
+- `net.minecraft.client.renderer.texture.atlas`
+    - `SpriteSource#type` -> `codec`, not one-to-one
+    - `SpriteSources` now contains logic similar to client registries via their id mapper
+    - `SpriteSourceType` record is removed
+- `net.minecraft.client.renderer.texture.atlas.sources`
+    - `DirectoryLister` is now a record
+    - `PalettedPermutations` is now a record
+    - `SingleFile` is now a record
+    - `SourceFilter` is now a record
+    - `Unstitcher` is now a record
+        - `$Region` is now public
+- `net.minecraft.client.resources.model.AtlasIds` - A class which holds the `ResourceLocation`s of all vanilla texture atlases.
+
+### Registry Context Swapper
+
+Client items now store a `RegistryContextSwapper`, which is used to properly check client item information that accesses registry objects. Before level load, this is provided a placeholder to avoid crashing and populated with the correct value during rendering.
+
+- `net.minecraft.client.multiplayer`
+    - `CacheSlot` - An object that contains a value computed from some context. When updated, the previous value is overwritten and the context registers the slot to be cleaned.
+    - `ClientLevel` now implements `CacheSlot$Cleaner`
+- `net.minecraft.client.renderer.item`
+    - `ClientItem` can now take in a nullable `RegistryContextSwapper`
+        - `withRegistrySwapper` - Sets the `RegistryContextSwapper` within a `ClientItem`
+    - `ItemModel$BakingContext` now takes in a `RegistryContextSwapper`
+- `net.minecraft.util`
+    - `PlaceholderLookupProvider` - A provider that contains placeholders for referenced objects. Used within client items as they will be loaded before the `RegistyAccess` is populated.
+    - `RegistryContextSwapper` - An interface used to swap out some object for a different one. Used by client items to swap the placeholders for the loaded `RegistryAccess`.
+
 ### Tag Changes
 
 - `minecraft:worldgen/biome`
@@ -470,8 +730,12 @@ Click and hover events on a `MutableComponent` have been reworked into `MapCodec
 - `minecraft:block`
     - `sword_instantly_mines`
     - `replaceable_by_mushrooms`
+- `minecraft:cat_variant` are removed
+- `minecraft:damage_type`
+    - `bypasses_shield` -> `bypasses_blocking`
 - `minecraft:entity_type`
     - `can_equip_saddle`
+    - `can_wear_horse_armor`
 - `minecraft:item`
     - `book_cloning_target`
 
@@ -503,21 +767,25 @@ Some mob effects have been renamed to their in-game name, rather than some inter
 - `com.mojang.blaze3d.resource.ResourceDescriptor`
     - `prepare` - Prepares the resource for use after allocation.
     - `canUsePhysicalResource` - Typically returns whether a descriptor is already allocated with the same information.
-- `net.minecraft.util.Util`
-    - `mapValues` - Updates the values of a map with the given function.
-    - `mapValuesLazy` - Updates the values of a map with the given function, but each value is resolved when first accessed.
+- `net.minecraft.advancements.critereon.MinMaxBounds#createStreamCodec` - Constructs a stream codec for a `MinMaxBounds` implementation.
 - `net.minecraft.client.Options#startedCleanly` - Sets whether the game started cleanly on last startup.
-- `net.minecraft.client.data.models.BlockModelGenerators#createSegmentedBlock` - Generates a multipart blockstate definition with horizontal rotation that displays up to four models based on some integer property.
+- `net.minecraft.client.data.models`
+    - `BlockModelGenerators#createSegmentedBlock` - Generates a multipart blockstate definition with horizontal rotation that displays up to four models based on some integer property.
+    - `ItemModelGenerators#prefixForSlotTrim` - Generates a vanilla `ResourceLocation` for a trim in some slot.
 - `net.minecraft.client.gui.components.toasts.Toast#getSoundEvent` - Returns the sound to play when the toast is displayed.
+- `net.minecraft.client.gui.screens.options.VideoSettingsScreen#updateFullscreenButton` - Sets the fullscreen option to the specified boolean.
 - `net.minecraft.client.model.AdultAndBabyModelPair` - Holds two `Model` instances that represents the adult and baby of some entity.
 - `net.minecraft.client.model.geom.builders`
     - `MeshDefinition#apply` - Applies the given transformer to the mesh before returning a new instance.
     - `MeshTransformer#IDENTITY`- Performs the identity transformation.
 - `net.minecraft.client.particle.FallingLeavesParticle$TintedLeavesProvider` - A provider for a `FallingLeavesParticle` that uses the color specified by the block above the particle the spawn location.
-- `net.minecraft.client.player.ClientInput#scaleMoveDirection` - Scales the move vector by the provided float.
 - `net.minecraft.client.renderer.PostChainConfig$Pass#referencedTargets` - Returns the targets referenced in the pass to apply.
 - `net.minecraft.client.renderer.entity.state.PigRenderState#variant` - The variant of the pig.
-- `net.minecraft.client.renderer.item.properties.select.ComponentContents` - A switch case property that operates on the contents within a data component.
+- `net.minecraft.client.renderer.item.SelectItemModel$ModelSelector` - A functional interface that selects the item model based on the switch case and level.
+- `net.minecraft.client.renderer.item.properties.conditional.ComponentMatches` - A conditional property that checks whether the given predicate matches the component data.
+- `net.minecraft.client.renderer.item.properties.select`
+    - `ComponentContents` - A switch case property that operates on the contents within a data component.
+    - `SelectItemModelProperty#valueCodec` - Returns the `Codec` for the property type.
 - `net.minecraft.core`
     - `HolderGetter$Provider#getOrThrow` - Gets a holder reference from a resource key.
     - `SectionPos#sectionToChunk` - Converts a compressed section position to a compressed chunk position.
@@ -534,6 +802,9 @@ Some mob effects have been renamed to their in-game name, rather than some inter
     - `FileSystemUtil` - A utility for interacting with the file system.
     - `GsonHelper#encodesLongerThan` - Returns whether the provided element can be written in the specified number of characters.
     - `Unit#STREAM_CODEC` - A stream codec for a unit instance.
+    - `Util`
+        - `mapValues` - Updates the values of a map with the given function.
+        - `mapValuesLazy` - Updates the values of a map with the given function, but each value is resolved when first accessed.
 - `net.minecraft.world.effect.MobEffectInstance#withScaledDuration` - Constructs a new instance with the duration scaled by some float value.
 - `net.minecraft.world.entity`
     - `AreaEffectCloud#setPotionDurationScale` - Sets the scale of how long the potion should apply for.
@@ -548,9 +819,7 @@ Some mob effects have been renamed to their in-game name, rather than some inter
         - `getLastHurtByPlayer`, `setLastHurtByPlayer` - Handles the last player to hurt this entity.
         - `getEffectBlendFactor` - Gets the blend factor of an applied mob effect.
         - `applyInput` - Applies the entity's input as its AI, typically for local players.
-- `net.minecraft.world.entity.animal`
-    - `PigVariant` - A class which defines the common-sideable rendering information and biome spawns of a given pig.
-    - `TemperatureVariant` - An enum which indicates an entity within a different temperature.
+        - `INPUT_FRICTION` - The scalar to apply to the movements of the entity.
 - `net.minecraft.world.entity.player.Player#preventsBlockDrops` - Whether the player cannot drop any blocks on destruction.
 - `net.minecraft.world.item`
     - `Item#STREAM_CODEC`
@@ -559,6 +828,7 @@ Some mob effects have been renamed to their in-game name, rather than some inter
         - `canDestroyBlock` - Returns whether this item can destroy the provided block state.
 - `net.minecraft.world.item.alchemy.PotionContents#getPotionDescription` - Returns the description of the mob effect with some amplifier.
 - `net.minecraft.world.item.crafting.TransmuteResult` - A recipe result object that represents an item, count, and the applied components.
+- `net.minecraft.world.item.equipment.trim.ArmorTrim#layerAssetId` - Returns the location of the the trim asset.
 - `net.minecraft.world.level`
     - `GameRules`
         - `getType` - Gets the game rule type from its key.
@@ -566,12 +836,16 @@ Some mob effects have been renamed to their in-game name, rather than some inter
     - `Level`
         - `isMoonVisible` - Returns wehther the moon is currently visible in the sky.
         - `getPushableEntities` - Gets all entities except the specified target within the provided bounding box.
+        - `getClientLeafTintColor` - Returns the color of the leaf tint at the specified location.
 - `net.minecraft.world.level.block`
     - `Block`
         - `UPDATE_SKIP_BLOCK_ENTITY_SIDEEFFECTS` - A flag that skips all potential sideeffects when updating a block entity.
         - `UPDATE_SKIP_ALL_SIDEEFFECTS` - A flag that skips all sideeffects by skipping certain block entity logic, supressing drops, and updating the known shape.
     - `SegmentableBlock` - A block that can typically be broken up into segments with unique sizes and placements.
+    - `TintParticleLeavesBlock` - A leaves block whose particles are tinted.
+    - `UntintedParticleLeavesBlock` - A leaves block whose particles are not tinted.
 - `net.minecraft.world.level.block.entity.StructureBlockEntity#isStrict`, `setStrict` - Sets strict mode when generating structures.
+- `net.minecraft.world.level.block.state.BlockBehaviour#getEntityInsideCollisionShape` - Gets the collision shape of the block when the entity is within it.
 - `net.minecraft.world.level.entity.PersistentEntitySectionManager#isTicking` - Returns whether the specified chunk is currently ticking.
 - `net.minecraft.world.level.levelgen.feature`
     - `AbstractHugeMushroomFeature#placeMushroomBlock` - Places a mushroom block that specified location, replacing a block if it can.
@@ -584,7 +858,6 @@ Some mob effects have been renamed to their in-game name, rather than some inter
 - `com.mojang.blaze3d.pipeline.RenderTarget#clear` now has an overload that take in four floats specifying that RGBA values to clear the color with
 - `com.mojang.blaze3d.platform.DisplayData` is now a record
 - `com.mojang.blaze3d.resource.RenderTargetDescriptor` now takes in an integer representing the color to clear to
-- `net.minecraft.util.Util#makeEnumMap` returns the `Map` superinstance rather than the specific `EnumMap`
 - `net.minecraft.client.multiplayer.MultiPlayerGameMode#hasInfiniteItems` -> `net.minecraft.world.entity.LivingEntity#hasInfiniteMaterials`
 - `net.minecraft.client.player`
     - `ClientInput#leftImpulse`, `forwardImpulse` -> `moveVector`, now protected
@@ -596,14 +869,34 @@ Some mob effects have been renamed to their in-game name, rather than some inter
     - `DonkeyRenderer` now takes in a `DonekyRenderer$Type` containing the textures, model layers, and equipment information
     - `PigRenderer` now extends `MobRenderer` instead of `AgeableMobRenderer`
     - `UndeadHorseRenderer` now takes in a `UndeadHorseRenderer$Type` containing the textures, model layers, and equipment information
-- `net.minecraft.client.renderer.entity.layers.VillagerProfessionLayer#getHatData` now takes in a map of resource keys to metadata sections and swaps the registry and value for a holder instance
+- `net.minecraft.client.renderer.entity.layers`
+    - `EquipmentLayerRenderer$TrimSpriteKey#textureId` -> `spriteId`
+    - `VillagerProfessionLayer#getHatData` now takes in a map of resource keys to metadata sections and swaps the registry and value for a holder instance
+- `net.minecraft.client.renderer.item`
+    - `ConditionalItemModel` now takes in a `ItemModelPropertyTest` instead of a `ConditionalItemModelProperty`
+    - `SelectItemModel` now takes in a `$ModelSelector` instead of an object map
+- `net.minecraft.client.renderer.item.properties.conditional.ConditionalItemModelProperty` now implements `ItemModelPropertyTest`
+    - `ItemModelPropertyTest` holds the `get` method previously within `ConditionalItemModelProperty`
 - `net.minecraft.commands.ParserUtils#parseJson` -> `parseSnbtWithCodec`, not one-to-one
-- `net.minecraft.commands.argument`
+- `net.minecraft.commands.arguments`
     - `ComponentArgument#ERROR_INVALID_JSON` -> `ERROR_INVALID_COMPONENT`
+    - `ResourceKeyArgument#getRegistryKey` is now public
     - `StyleArgument#ERROR_INVALID_JSON` -> `ERROR_INVALID_STYLE`
+- `net.minecraft.commands.arguments.item`
+    - `ComponentPredicateParser$Context#createComponentTest`, `createPredicateTest` now takes in a `Dynamic` instead of a `Tag`
+    - `ItemPredicateArgument`
+        - `$ComponentWrapper#decode` now takes in a `Dynamic` instead of a `RegistryOps`, `Tag` pair
+        - `$PredicateWrapper#decode` now takes in a `Dynamic` instead of a `RegistryOps`, `Tag` pair
 - `net.minecraft.core.BlockMath#VANILLA_UV_TRANSFORM_LOCAL_TO_GLOBAL`, `VANILLA_UV_TRANSFORM_GLOBAL_TO_LOCAL` is now private
 - `net.minecraft.data.loot.BlockLootSubProvider#createPetalDrops` -> `createSegmentedBlockDrops`
 - `net.minecraft.network.chat.ComponentSerialization#flatCodec` -> `flatRestrictedCodec`
+- `net.minecraft.nbt`
+    - `NbtOps` now has a private constructor
+    - `TagParser` now holds a generic referncing the type of the intermediate object to parse to
+        - `AS_CODEC` -> `FLATTENED_CODEC`
+        - `parseTag` -> `parseCompoundFully` or `parseCompoundAsArgument`
+            - Additional methods such as `parseFully`, `parseAsArgument` parse to some intermediary object
+        - The constructor is now private
 - `net.minecraft.network.codec.StreamCodec#composite` now has an overload for nine parameters
 - `net.minecraft.network.protocol.game`
     - `ClientboundMoveEntityPacket#getyRot`, `getxRot` -> `getYRot`, `getXRot`
@@ -615,6 +908,13 @@ Some mob effects have been renamed to their in-game name, rather than some inter
     - `ServerLevel`
         - `getForcedChunks` -> `getForceLoadedChunks`
         - `isPositionTickingWithEntitiesLoaded` is now public
+- `net.minecraft.sounds.SoundEvents` have the following sounds now `Holder` wrapped:
+    - `ITEM_BREAK`
+    - `SHIELD_BLOCK`, `SHIELD_BREAK`,
+    - `WOLF_ARMOR_BREAK`
+- `net.minecraft.util.Util#makeEnumMap` returns the `Map` superinstance rather than the specific `EnumMap`
+- `net.minecraft.util.parsing.packrat.commands.TagParseRule` now takes in a generic for the tag type
+    - The construct is now public, taking in a `DynamicOps`
 - `net.minecraft.util.profiling`
     - `ActiveProfiler` now takes in a `BooleanSupplier` instead of a boolean
     - `ContinuousProfiler` now takes in a `BooleanSupplier` instead of a boolean
@@ -628,7 +928,8 @@ Some mob effects have been renamed to their in-game name, rather than some inter
         - `cancelLerp` -> `InterpolationHandler#cancel`
         - `lerpTo` -> `moveOrInterpolateTo`
         - `lerpTargetX`, `lerpTargetY`, `lerpTargetZ`, `lerpTargetXRot`, `lerpTargetYRot` -> `getInterpolation`
-        - `onAboveBubbleCol` now takes in a `BlockPos` for the bubble column particles spawn location
+        - `onAboveBubbleCol` -> `onAboveBubbleColumn` now takes in a `BlockPos` for the bubble column particles spawn location
+            - Logic delegates to the protected static `handleOnAboveBubbleColumn`
         - `isControlledByOrIsLocalPlayer` -> `isLocalInstanceAuthoritative`, now final
         - `isControlledByLocalInstance` -> `isLocalClientAuthoritative`, now protected
         - `isControlledByClient` -> `isClientAuthoritative`
@@ -636,7 +937,11 @@ Some mob effects have been renamed to their in-game name, rather than some inter
         - `absMoveto` -> `absSnapTo`
         - `absRotateTo` -> `asbSnapRotationTo`
         - `moveTo` -> `snapTo`
-    - `EntityType$EntityFactory#create` can now return a null instance
+        - `sendBubbleColumnParticles` is now static, taking in the `Level`
+        - `onInsideBubbleColumn` logic delegates to the protected static `handleOnInsideBubbleColumn`
+    - `EntityType`
+        - `POTION` -> `SPLASH_POTION`, `LINGERING_POTION`, not one-to-one
+        - `$EntityFactory#create` can now return a null instance
     - `ExperienceOrb#value` -> `DATA_VALUE`
     - `ItemBasedSteering` no longer takes in the accessor for having a saddle
     - `LivingEntity`
@@ -666,6 +971,7 @@ Some mob effects have been renamed to their in-game name, rather than some inter
     - `VillagerTrades#TRADES` now takes in a resource key as the key of the map
         - This is similar for all other type specific trades
 - `net.minecraft.world.entity.player.Player#stopFallFlying` -> `LivingEntity#stopFallFlying`
+- `net.minecraft.world.entity.projectile.ThrownPotion` -> `AbstractThrownPotion`, implemented in `ThrownLingeringPotion` and `ThrownSplashPotion`
 - `net.minecraft.world.entity.vehicle`
     - `MinecartBehavior` 
         - `cancelLerp` -> `InterpolationHandler#cancel`
@@ -676,15 +982,21 @@ Some mob effects have been renamed to their in-game name, rather than some inter
         - `canAttackBlock` -> `canDestroyBlock`
         - `hurtEnemy` no longer returns anything
     - `ItemStack#validateStrict` is now public
+    - `ThrowablePotionItem` is now abstract, containing two methods to create the `AbstractThrownPotion` entity
     - `WrittenBookItem#resolveBookComponents` -> `WrittenBookContent#resolveForItem`
-- `net.minecraft.world.item.alchemy.PotionContents#forEachEffect`, `applyToLivingEntity` now takes in a float representing a scalar for the duration
+- `net.minecraft.world.item.alchemy.PotionContents` now implements `TooltipProvider`
+    - `forEachEffect`, `applyToLivingEntity` now takes in a float representing a scalar for the duration
 - `net.minecraft.world.item.component.WrittenBookContent` now implements `TooltipProvider`
 - `net.minecraft.world.item.crafting`
-    - `SmithingTransformRecipe` now takes in a `TransmuteResult` instead of an `ItemStack`
+    - `SmithingRecipe#baseIngredient` now returns an `Ingredient`
+    - `SmithingTransformRecipe` now takes in a `TransmuteResult` instead of an `ItemStack` and an `Ingredient` for the base
+    - `SmithingTrimRecipe` now takes in `Ingredient`s instead of `Optional` wrapped entries along with a `TrimPattern` holder
     - `TransmuteRecipe` now takes in a `TransmuteResult` instead of an `Item` holder
+- `net.minecraft.world.item.crafting.display.SlotDisplay$SmithingTrimDemoSlotDisplay` now takes in a `TrimPattern` holder
 - `net.minecraft.world.item.enchantment.EnchantmentInstance` is now a record
 - `net.minecraft.world.level`
-    - `GameRules$Type` now takes in a value class.
+    - `CustomSpawner#tick` no longer returns anything
+    - `GameRules$Type` now takes in a value class
     - `Level`
         - `onBlockStateChange` -> `updatePOIOnBlockStateChange`
         - `isDay` -> `isBrightOutside`
@@ -693,7 +1005,10 @@ Some mob effects have been renamed to their in-game name, rather than some inter
 - `net.minecraft.world.level.biome.MobSpawnSettings$SpawnerData` is now a record
 - `net.minecraft.world.level.block`
     - `Block#fallOn` now takes a double for the fall damage instead of a float
-    - `LeavesBlock` now takes in the chance for a particle and the particle to spawn
+    - `FallingBlock#getDustColor` is now abstract
+    - `LeavesBlock` is now abstract, taking in the chance for a particle to spawn
+        - Particles are spawned via `spawnFallingLeavesParticle`
+    - `MangroveLeavesBlock` now extends `TintedParticleLeavesBlock`
     - `ParticleLeavesBlock` -> `LeafLitterBlock`
     - `PinkPetalsBlock` -> `FlowerBedBlock`
     - `Rotation` now has an index used for syncing across the network
@@ -706,6 +1021,7 @@ Some mob effects have been renamed to their in-game name, rather than some inter
 
 ### List of Removals
 
+- `net.minecraft.nbt.TabParser#readKey`, `readTypedValue`
 - `net.minecraft.network.chat.ComponentSerialization#FLAT_CODEC`
 - `net.minecraft.network.protocol.game`
     - `ClientboundAddExperimentOrbPacket`
@@ -715,6 +1031,7 @@ Some mob effects have been renamed to their in-game name, rather than some inter
     - `Entity`
         - `isInBubbleColumn`
         - `isInWaterRainOrBubble`, `isInWaterOrBubble`
+    - `EntityEvent#ATTACK_BLOCKED`, `SHIELD_DISABLED`
     - `ItemBasedSteering`
         - `addAdditionalSaveData`, `readAdditionalSaveData`
         - `setSaddle`, `hasSadddle`
@@ -731,4 +1048,6 @@ Some mob effects have been renamed to their in-game name, rather than some inter
     - `NeutralMob#setLastHurtByPlayer`
     - `PositionMoveRotation#ofEntityUsingLerpTarget`
 - `net.minecraft.world.entity.projectile.AbstractArrow#getBaseDamage`
+- `net.minecraft.world.item.equipment.trim.TrimPattern#templateItem`
 - `net.minecraft.world.level.Level#updateNeighborsAt(BlockPos, Block)`
+- `net.minecraft.world.level.block.entity.CampfireBlockEntity#dowse`
