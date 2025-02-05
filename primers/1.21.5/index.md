@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=25w05a&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=25w06a&tab=changelog).
 
 ## Handling the Removal of Block Entities Properly
 
@@ -227,14 +227,34 @@ Finally, equippables can now specify whether wearing one will contribute to the 
     - `LivingEntity`
         - `getEquipSound` - Gets the sound to play when equipping an item into a slot.
         - `getArmorSlots`, `getHandSlots`, `getArmorAndBodyArmorSlots`, `getAllSlots` are removed
+        - `equipment` - The equipment worn by the entity.
+        - `createEquipment` - Sets the default equipment worn by the entity.
+        - `drop` - Drops the specified stack.
+        - `getItemBySlot`, `setItemBySlot` are no longer abstract.
+        - `verfiyEquippedItem` is removed
     - `Mob`
         - `isSaddled` - Checks if an item is in the saddle slot.
         - `createEquipmentSlotContainer` - Creates a single item container for the equipment slot.
+    - `OwnableEntity#getRootOwner` - Gets the highest level owner of the entity.
     - `Saddleable` interface is removed
 - `net.minecraft.world.entity.animal.horse.AbstractHorse`
     - `syncSaddletoClients` is removed
     - `getBodyArmorAccess` is removed
-- `net.minecraft.world.item.SaddleItem` class is removed
+- `net.minecraft.world.entity.player`
+    - `Inventory`
+        - `armor`, `offhand` -> `EQUIPMENT_SLOT_MAPPING`, not one-to-one
+        - `selected` is now private
+        - `setSelectedHotbarSlot` -> `setSelectedSlot`
+            - Getter also exists `getSelectedSlot`
+        - `getSelected` -> `getSelectedItem`
+            - Setter also exists `setSelectedItem`
+        - `getNonEquipmentItems` - Returns the list of non-equipment items in the inventory.
+        - `getDestroySpeed` is removed
+        - `getArmor` is removed
+    - `PlayerEquipment` - Equipment that is worn by the player.
+- `net.minecraft.world.item`
+    - `Item#inventoryTick(ItemStack, Level, Entity, int, boolean)` -> `inventoryTick(ItemStack, ServerLevel, Entity, EquipmentSlot)`
+    - `SaddleItem` class is removed
 
 ## Weighted List Rework
 
@@ -467,6 +487,7 @@ The data component system can now be represented on arbitrary objects through th
     - `ChargedProjectiles` now implements `TooltipProvider`
     - `CustomData` now implements `TooltipProvider`
     - `DyedItemColor#showInTooltip` is removed
+    - `FireworkExplosion#addShapeNameTooltip` is removed
     - `ItemAttributeModifiers#showInTooltip` is removed
     - `ItemContainerContents` now implements `TooltipProvider`
     - `SeededContainerLoot` now implements `TooltipProvider`
@@ -518,6 +539,7 @@ Some `EntitySubPredicate`s for entity variants have been transformed into data c
         - `SHEEP_COLOR` - The dye color of a sheep.
         - `SHULKER_COLOR` - The dye color of a shulker (box).
         - `COW_VARIANT` - The variant of a cow.
+        - `CHICKEN_VARIANT` - The variant of a chicken.
 - `net.minecraft.world.entity`
     - `Entity` now implements `DataComponentGetter`
         - `applyImplicitComponents` - Applies the components from the getter onto the entity. This should be overriden by the modder.
@@ -594,7 +616,7 @@ To allow entities to spawn variants randomly but within given conditions, a new 
 
 #### Variant Datapack Registries
 
-Frog, cat, cow, and pig variants are datapack registry objects, meaning that most references now need to be referred to through the `RegistryAccess` or `HolderLookup$Provider` instance.
+Frog, cat, cow, chicken, and pig variants are datapack registry objects, meaning that most references now need to be referred to through the `RegistryAccess` or `HolderLookup$Provider` instance.
 
 For a frog or cat:
 
@@ -614,12 +636,12 @@ For a frog or cat:
 }
 ```
 
-For a pig or cow:
+For a pig, cow, or chicken:
 ```json5
 // A file located at:
 // - `data/examplemod/pig_variant/example_pig.json``
 // - `data/examplemod/cow_variant/example_cow.json``
-
+// - `data/examplemod/chicken_variant/example_chicken.json``
 {
     // Points to a texture at `assets/examplemod/textures/entity/pig/example_pig.png`
     "asset_id": "examplemod:entity/pig/example_pig",
@@ -647,12 +669,15 @@ Raw `ResourceLocation`s within client-facing files for identifiers or textures a
 - `net.minecraft.advancements.DisplayInfo` now takes in a `ClientAsset` instead of only a `ResourceLocation` for the background texture
 - `net.minecraft.client.model`
     - `AdultAndBabyModelPair` - Holds two `Model` instances that represents the adult and baby of some entity.
+    - `ChickenModel#createBaseChickenModel` - Creates the default chicken model.
+    - `ColdChickenModel` - A variant model for a chicken in cold temperatures.
     - `ColdCowModel` - A variant model for a cow in cold temperatures.
     - `ColdPigModel` - A variant model for a big in cold temperatures.
     - `CowModel#createBaseCowModel` - Creates the base model for a cow.
     - `PigModel#createBasePigModel` - Creates the default pig model.
     - `WarmCowModel` - A variant model for a cow in warm temperatures.
 - `net.minecraft.client.renderer.entity`
+    - `ChickenRenderer` now extends `MobRenderer` instead of `AgeableMobRenderer`
     - `CowRenderer` now extends `MobRenderer` instead of `AgeableMobRenderer`
     - `PigRenderer` now extends `MobRenderer` instead of `AgeableMobRenderer`
 - `net.minecraft.client.renderer.entity.state.CowRenderState` - A render state for a cow entity.
@@ -662,6 +687,9 @@ Raw `ResourceLocation`s within client-facing files for identifiers or textures a
 - `net.minecraft.tags.CatVariantTags` class is removed
 - `net.minecraft.world.entity.animal`
     - `AbstractCow` - An abstract animal that represents a cow.
+    - `Chicken#setVariant`, `getVariant` - Handles the variant information of the chicken.
+    - `ChickenVariant` - A class which defines the common-sideable rendering information and biome spawns of a given chicken.
+    - `ChickenVariants` - Holds the keys for all vanilla chicken variants.
     - `Cow` now extends `AbstractCow`.
     - `CowVariant` - A class which defines the common-sideable rendering information and biome spawns of a given cow.
     - `CowVariants` - Holds the keys for all vanilla cow variants.
@@ -926,12 +954,15 @@ Client items now store a `RegistryContextSwapper`, which is used to properly che
     - `sword_instantly_mines`
     - `replaceable_by_mushrooms`
     - `plays_ambient_desert_block_sounds`
+    - `edible_for_sheep`
+    - `dead_bush_may_place_on` -> `dry_vegetation_may_place_on`
 - `minecraft:cat_variant` are removed
 - `minecraft:entity_type`
     - `can_equip_saddle`
     - `can_wear_horse_armor`
 - `minecraft:item`
     - `book_cloning_target`
+    - `eggs`
 
 ### Mob Effects Field Renames
 
@@ -967,6 +998,9 @@ This is a list of technical changes that could cause highly specific errors depe
 - `com.mojang.blaze3d.resource.ResourceDescriptor`
     - `prepare` - Prepares the resource for use after allocation.
     - `canUsePhysicalResource` - Typically returns whether a descriptor is already allocated with the same information.
+- `com.mojang.blaze3d.systems.RenderSystem`
+    - `getQuadVertices` - Returns a vertex buffer with a quad bound to it.
+    - `setModelOffset`, `resetModelOffset`, `getModelOffset` - Handles the offset to apply to a model when rendering for the uniform `ModelOffset`. Typically for clouds and world borders.
 - `net.minecraft.ChatFormatting#COLOR_CODEC`
 - `net.minecraft.advancements.critereon.MinMaxBounds#createStreamCodec` - Constructs a stream codec for a `MinMaxBounds` implementation.
 - `net.minecraft.client.Options#startedCleanly` - Sets whether the game started cleanly on last startup.
@@ -981,7 +1015,9 @@ This is a list of technical changes that could cause highly specific errors depe
 - `net.minecraft.client.particle`
     - `FallingLeavesParticle$TintedLeavesProvider` - A provider for a `FallingLeavesParticle` that uses the color specified by the block above the particle the spawn location.
     - `FireflyParticle` - A particle that spawns fireflies around a given non-air block position.
-- `net.minecraft.client.renderer.PostChainConfig$Pass#referencedTargets` - Returns the targets referenced in the pass to apply.
+- `net.minecraft.client.renderer`
+    - `PostChainConfig$Pass#referencedTargets` - Returns the targets referenced in the pass to apply.
+    - `WorldBorderRenderer#invalidate` - Invalidates the current render of the world border to be rerendered.
 - `net.minecraft.client.renderer.entity.state.PigRenderState#variant` - The variant of the pig.
 - `net.minecraft.client.renderer.item.SelectItemModel$ModelSelector` - A functional interface that selects the item model based on the switch case and level.
 - `net.minecraft.client.renderer.item.properties.conditional.ComponentMatches` - A conditional property that checks whether the given predicate matches the component data.
@@ -997,7 +1033,12 @@ This is a list of technical changes that could cause highly specific errors depe
     - `CompoundTag#getFloatOrDefault` - Gets the float with the associated key, or the default if not present or an exception is thrown.
     - `NbtUtils#writeVec3i` - Writes a vector to an integer array tag.
 - `net.minecraft.server.commands.InCommandFunction` - A command function that takes in some input and returns a result.
-- `net.minecraft.server.level.ServerLevel#areEntitiesActuallyTicking` - Returns whether the entity manager is actually ticking entities.
+- `net.minecraft.server.level`
+    - `DistanceManager#forEachBlockTickingChucnks` - Applies the provided consumer for each chunk with block ticking enabled.
+    - `ServerLevel`
+        - `areEntitiesActuallyTicking` - Returns whether the entity manager is actually ticking entities.
+        - `tickThunder` - Ticks the thunger logic within a given level.
+        - `anyPlayerCloseEnoughForSpawning` - Returns if a player is close enough to spawn the entity at the given location.
 - `net.minecraft.util`
     - `ExtraCodecs`
         - `UNTRUSTED_URI` - A codec for a URI that is not trusted by the game.
@@ -1045,13 +1086,19 @@ This is a list of technical changes that could cause highly specific errors depe
         - `getClientLeafTintColor` - Returns the color of the leaf tint at the specified location.
         - `playPlayerSound` - Plays a sound to the current player on the client.
     - `LevelReader#getHeight` - Returns the height of the map at the given position.
+    - `NaturalSpawner#INSCRIBED_SQUARE_SPAWN_DISTANCE_CHUNK` - Provides the minimum distance that the player is close enough for spawning to occur.
 - `net.minecraft.world.level.block`
     - `Block`
         - `UPDATE_SKIP_BLOCK_ENTITY_SIDEEFFECTS` - A flag that skips all potential sideeffects when updating a block entity.
         - `UPDATE_SKIP_ALL_SIDEEFFECTS` - A flag that skips all sideeffects by skipping certain block entity logic, supressing drops, and updating the known shape.
+        - `UPDATE_SKIP_ON_PLACE` - A flag that skips calling `BlockState#onPlace` when set.
+    - `BonemealableBlock#hasSpreadableNeighbourPos`, `findSpreadableNeighbourPos` - Handles finding other positions that the vegetation can spread to on bonemeal.
+    - `CactusFlowerBlock` - A flower that grows on a cactus.
     - `FireflyBushBlock` - A bush that spawns firefly particles around it.
     - `SandBlock` - A colored sand block that can play ambient sounds.
     - `SegmentableBlock` - A block that can typically be broken up into segments with unique sizes and placements.
+    - `ShortDryGrassBlock` - A single grass block that has been dried out.
+    - `TallDryGrassBlock` - A double grass block that has been dried out.
     - `TerracottaBlock` - A terracotta block that can play ambient sounds.
     - `TintParticleLeavesBlock` - A leaves block whose particles are tinted.
     - `UntintedParticleLeavesBlock` - A leaves block whose particles are not tinted.
@@ -1059,6 +1106,9 @@ This is a list of technical changes that could cause highly specific errors depe
 - `net.minecraft.world.level.block.entity.StructureBlockEntity#isStrict`, `setStrict` - Sets strict mode when generating structures.
 - `net.minecraft.world.level.block.sounds.AmbientDesertBlockSoundsPlayer` - A helper to play sounds for a given block, typically during `animateTick`.
 - `net.minecraft.world.level.block.state.BlockBehaviour#getEntityInsideCollisionShape` - Gets the collision shape of the block when the entity is within it.
+- `net.minecraft.world.level.border.WorldBorder`
+    - `closestBorder` - Returns a list of the closest borders to the player based on their horizontal direction.
+    - `$DistancePerDirection` - A record containing the distance from the entity of the world border in a given direction.
 - `net.minecraft.world.level.entity.PersistentEntitySectionManager#isTicking` - Returns whether the specified chunk is currently ticking.
 - `net.minecraft.world.level.levelgen.feature`
     - `AbstractHugeMushroomFeature#placeMushroomBlock` - Places a mushroom block that specified location, replacing a block if it can.
@@ -1076,6 +1126,7 @@ This is a list of technical changes that could cause highly specific errors depe
 
 - `com.mojang.blaze3d.pipeline.RenderTarget#clear` now has an overload that take in four floats specifying that RGBA values to clear the color with
 - `com.mojang.blaze3d.platform.DisplayData` is now a record
+- `com.mojang.blaze3d.platform.GLX._renderCrosshair`, `com.mojang.blaze3d.systems.RenderSystem#renderCrosshair` -> `net.minecraft.client.gui.components.DebugScreenOverlay#render3dCrosshair`, not one-to-one
 - `com.mojang.blaze3d.resource.RenderTargetDescriptor` now takes in an integer representing the color to clear to
 - `net.minecraft.client.multiplayer.MultiPlayerGameMode#hasInfiniteItems` -> `net.minecraft.world.entity.LivingEntity#hasInfiniteMaterials`
 - `net.minecraft.client.player`
@@ -1125,10 +1176,12 @@ This is a list of technical changes that could cause highly specific errors depe
     - `ServerboundSetStructureBlockPacket` now takes in an additional boolean representing whether the structure should be generated in strict mode
 - `net.minecraft.server.PlayerAdvancements#flushDirty` now takes in a boolean that represents whether the advancements show display as a toast
 - `net.minecraft.server.level`
+    - `DistanceManager#hasPlayersNearby` now returns a `TriState`
     - `ServerEntity` now takes in a consumer for broadcasting a packet to all players but those in the ignore list
     - `ServerLevel`
         - `getForcedChunks` -> `getForceLoadedChunks`
         - `isPositionTickingWithEntitiesLoaded` is now public
+        - `isNaturalSpawningAllowed` -> `canSpawnEntitiesInChunk`, `BlockPos` variant is removed
 - `net.minecraft.sounds.SoundEvents` have the following sounds now `Holder` wrapped:
     - `ITEM_BREAK`
     - `SHIELD_BLOCK`, `SHIELD_BREAK`,
@@ -1140,6 +1193,7 @@ This is a list of technical changes that could cause highly specific errors depe
     - `ActiveProfiler` now takes in a `BooleanSupplier` instead of a boolean
     - `ContinuousProfiler` now takes in a `BooleanSupplier` instead of a boolean
 - `net.minecraft.util.worldupdate.WorldUpgrader` now takes in the current `WorldData`
+- `net.minecraft.world.Container` now implements `Iterable<ItemStack>`
 - `net.minecraft.world.effect`
     - `MobEffect`
         - `getBlendDurationTicks` -> `getBlendInDurationTicks`, `getBlendOutDurationTicks`, `getBlendOutAdvanceTicks`; not one-to-one
@@ -1236,7 +1290,7 @@ This is a list of technical changes that could cause highly specific errors depe
     - `BushBlock` now extends `VegetationBlock` and implements `BonemealableBlock`
     - `ColoredFallingBlock#dustColor` is now protected
     - `CropBlock` now extends `VegetationBlock`
-    - `DeadBushBlock` now extends `VegetationBlock`
+    - `DeadBushBlock` -> `DryVegetationBlock`
     - `DoublePlantBlock` now extends `VegetationBlock`
     - `FallingBlock#getDustColor` is now abstract
     - `FlowerBedBlock` now extends `VegetationBlock`
@@ -1279,6 +1333,7 @@ This is a list of technical changes that could cause highly specific errors depe
 
 ### List of Removals
 
+- `com.mojang.blaze3d.vertex.BufferUploader`
 - `net.minecraft.nbt.TabParser#readKey`, `readTypedValue`
 - `net.minecraft.network.chat.ComponentSerialization#FLAT_CODEC`
 - `net.minecraft.network.protocol.game`
