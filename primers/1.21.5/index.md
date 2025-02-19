@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=25w07a&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=25w08a&tab=changelog).
 
 ## Handling the Removal of Block Entities Properly
 
@@ -541,6 +541,7 @@ Some `EntitySubPredicate`s for entity variants have been transformed into data c
         - `SHULKER_COLOR` - The dye color of a shulker (box).
         - `COW_VARIANT` - The variant of a cow.
         - `CHICKEN_VARIANT` - The variant of a chicken.
+        - `WOLF_SOUND_VARIANT` - The sounds played by a wolf. 
 - `net.minecraft.world.entity`
     - `Entity` now implements `DataComponentGetter`
         - `applyImplicitComponents` - Applies the components from the getter onto the entity. This should be overriden by the modder.
@@ -563,11 +564,16 @@ Some `EntitySubPredicate`s for entity variants have been transformed into data c
     - `TropicalFish`
         - `getVariant` -> `getPattern`
         - `$Pattern` now implements `TooltipProvider`
-    - `WolfVariant` is now a record, taking in an `$AssetInfo` and a `SpawnPrioritySelectors`
+    - `Wolf` -> `.wolf.Wolf`
+    - `WolfVariant` -> `.wolf.WolfVariant`, now a record, taking in an `$AssetInfo` and a `SpawnPrioritySelectors`
+    - `WolfVariants` -> `.wolf.WolfVariants`
 - `net.minecraft.world.entity.animal.axolotl.Axolotl$Variant#STREAM_CODEC`
 - `net.minecraft.world.entity.animal.horse`
     - `Llama$Variant#STREAM_CODEC`
     - `Variant#STREAM_CODEC`
+- `net.minecraft.world.entity.animal.wolf`
+    - `WolfSoundVariant` - The sounds played by a wolf.
+    - `WolfSoundVariants` - All vanilla wolf sound variants.
 - `net.minecraft.world.entity.decoration.Painting`
     - `VARIANT_MAP_CODEC` is removed
     - `VARIANT_CODEC` is now private
@@ -617,14 +623,15 @@ To allow entities to spawn variants randomly but within given conditions, a new 
 
 #### Variant Datapack Registries
 
-Frog, cat, cow, chicken, and pig variants are datapack registry objects, meaning that most references now need to be referred to through the `RegistryAccess` or `HolderLookup$Provider` instance.
+Frog, cat, cow, chicken, pig, and wolf, and wolf sound variants are datapack registry objects, meaning that most references now need to be referred to through the `RegistryAccess` or `HolderLookup$Provider` instance.
 
-For a frog or cat:
+For a frog, cat, or wolf:
 
 ```json5
 // A file located at:
 // - `data/examplemod/frog_variant/example_frog.json`
 // - `data/examplemod/cat_variant/example_cat.json`
+// - `data/examplemod/wolf_variant/example_wolf.json`
 {
     // Points to a texture at `assets/examplemod/textures/entity/cat/example_cat.png`
     "asset_id": "examplemod:entity/cat/example_cat",
@@ -640,9 +647,9 @@ For a frog or cat:
 For a pig, cow, or chicken:
 ```json5
 // A file located at:
-// - `data/examplemod/pig_variant/example_pig.json``
-// - `data/examplemod/cow_variant/example_cow.json``
-// - `data/examplemod/chicken_variant/example_chicken.json``
+// - `data/examplemod/pig_variant/example_pig.json`
+// - `data/examplemod/cow_variant/example_cow.json`
+// - `data/examplemod/chicken_variant/example_chicken.json`
 {
     // Points to a texture at `assets/examplemod/textures/entity/pig/example_pig.png`
     "asset_id": "examplemod:entity/pig/example_pig",
@@ -654,6 +661,28 @@ For a pig, cow, or chicken:
             "priority": 0
         }
     ]
+}
+```
+
+For a wolf sound variant:
+```json5
+// A file located at:
+// - `data/examplemod/wolf_sound_variant/example_wolf_sound.json``
+{
+    // The registry name of the sound event to play randomly on idle
+    "ambient_sound": "minecraft:entity.wolf.ambient",
+    // The registry name of the sound event to play when killed
+    "death_sound": "minecraft:entity.wolf.death",
+    // The registry name of the sound event to play randomly when angry on idle
+    "growl_sound": "minecraft:entity.wolf.growl",
+    // The registry name of the sound event to play when hurt
+    "hurt_sound": "minecraft:entity.wolf.hurt",
+    // The registry name of the sound event to play randomly
+    // 1/3 of the time on idle when health is max
+    "pant_sound": "minecraft:entity.wolf.pant",
+    // The registry name of the sound event to play randomly
+    // 1/3 of the time on idle when health is below max
+    "whine_sound": "minecraft:entity.wolf.whine"
 }
 ```
 
@@ -681,7 +710,12 @@ Raw `ResourceLocation`s within client-facing files for identifiers or textures a
     - `ChickenRenderer` now extends `MobRenderer` instead of `AgeableMobRenderer`
     - `CowRenderer` now extends `MobRenderer` instead of `AgeableMobRenderer`
     - `PigRenderer` now extends `MobRenderer` instead of `AgeableMobRenderer`
-- `net.minecraft.client.renderer.entity.state.CowRenderState` - A render state for a cow entity.
+- `net.minecraft.client.renderer.entity.layers.SheepWoolUndercoatLayer` - A layer that renders the wool undercoat of a sheep.
+- `net.minecraft.client.renderer.entity.state`
+    - `CowRenderState` - A render state for a cow entity.
+    - `SheepRenderState`
+        - `getWoolColor` - Returns the integer color of the sheep wool.
+        - `isJebSheep` - Returns whether the sheep's name contains the `jeb_` prefix.
 - `net.minecraft.core.ClientAsset` - An object that holds an identifier and a path to some texture.
 - `net.minecraft.data.loot.EntityLootSubProvider#killedByFrogVariant` now takes in a `HolderGetter` for the `FrogVariant`
 - `net.minecraft.data.tags.CatVariantTagsProvider` class is removed
@@ -843,10 +877,10 @@ public class MyTextureManager {
             // The texture name, used for logging and debugging
             "Example Texture",
             // The format of the texture pixels, can be one of three values that
-            // Values:   (texture internal format, texel data format,  texel data type)
-            // - RGBA8   (GL_RGBA8,                GL_RGBA,            GL_UNSIGNED_BYTE)
-            // - RED8    (GL_R8,                   GL_RED,             GL_UNSIGNED_BYTE)
-            // - DEPTH32 (GL_DEPTH_COMPONENT32,    GL_DEPTH_COMPONENT, GL_FLOAT)
+            // Values:   (texture internal format, texel data format,  texel data type,  pixel size)
+            // - RGBA8   (GL_RGBA8,                GL_RGBA,            GL_UNSIGNED_BYTE, 4)
+            // - RED8    (GL_R8,                   GL_RED,             GL_UNSIGNED_BYTE, 1)
+            // - DEPTH32 (GL_DEPTH_COMPONENT32,    GL_DEPTH_COMPONENT, GL_FLOAT,         4)
             TextureFormat.RGBA8,
             // Width of the texture
             16,
@@ -1086,6 +1120,10 @@ Given that the pipeline JSONs have been stripped, this also effects the post eff
 Note that if you do not define a value for a uniform, they still must be specified before processing the `PostChain` by calling `#setUniform` before `#process`.
 
 - `com.mojang.blaze3d.GpuOutOfMemoryException` - An exception thrown when a texture could not be allocated on the GPU.
+- `com.mojang.blaze3d.buffers.GpuBuffer`
+    - `unbind` - Unbinds the buffer.
+    - `size` - Returns the size of the buffer.
+    - `type`-  Returns the type of the buffer.
 - `com.mojang.blaze3d.font.SheetGlyphInfo#upload` now takes in a `GpuTexture`
 - `com.mojang.blaze3d.pipeline`
     - `BlendFunction` - A class that holds the source and destination colors and alphas to apply when overlaying pixels in a target. This also holds all vanilla blend functions.
@@ -1114,18 +1152,27 @@ Note that if you do not define a value for a uniform, they still must be specifi
         - `_texSubImage2D` now has an overload that takes in an `IntBuffer` instead of a `long` for the pixel data
         - `upload` is removed
         - `_stencilFunc`, `_stencilMask`, `_stencilOp`, `_clearStencil` is removed
+        - `_getTexImage` is removed
+        - `_glDrawPixels`, `_readPixels` is removed
         - `$CullState#mode` is removed
         - `$LogicOp#NONE` - Performs no logic operation.
         - `$PolygonOffsetState#line` is removed
         - `$StencilFunc`, `$StencilState` class is removed
         - `$Viewport` fields are now package private
-    - `NativeImage`
+    - `NativeImage` constructor is now public
         - `upload` is removed
         - `getPointer` - Returns the pointer to the image data.
+        - `setPixelABGR` is now public
+        - `applyToAllPixels` is removed
+        - `downloadTexture`, `downloadDepthBuffer` is removed
+        - `flipY` is removed
+        - `setPackPixelStoreState`, `setUnpackPixelStoreState` is removed
         - `$InternalGlFormat` enum is removed
     - `TextureUtil`
         - `generateTextureId`, `releaseTextureId` is removed
         - `prepareImage` is removed
+        - `writeAsPNG` now takes in a `GpuTexture` instead of the direct three integers
+            - The overload without the `IntUnaryOperator` is removed
 - `com.mojang.blaze3d.shaders`
     - `AbstractUniform`
         - `setSafe` methods are removed
@@ -1159,6 +1206,9 @@ Note that if you do not define a value for a uniform, they still must be specifi
     - `setShader`, `clearShader`, `getShader` is removed
     - `setShaderTexture` now takes in a `GpuTexture` instead of a bind address
     - `getShaderTexture` now returns a `GpuTexture` or null if not present
+    - `pixelStore`, `readPixels` is removed
+    - `queueFencedTask`, `executePendingTasks` - Handles sending tasks that run on the GPU asyncronously.
+    - `$GpuAsyncTask` - A record that holds the callback and fence object used to sync information to the GPU.
 - `com.mojang.blaze3d.textures`
     - `AddressMode` - The mode set for how to render a texture to a specific location.
     - `FilterMode` - The mode set for how to render a texture whenever the level-of-detail function determines how the texture should be maximized or minimized.
@@ -1247,6 +1297,7 @@ Note that if you do not define a value for a uniform, they still must be specifi
     - `AbstractTexture`
         - `NOT_ASSIGNED` is removed
         - `texture`, `getTexture` - Holds the reference to the texture to render.
+        - `getId`, `releaseId` is removed
     - `DynamicTexture` now takes in the label of the texture
     - `SpriteContents#uploadFirstFrame`, `$AnimatedTexture#uploadFirstFrame` now takes in a `GpuTexture`
     - `SpriteTicker#tickAndUpload` now takes in the `GpuTexture`
@@ -1302,6 +1353,7 @@ this.blockStateOutput.accept(
         - `createRotatedVariant(Block, ResourceLocation)` is removed
         - `selectMultifaceProperties` - Creates a map of properties to `VariantMutator`s based on the provided `BlockState` and direction to property function.
         - `applyRotation` no longer takes in the `Variant` and returns a `VariantMutator`
+    - `ItemModelGenerators#generateSpawnEgg` is removed
     - `ModelProvider#saveAll` is removed
 - `net.minecraft.client.data.models.blockstates`
     - `BlockStateGenerator` -> `BlockModelDefinitionGenerator`, not one-to-one
@@ -1717,6 +1769,7 @@ This is a list of technical changes that could cause highly specific errors depe
     - `FallingLeavesParticle$TintedLeavesProvider` - A provider for a `FallingLeavesParticle` that uses the color specified by the block above the particle the spawn location.
     - `FireflyParticle` - A particle that spawns fireflies around a given non-air block position.
 - `net.minecraft.client.renderer`
+    - `BiomeColors#getAverageDryFoliageColor` - Returns the average foliage color for dry biomes.
     - `PostChainConfig$Pass#referencedTargets` - Returns the targets referenced in the pass to apply.
     - `WorldBorderRenderer#invalidate` - Invalidates the current render of the world border to be rerendered.
 - `net.minecraft.client.renderer.entity.state.PigRenderState#variant` - The variant of the pig.
@@ -1725,6 +1778,7 @@ This is a list of technical changes that could cause highly specific errors depe
 - `net.minecraft.client.renderer.item.properties.select`
     - `ComponentContents` - A switch case property that operates on the contents within a data component.
     - `SelectItemModelProperty#valueCodec` - Returns the `Codec` for the property type.
+- `net.minecraft.client.resources.DryFoliageColorReloadListener` - A reload listener that loads the colormap for dry foliage.
 - `net.minecraft.commands.arguments.ComponentArgument#getResolvedComponent` - Constructs a component with the resolved information of its contents.
 - `net.minecraft.core`
     - `Direction#getUnitVec3f` - Returns the float unit vector of the direction.
@@ -1791,6 +1845,8 @@ This is a list of technical changes that could cause highly specific errors depe
 - `net.minecraft.world.item.equipment.trim.ArmorTrim#layerAssetId` - Returns the location of the the trim asset.
 - `net.minecraft.world.level`
     - `BlockGetter$BlockStepVisitor` - A consumer that takes in the current position and how many collisions within the desired path of travel.
+    - `ColorMapColorUtil` - A helper for getting the color from a map given the biome's temperature, downfall, colormap, and default color.
+    - `DryFoliageColor` - A color resolver for biomes with dry foliage.
     - `GameRules`
         - `getType` - Gets the game rule type from its key.
         - `keyCodec` - Creates the codec for the key of a game rule type.
@@ -1801,6 +1857,10 @@ This is a list of technical changes that could cause highly specific errors depe
         - `playPlayerSound` - Plays a sound to the current player on the client.
     - `LevelReader#getHeight` - Returns the height of the map at the given position.
     - `NaturalSpawner#INSCRIBED_SQUARE_SPAWN_DISTANCE_CHUNK` - Provides the minimum distance that the player is close enough for spawning to occur.
+- `net.minecraft.world.level.biome`
+    - `Biome`   
+        - `getDryFoliageColor`, `getDryFoliageColorFromTexture` - Gets the dry foliage color of the biome, either from the effects or from the climate settings.
+    - `BiomeSpecialEffects#getDryFoliageColorOverride`, `$Builder#dryFoliageColorOverride` - Returns the default dry foliage color when not pulling from a colormap texture.
 - `net.minecraft.world.level.block`
     - `BaseFireBlock#fireIgnite` - Lights an entity on fire.
     - `Block`
@@ -1861,6 +1921,8 @@ This is a list of technical changes that could cause highly specific errors depe
 - `com.mojang.blaze3d.platform.DisplayData` is now a record
 - `com.mojang.blaze3d.platform.GLX._renderCrosshair`, `com.mojang.blaze3d.systems.RenderSystem#renderCrosshair` -> `net.minecraft.client.gui.components.DebugScreenOverlay#render3dCrosshair`, not one-to-one
 - `com.mojang.blaze3d.resource.RenderTargetDescriptor` now takes in an integer representing the color to clear to
+- `net.minecraft.client.Screenshot` is now a utility instead of an instance class, meaning all instance methods are removed
+    - `takeScreenshot(RenderTarget)` -> `takeScreenshot(RenderTarget, Consumer<NativeImage>)`, not returning anything
 - `net.minecraft.client.multiplayer`
     - `ClientChunkCache#replaceWithPacketData` now takes in a `Map<Heightmap$Types, long[]>` instead of a `CompoundTag`
     - `MultiPlayerGameMode#hasInfiniteItems` -> `net.minecraft.world.entity.LivingEntity#hasInfiniteMaterials`
