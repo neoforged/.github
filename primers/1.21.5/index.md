@@ -1,6 +1,6 @@
 # Minecraft 1.21.4 -> 1.21.5 Mod Migration Primer
 
-This is a high level, non-exhaustive overview on how to migrate your mod from 1.21.4 to 1.21.5. This does not look at any specific mod loader, just the changes to the vanilla classes.
+This is a high level, non-exhaustive overview on how to migrate your mod from 1.21.4 to 1.21.5. This does not look at any specific mod loader, just the changes to the vanilla classes. All provided names use the official mojang mappings.
 
 This primer is licensed under the [Creative Commons Attribution 4.0 International](http://creativecommons.org/licenses/by/4.0/), so feel free to use it as a reference and leave a link so that other readers can consume the primer.
 
@@ -905,9 +905,11 @@ public class MyTextureManager {
         // Values    (default,    for mipmaps):
         // - NEAREST (GL_NEAREST, GL_NEAREST_MIPMAP_LINEAR)
         // - LINEAR  (GL_LINEAR,  GL_LINEAR_MIPMAP_LINEAR)
-        this.texture.setFilterMode(
+        this.texture.setTextureFilter(
             // The mode to use for the texture minifying function (GL_TEXTURE_MIN_FILTER)
+            FilterMode.LINEAR,
             // The mode to use for the texture magnifying function (GL_TEXTURE_MAG_FILTER)
+            FilterMode.NEAREST,
             // Whether mipmaps should be used for the minifying function (should have a higher mipmap level than 1 when true)
             false
         );
