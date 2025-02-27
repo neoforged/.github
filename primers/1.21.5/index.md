@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=25w09a&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=25w09b&tab=changelog).
 
 ## Handling the Removal of Block Entities Properly
 
@@ -1027,7 +1027,7 @@ try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRen
     pass.bindSampler("Sampler0", RenderSystem.getShaderTexture(0));
 
     // Then, draw everything to the screen
-    // Basically, this just contains a single quad for this example
+    // In this example, the buffer just contains a single quad
     // For those unaware, the vertex count is 6 as a quad is made up of 2 triangles, so 2 vertices overlap
     pass.drawIndexed(0, 6);
 }
@@ -1331,6 +1331,7 @@ post.process(Minecraft.getInstance().getMainRenderTarget(), GraphicsResourceAllo
         - `resize`, `write`, `read`, `bind` is removed
         - `usage` - Returns the usage of the buffer.
         - `close` is now abstract
+        - `isClosed` - Returns whether the buffer has been closed.
         - `$ReadView` is now an interface that defines the buffer data and how to close the view
 - `com.mojang.blaze3d.font.SheetGlyphInfo#upload` now takes in a `GpuTexture`
 - `com.mojang.blaze3d.opengl`   
@@ -1368,6 +1369,7 @@ post.process(Minecraft.getInstance().getMainRenderTarget(), GraphicsResourceAllo
     - `DepthTestFunction` - An enum representing the supported depth tests to apply when rendering a sample to the framebuffer.
     - `GlConst#toGl` - Maps some reference object to its associated OpenGL code.
     - `GlDebug` -> `com.mojang.blaze3d.opengl.GlDebug`
+        - `enableDebugCallback` now takes in a set of the enabled extensions.
     - `GlStateManager`
         - `_blendFunc`, `_blendEquation` is removed
         - `_glUniform2(int, IntBuffer)`, `_glUniform4(int, IntBuffer)` is removed
@@ -1480,6 +1482,7 @@ post.process(Minecraft.getInstance().getMainRenderTarget(), GraphicsResourceAllo
         - `setShaderTexture` is removed
         - `getQuadVertices` -> `getQuadVertexBuffer`, not one-to-one
         - `getDevice`, `tryGetDevice` - Returns the `GpuDevice` representing the underlying render system to use.
+        - `getCapsString` is removed
         - `$AutoStorageIndexBuffer#bind` -> `getBuffer`, not one-to-one
         - `$GpuAsyncTask` - A record that holds the callback and fence object used to sync information to the GPU.
     - `ScissorState` - A class which holds the part of the screen to render.
