@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=25w08a&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=25w09a&tab=changelog).
 
 ## Handling the Removal of Block Entities Properly
 
@@ -740,7 +740,23 @@ Raw `ResourceLocation`s within client-facing files for identifiers or textures a
     - `MaterialAssetGroup` - An asset defines some base and the permutations based on the equipment worn.
     - `TrimMaterial` now takes in a `MaterialAssetGroup` instead of the raw base and overrides
 
-## Write to Compound Tags with Codecs
+## Tags and Parsing
+
+Tags have received a rewrite, removing any direct references to types while also sealing and finalizing related classes. Getting a value from the tag now returns an `Optional`-wrapped entry, unless you call one of the `get*Or`, where you specify the default value. Objects, on the other hand, do not take in a default, instead returning an empty variant of the desired tag.
+
+```java
+// For some `CompoundTag` tag
+
+// Read a value
+Optional<Integer> value1 = tag.getInt("value1");
+int value1Raw = tag.getIntOr("value1", 0);
+
+// Reading another object
+Optional<CompoundTag> childTag = tag.getCompound("childTag");
+CompoundTag childTagRaw = tag.getCopmoundOrEmpty("childTag");
+```
+
+### Writing with Codecs
 
 `CompoundTag`s now have methods to write and read using a `Codec` or `MapCodec`. For a `Codec`, it will store the serialized data inside the key specified. For a `MapCodec`, it will merge the fields onto the top level tag.
 
@@ -758,10 +774,122 @@ tag.store(MAP_CODEC, example);
 Optional<ExampleObject> fromMapCodec = tag.read(MAP_CODEC);
 ```
 
+### Command Parsers
+
+The packrat parser has been updated with new rules and systems, allowing commands to have parser-based arguments. This comes from the `CommandArgumentParser`, which parses some grammar to return the desired object. The parser is then consumed by the `ParserBasedArgument`, where it attempts to parse a string and build any suggestions based on what you're currently typing. These are both handled through the `Grammar` class, which implements `CommandArgumentParser`, constructed using a combination of atoms, dictionaries, rules, and terms.
+
+- `net.minecraft.commands.ParserUtils#parseJson`
+- `net.minecraft.commands.arguments`
+    - `ComponentArgument` now extends `ParserBasedArgument`
+    - `NbtTagArgument` now extends `ParserBasedArgument`
+    - `StyleArgument` now extends `ParserBasedArgument`
+- `net.minecraft.commands.arguments.item.ItemPredicateArgument` now extends `ParserBasedArgument`
 - `net.minecraft.nbt`
-    - `CompoundTag`
+    - `ByteArrayTag`, now final, no longer takes in a list object
+    - `ByteTag` is now a record
+    - `CollectionTag` is now a sealed interface, no longer extending `AbstractList` or has a generic
+        - `set`, `add` is removed
+        - `remove` now returns a `Tag`
+        - `get` - Returns the tag at the specified index.
+        - `getElementType` is removed
+        - `size` - Returns the size of the collection.
+        - `isEmpty` - Returns whether the collection has no elements.
+        - `stream` - Streams the elements of the collection.
+    - `CompoundTag` is now final
         - `store` - Writes a codec or map codec to the tag.
         - `read` - Reads the codec or map codec-encoded value from the tag.
+        - `getFloatOrDefault`, `getIntOrDefault`, `getLongOrDefault` - Gets the value with the associated key, or the default if not present or an exception is thrown.
+        - `storeNullable` - When not null, uses the codec to write the value to the tag.
+        - `putUUID`, `getUUID`, `hasUUID` is removed
+        - `getAllKeys` -> `keySet`
+        - `values`, `forEach` - Implements the standard map operations.
+        - `putByteArray`, `putIntArray` with list objects are removed
+        - `getTagType` is removed
+        - `contains` is removed
+        - `get*`, `get*Or` - Returns an optional wrapped object for the key, or the default value specified is using the `Or` methods.
+    - `DoubleTag` is now a record
+    - `EndTag` is now a record
+    - `FloatTag` is now a record
+    - `IntArrayTag`, now final, no longer takes in a list object
+    - `IntTag` is now a record
+    - `ListTag`, now final, extends `AbstractList`
+        - `addAndUnwrap` - Adds the tag to the list where, if a compound with one element, adds the inner tag instead.
+        - `get*`, `get*Or` - Returns an optional wrapped object for the key, or the default value specified is using the `Or` methods.
+        - `compoundStream` - Returns a flat map of all `CompoundTag`s within the list.
+    - `LongArrayTag`, now final, no longer takes in a list object
+    - `LongTag` is now a record
+    - `NbtIo#readUnnamedTag` is now public, visible for testing
+    - `NbtOps` now has a private constructor
+    - `NbtUtils`
+        - `getDataVersion` now has an overload that takes in a `Dynamic`
+        - `createUUID`, `loadUUID` is removed
+        - `readBlockPos`, `writeBlockPos` is removed
+    - `NumericTag` is now a sealed interface that implements `PrimitiveTag`
+        - `getAsLong` -> `longValue`
+        - `getAsInt` -> `intValue`
+        - `getAsShort` -> `shortValue`
+        - `getAsByte` -> `byteValue`
+        - `getAsDouble` -> `doubleValue`
+        - `getAsFloat` -> `floatValue`
+        - `getAsNumber` -> `box`
+        - `as*` - Returns an optional wrapped of the numeric value.
+    - `PrimitiveTag` - A sealed interface that represents the tag data as being a primitive object.
+    - `ShortTag` is now a record
+    - `SnbtGrammar` - A parser creater for stringified NBTs.
+    - `StringTag` is now a record
+    - `StringTagVisitor`
+        - `visit` -> `build`, not one-to-one
+        - `handleEscape` -> `handleKeyEscape`, now private
+    - `Tag` is now a sealed interface
+        - `as*` -> Attempts to cast the tag as one of its subtypes, returning an empty optional on failure.
+        - `getAsString` -> `asString`, not one-to-one
+    - `TagParser` now holds a generic referncing the type of the intermediate object to parse to
+        - The constructor now takes in a grammar, or `create` constructs the grammar from a `DynamicOps`
+        - `AS_CODEC` -> `FLATTENED_CODEC`
+        - `parseTag` -> `parseCompoundFully` or `parseCompoundAsArgument`
+            - Additional methods such as `parseFully`, `parseAsArgument` parse to some intermediary object
+            - These are all instance methods
+        - `readKey`, `readTypedValue` is removed
+    - `TagType#isValue` is removed
+- `net.minecraft.util.parsing.packrat`
+    - `CachedParseState` - A parse state that caches the parsed positions and controls when reading.
+    - `Control#hasCut` - Returns whether the control flow for the grammar has a cut for the reading object.
+    - `DelayedException` - An interface that creates an exception to throw.
+    - `Dictionary`
+        - `put` now returns a `NamedRule`
+        - `put(Atom<T>, Term<S>, Rule.RuleAction<S, T>)` -> `putComplex`
+        - `get` -> `getOtThrow`, not one-to-one
+        - `forward` - Gets or writes the term to the dictionary.
+        - `namedWithAlias` - Creates a new reference to the named atom or its alias.
+    - `ErrorCollector$Nop` - A error collector that does nothing.
+    - `NamedRule` - A rule that has an associated name.
+    - `ParseState` is now an interface
+        - Caching logic has moved to `CachedParseState`
+        - `scope` - Returns the current scope being analyzed within the parsing object.
+        - `parse` now takes in a `NamedRule` instead of an `Atom`
+        - `acquireControl`, `releaseControl` - Handles obtaining the `Control` used during parsing.
+        - `silent` - Returns a `ParseState` that does not collect any errors.
+    - `Rule`
+        - `parse`, `$RuleAction#run` now returns a nullable value rather than an optional
+        - `SimpleRuleAction` now implements `$RuleAction`
+    - `Scope#pushFrame`, `popFrame`, `splitFrame`, `clearFrameValues`, `mergeFrame` - Handles the management of parsing terms into sections called frames.
+    - `Term`
+        - `named` -> `Dictionary#named`, not one-to-one
+        - `repeated`, `repeatedWithTrailingSeparator`, `repeatedWithoutTrailingSeparator` - Handles terms similar to varargs that are repeated and sticks them into a list.
+        - `positiveLookahead`, `negativeLookahead` - Handles a term that matches information based on what is following.
+        - `fail` - Mark a term as having failed during parsing.
+- `net.minecraft.util.parsing.packrat.commands`
+    - `CommandArgumentParser` - Parses a string into an argument for use with a command.
+    - `Grammar` now takes in a `NamedRule` for the top rather than an `Atom`
+    - `GreedyPatternParseRule` - A rule that attempts to match the provided pattern greedily, assuming that if a region matches, that the matched group can be obtained.
+    - `GreedyPredicateParseRule` - A rule that attempts to match the accepted characters greedily, making sure that the string reaches a minimum size.
+    - `NumberRunParseRule` - A rule that attempts to parse a number from the string.
+    - `ParserBasedArgument` - A command argument that uses a parser to extract the value.
+    - `ResourceLookupRule` now takes in a `NamedRule` for the id parser rather than an `Atom`
+    - `StringReaderParserState` now extends `CachedParsedState`
+        - The `Dictoionary` is no longer taken in
+    - `StringReaderTerms#characters` - Matches multiple characters in a string, usually for catching both the lowercase and uppercase variant.
+    - `UnquotedStringParseRule` - A rule that reads part of the sequence as an unquoted string, making sure it reaches a minimum size.
 
 ## Saved Data, now with Types
 
@@ -859,13 +987,61 @@ First, shader JSONs no longer exist. This is replaced by a `RenderPipeline`, whi
 
 Now, for those who need the details, let's jump into them.
 
+### Abstracting Open GL
+
+As many are aware, Minecraft has been abstracting away their OpenGL calls and constants, and this release is no different. Most of the calls to GL codes have been moved out of object references, to be obtained typically by calling `GlConst$toGl`. However, with all of the other rendering reworks, there are numerous changes and complexities that require learning an entirely new system, assuming you're not using `RenderType`s.
+
+Starting from the top, all calls to the underlying render system goes through `GpuDevice`, an interface that acts like a general implementation of a render library like OpenGL or Vulkan. The device is responsible for creating buffers and textures, executing whatever commands are desired. Getting the current `GpuDevice` can be accessed through the `RenderSystem` via `getDevice` like so:
+
+```java
+GpuDevice device = RenderSystem.getDevice();
+```
+
+The `GpuDevice` can the create either buffers with the desired data or a texture containing information on what to render using `createBuffer` and `createTexture`, respectively. Just for redundancy, buffers hold the vertex data while textures hold the texture (color and depth) data. Whether it makes sense to cache a buffer or a texture to be uploaded to is up to you. For reference, buffers are typically created by using a `BufferBuilder` with a `ByteBufferBuilder` to build the `MeshData` first, before passing that into `createBuffer`.
+
+With the desired buffers and textures set up, how do we actually modify render them to the screen? Well, this is handled through the `CommandEncoder`, which can also be optained from the device via `GpuDevice#createCommandEncoder`. The encoder contain the familiar read and write methods along with a few extra to resize a buffer, clear texture to a given color, or simply blit the the texture immediately to the screen (`presentTexture`). However, the most important method here is `createRenderPass`. This takes in the `GpuTexture` to draw to the screen along with a default ARGB color for the background. Additionally, it can take in a depth texture as well. This should be created using a try with resources block like so:
+
+```java
+// We will assume you have constructed a `GpuTexture` texture for the color data
+try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(this.texture, OptionalInt.of(0xFFFFFFFF))) {
+    // Setup things here
+
+}
+```
+
+Within the `RenderPass`, you can set the `RenderPipeline` to use, which defines the associated shaders, bind any samplers from other targets or set uniforms, scisssor a part of a screen to render, and set the vertex and index buffers used to define the vertices to render. Finally, Everything can be drawn to the screen using one of the `draw` methods, providing the starting index and the vertex count.
+
+```java
+// We will assume you have constructed a `GpuTexture` texture for the color data
+try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(this.texture, OptionalInt.of(0xFFFFFFFF))) {
+    // Setup things here
+
+    // If the buffers are not created or cached, create them here
+    RenderSystem.AutoStorageIndexBuffer indexBuffer = RenderSystem.getSequentialBuffer(VertexFormat.Mode.QUADS);
+    GpuBuffer vertexBuffer = RenderSystem.getQuadVertexBuffer(() -> "Example vertex buffer");
+
+    // Set pipeline information along with any samplers and uniforms
+    pass.setPipeline(EXAMPLE_PIPELINE);
+    pass.setVertexBuffer(0, vertexBuffer);
+    pass.setIndexBuffer(indexBuffer.getBuffer(6), indexBuffer.type());
+    pass.bindSampler("Sampler0", RenderSystem.getShaderTexture(0));
+
+    // Then, draw everything to the screen
+    // Basically, this just contains a single quad for this example
+    // For those unaware, the vertex count is 6 as a quad is made up of 2 triangles, so 2 vertices overlap
+    pass.drawIndexed(0, 6);
+}
+```
+
+However, unless you need such fine control, it is recommended to use a `RenderType` with the `MultiBufferSource` when necessary as that sets up most things for you.
+
 ### Object References
 
 Most raw references to GL codes used for determining the mode and handling the texture have been replaced with objects. As the TL;DR previously mentioned, these are stored typically as some sort of enum or object that can then be resolved to their GL counterparts. Some objects contain their reference identifier directly, like `BlendFunction`. Others are simply placeholders that are resolved in their appropriate location, like `DepthTestFunction` whose enum values are converted via `RenderPipeline#toGl`.
 
 However, the biggest change is the addition of the `GpuTexture`. This is responsible for managing anything to do with creating, writing, and releasing a texture written to some buffer. At initialization, the texture is created and bound, with any necessary parameters set for mipmaps and texture formats. These `GpuTexture`s are stored and referenced everywhere, from the depth and color targets for a `RenderTarget` to the texture backing a `TextureAtlas`. Then, once no longer need, the texture is released by calling `#close`. Note that although technically `#bind` can be called again, the texture is already considered deleted and should not be used.
 
-If, for some reason, you need to use a `GpuTexture`, it's actually quite simple to use. First, you just construct the `GpuTexture`. Then, if you need to change any of the addressing or texture mipmap filters, you can apply them whenever before writing.
+If, for some reason, you need to use a `GpuTexture`, it's actually quite simple to use. First, you just construct the `GpuTexture` via `GpuDevice#createTexture`. Then, if you need to change any of the addressing or texture mipmap filters, you can apply them whenever before writing.
 
 ```java
 public class MyTextureManager {
@@ -873,7 +1049,7 @@ public class MyTextureManager {
     private final GpuTexture texture;
 
     public MyTextureManager() {
-        this.texture = new GpuTexture(
+        this.texture = RenderSystem.getDevice().createTexture(
             // The texture name, used for logging and debugging
             "Example Texture",
             // The format of the texture pixels, can be one of three values that
@@ -948,6 +1124,8 @@ Previously, a pipeline was constructed using a JSON that contained all metadata 
 
 A `RenderPipeline` can be constructed using its builder via `RenderPipeline#builder`. A pipeline can then be built by calling `build` and passing it into `RenderPipeline#register`. If you have snippets that are used across multiple pipelines, then a partial pipeline can be built via `$Builder#buildSnippet` and then passed to the constructing pipelines in the `builder` method.
 
+> The following enums described in the examples have their GL codes provided with them as they have been abstracted away.
+
 ```java
 // This assumes that RenderPipeline#register has been made public through some form
 public static final RenderPipeline EXAMPLE_PIPELINE = RenderPipelines.register(
@@ -979,9 +1157,9 @@ public static final RenderPipeline EXAMPLE_PIPELINE = RenderPipelines.register(
     // Adds uniforms that can be referenced within the shaders
     // These are just definitions which are then populated by default or by the caller depending on the scenario
     // Defaults can be found in `CompiledShaderProgram#setupUniforms`
-    .withUniform("ModelOffset", Uniform.Type.VEC3)
+    .withUniform("ModelOffset", UniformType.VEC3)
     // Custom uniforms must be drawn manually as the vanilla batching system does not support such an operation
-    .withUniform("CustomUniform", Uniform.Type.INT)
+    .withUniform("CustomUniform", UniformType.INT)
     // Sets the depth test functions used rendering objects at varying distances from the camera
     // Values:
     // - NO_DEPTH_TEST      (GL_ALWAYS)
@@ -989,6 +1167,11 @@ public static final RenderPipeline EXAMPLE_PIPELINE = RenderPipelines.register(
     // - LEQUAL_DEPTH_TEST  (GL_LEQUAL)
     // - GREATER_DEPTH_TEST (GL_GREATER)
     .withDepthTestFunction(DepthTestFunction.LEQUAL_DEPTH_TEST)
+    // Sets how the polygons should render
+    // Values:
+    // - FILL      (GL_FILL)
+    // - WIREFRAME (GL_LINE)
+    .withPolygonMode(PolygonMode.FILL)
     // When true, can cull front or back-facing polygons
     .withCull(false)
     // Specifies the functions to use when blending two colors with alphas together
@@ -1006,8 +1189,10 @@ public static final RenderPipeline EXAMPLE_PIPELINE = RenderPipelines.register(
     // Determines whether to mask writing values to the depth buffer
     .withDepthWrite(false)
     // Determines the logical operation to apply when applying an RGBA color to the framebuffer
-    // Currently, only OR_REVERSE does something different as it is the only operation used by vanilla
-    .withColorLogic(GlStateManager.LogicOp.NONE)
+    .withColorLogic(LogicOp.NONE)
+    // Sets the scale and units used to calculate the depth values for the polygon.
+    // This takes the place of the polygon offset.
+    .withDepthBias(0f, 0f)
     .build()
 );
 ```
@@ -1033,25 +1218,31 @@ public static final RenderType EXAMPLE_RENDER_TYPE = RenderType.create(
 );
 ```
 
-The pipeline can then be drawn using the `VertexBuffer` by calling either `drawWithRenderPipeline` for the pipeline or `drawWithRenderType` for the render type:
+The pipeline can then be drawn by creating the `RenderPass` and setting the `RenderPipeline` to use your pipeline. As for the `RenderType`, the associated buffer can be obtained using  `MultiBufferSource#getBuffer`. Note that custom uniforms should not be used within `RenderType`s as they cannot be set easily.
 
 ```java
-// Assume we have constructed our own `VertexBuffer` buffer
 // Since we are using a custom uniform, we must handle it ourselves
+// We will assume we have some `GpuTexture` texture to write to
 
-// Upload our MeshData to render
-this.buffer.upload(...);
+// Create the render pass to use
+try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(
+        // The GPU color texture to write to
+        this.texture,
+        // The clear color in ARGB format
+        OptionalInt.of(0xFFFFFFFF),
+        // The depth texture and the clear depth value can also be constructed here
+    )
+) {
+    // Add the pipeline and our uniform
+    pass.setPipeline(EXAMPLE_PIPELINE);
+    pass.setUniform("CustomUniform", 1);
+    
+    // Set any additional sampler and the vertex/index buffers to use
 
-this.buffer.drawWithRenderPipeline(EXAMPLE_PIPELINE, program -> {
-    // Add any settings to the program
-    program.getUniform("CustomUniform").set(1);
-});
-
-// Or for a render type
-this.buffer.drawWithRenderType(EXAMPLE_RENDER_TYPE, program -> {
-    // Add any settings to the program
-    program.getUniform("CustomUniform").set(1);
-});
+    // Finally, call one of the draw functions
+    // Takes in the first index and the index count to draw for the vertices
+    pass.draw(...);
+}
 ```
 
 ### Post Effects
@@ -1119,16 +1310,45 @@ Given that the pipeline JSONs have been stripped, this also effects the post eff
 }
 ```
 
-Note that if you do not define a value for a uniform, they still must be specified before processing the `PostChain` by calling `#setUniform` before `#process`.
+Note that if you do not define a value for a uniform, they still must be specified before processing the `PostChain` by calling `#setUniform` within the `RenderPass` consumer of `PostChain#process`.
+
+```java
+// Assume we already got the `PostChain` post
+post.process(Minecraft.getInstance().getMainRenderTarget(), GraphicsResourceAllocator.UNPOOLED, pass -> {
+    pass.setUniform("Radius", 0.4f);
+});
+```
 
 - `com.mojang.blaze3d.GpuOutOfMemoryException` - An exception thrown when a texture could not be allocated on the GPU.
-- `com.mojang.blaze3d.buffers.GpuBuffer`
-    - `unbind` - Unbinds the buffer.
-    - `size` - Returns the size of the buffer.
-    - `type`-  Returns the type of the buffer.
+- `com.mojang.blaze3d.buffers`
+    - `BufferType` no longer stores the GL codes, now in `GlConst#toGl`
+    - `BufferUsage` no longer stores the GL codes, now in `GlConst#toGl`
+        - `isReadable`, `isWritable` - Returns whether the buffer can be read from or written to.
+    - `GpuBuffer` is now abstract
+        - Constructor with `ByteBuffer` is removed
+        - `size` - Returns the size of the buffer.
+        - `type` -  Returns the type of the buffer.
+        - `resize`, `write`, `read`, `bind` is removed
+        - `usage` - Returns the usage of the buffer.
+        - `close` is now abstract
+        - `$ReadView` is now an interface that defines the buffer data and how to close the view
 - `com.mojang.blaze3d.font.SheetGlyphInfo#upload` now takes in a `GpuTexture`
+- `com.mojang.blaze3d.opengl`   
+    - `GlBuffer` - An implementation of the `GpuBuffer` for OpenGL.
+    - `GlCommandEncoder` - An implementation of the `CommandEncoder` for OpenGL.
+    - `GlDebugLabel` - A labeler for handling debug references to GL-specified data structures.
+    - `GlDevice` - An implementation of `GpuDevice` for OpenGL.
+    - `GlRenderPass` - An implementation of `RenderPass` for OpenGL.
+    - `GlRenderPipeline` - An implementation of `CompiledRenderPipeline` for OpenGL.
+    - `GlTexture` - An implementation of `GpuTexture` for OpenGL.
+    - `VertexArrayCache` - A cache for binding and uploading a vertex array to the OpenGL pipeline.
+- `com.mojang.blaze3d.opengl.dsa`
+    - `CoreDsa` - An implementation of DSA that modifies the framebuffer without binding them to the context.
+    - `DirectStateAccess` - An interface that creates and binds data to some framebuffer.
+    - `EmulatedDsa` - An abstraction over DSA that still binds the context.
 - `com.mojang.blaze3d.pipeline`
     - `BlendFunction` - A class that holds the source and destination colors and alphas to apply when overlaying pixels in a target. This also holds all vanilla blend functions.
+    - `CompiledRenderPipeline` - An interface that holds the pipeline with all necessary information to render to the screen.
     - `RenderPipeline` - A class that contains everything required to render some object to the screen. It acts similarly to a render state before being applied.
     - `RenderTarget` now takes in a string representing the name of the target
         - `colorTextureId` -> `colorTexture`, now a `GpuTexture`
@@ -1138,7 +1358,16 @@ Note that if you do not define a value for a uniform, they still must be specifi
         - `filterMode` is now a `FilterMode`
             - Same with `setFilterMode` for the int parameter
         - `blitAndBlendToScreen` no longer takes in the viewport size parameters
+        - `framebufferId` is removed
+        - `checkStatus` is removed
+        - `bindWrite`, `unbindWrite`, `setClearColor` is removed
+        - `blitToScreen` no longer takes in any parameters
+        - `blitAndBlendToScreen` -> `blitAndBlendToTexture`, not one-to-one
+        - `clear` is removed
 - `com.mojang.blaze3d.platform`
+    - `DepthTestFunction` - An enum representing the supported depth tests to apply when rendering a sample to the framebuffer.
+    - `GlConst#toGl` - Maps some reference object to its associated OpenGL code.
+    - `GlDebug` -> `com.mojang.blaze3d.opengl.GlDebug`
     - `GlStateManager`
         - `_blendFunc`, `_blendEquation` is removed
         - `_glUniform2(int, IntBuffer)`, `_glUniform4(int, IntBuffer)` is removed
@@ -1157,10 +1386,22 @@ Note that if you do not define a value for a uniform, they still must be specifi
         - `_getTexImage` is removed
         - `_glDrawPixels`, `_readPixels` is removed
         - `$CullState#mode` is removed
-        - `$LogicOp#NONE` - Performs no logic operation.
+        - `$DestFactor` -> `DestFactor`, codes are removed to be called through `GlConst#toGl`
+        - `$FramebufferState` enum is removed
+        - `$LogicOp` -> `LogicOp`, codes are removed to be called through `GlConst#toGl`
+            - All but `OR_REVERSE` is removed
+            - `NONE` - Performs no logic operation.
         - `$PolygonOffsetState#line` is removed
+        - `$SourceFactor` -> `SourceFactor`, codes are removed to be called through `GlConst#toGl`
         - `$StencilFunc`, `$StencilState` class is removed
-        - `$Viewport` fields are now package private
+        - `$Viewport` enum is removed
+    - `GlUtil` class is removed
+        - `getVendor`, `getRenderer`, `getOpenGlVersion` (now `getVersion`) have been moved to instance abstract methods on `GpuDevice`
+        - `getCpuInfo` -> `GLX#_getCpuInfo`
+    - `GLX`
+        - `getOpenGLVersionString` is removed
+        - `_init` -> `_getCpuInfo`, not one-to-one
+    - `PolygonMode` - A enum that defines how the polygons will render in the buffer.
     - `NativeImage` constructor is now public
         - `upload` is removed
         - `getPointer` - Returns the pointer to the image data.
@@ -1170,17 +1411,21 @@ Note that if you do not define a value for a uniform, they still must be specifi
         - `flipY` is removed
         - `setPackPixelStoreState`, `setUnpackPixelStoreState` is removed
         - `$InternalGlFormat` enum is removed
+        - `$Format` no longer contains the GL codes, now in `GlConst#toGl`
     - `TextureUtil`
         - `generateTextureId`, `releaseTextureId` is removed
         - `prepareImage` is removed
         - `writeAsPNG` now takes in a `GpuTexture` instead of the direct three integers
             - The overload without the `IntUnaryOperator` is removed
 - `com.mojang.blaze3d.shaders`
-    - `AbstractUniform`
+    - `AbstractUniform` -> `com.mojang.blaze3d.opengl.AbstractUniform`
         - `setSafe` methods are removed
         - `setMat*` methods are removed
         - `set(Matrix3f)` is removed
-    - `Uniform` now takes in a `$Type` instead of the count and an integer representing the type
+    - `CompiledShader` -> `com.mojang.blaze3d.opengl.GlShaderModule`
+        - `$Type` -> `com.mojang.blaze3d.shaders.ShaderType`
+    - `Uniform` -> `com.mojang.blaze3d.opengl.Uniform`
+        - Constructor now takes in a `$Type` instead of the count and an integer representing the type
         - `UT_*` fields are removed
         - `setFromConfig(ShaderProgramConfig.Uniform)` is removed
         - `getTypeFromString` is removed
@@ -1191,26 +1436,53 @@ Note that if you do not define a value for a uniform, they still must be specifi
         - `getLocation` is removed
         - `getCount` -> `$Type#count`
         - `getIntBuffer`, `getFloatBuffer` is removed
-- `com.mojang.blaze3d.systems.RenderSystem`
-    - `isOnRenderThreadOrInit`, `assertOnRenderThreadOrInit` is removed
-    - `recordRenderCall`, `replayQueue` is removed
-    - `blendFunc`, `blendFuncSeparate`, `blendEquation` is removed
-    - `texParameter`, `deleteTexture`, `bindTextureForSetup` is removed
-    - `stencilFunc`, `stencilMask`, `stencilOp` is removed
-    - `clearDepth` is removed
-    - `glBindBuffer`, `glBindVertexArray`, `glBufferData`, `glDeleteBuffers` is removed
-    - `glUniform2`, `glUniform4` is removed
-    - `glUniformMatrix2`, `glUniformMatrix3` is removed
-    - `glUniformMatrix4` no longer takes in the boolean representing whether the transpose the uniform
-    - `setupOverlayColor` now takes in a `GpuTexture` instead of two ints
-    - `beginInitialization`, `finishInitialization` is removed
-    - `renderThreadTesselator` is removed
-    - `setShader`, `clearShader`, `getShader` is removed
-    - `setShaderTexture` now takes in a `GpuTexture` instead of a bind address
-    - `getShaderTexture` now returns a `GpuTexture` or null if not present
-    - `pixelStore`, `readPixels` is removed
-    - `queueFencedTask`, `executePendingTasks` - Handles sending tasks that run on the GPU asyncronously.
-    - `$GpuAsyncTask` - A record that holds the callback and fence object used to sync information to the GPU.
+        - `$Type` -> `com.mojang.blaze3d.shaders.UniformType`
+- `com.mojang.blaze3d.systems`
+    - `CommandEncoder` - An interface that defines how to encode various commands to the underlying render system, such as creating a pass, clearing and writing textures, or reading from the buffer.
+    - `GpuDevice` - An interface that defines the device or underlying render system used to draw to the screen. This is responsible for creating the buffers and textures while compiling any pipelines.
+    - `RenderPass` - An interface that defines how a given pass is rendered to some buffer using the underlying render system. This allows binding any samplers and setting the required uniforms.
+    - `RenderSystem`
+        - `isOnRenderThreadOrInit`, `assertOnRenderThreadOrInit` is removed
+        - `recordRenderCall`, `replayQueue` is removed
+        - `blendFunc`, `blendFuncSeparate`, `blendEquation` is removed
+        - `texParameter`, `deleteTexture`, `bindTextureForSetup` is removed
+        - `stencilFunc`, `stencilMask`, `stencilOp` is removed
+        - `clearDepth` is removed
+        - `glBindBuffer`, `glBindVertexArray`, `glBufferData`, `glDeleteBuffers` is removed
+        - `glUniform1i` is removed
+        - `glUniform1`, `glUniform2`, `glUniform3`, `glUniform4` is removed
+        - `glUniformMatrix2`, `glUniformMatrix3`, `glUniformMatrix4` is removed
+        - `setupOverlayColor` now takes in a `GpuTexture` instead of two ints
+        - `beginInitialization`, `finishInitialization` is removed
+        - `renderThreadTesselator` is removed
+        - `setShader`, `clearShader`, `getShader` is removed
+        - `setShaderTexture` now takes in a `GpuTexture` instead of a bind address
+        - `getShaderTexture` now returns a `GpuTexture` or null if not present
+        - `pixelStore`, `readPixels` is removed
+        - `queueFencedTask`, `executePendingTasks` - Handles sending tasks that run on the GPU asyncronously.
+        - `SCISSOR_STATE` - Holds the main scissor state.
+        - `disableDepthTest`, `enableDepthTest` is removed
+        - `depthFunc`, `depthMask` is removed
+        - `enableBlend`, `disableBlend` is removed
+        - `neableCull`, `disableCull` is removed
+        - `polygonMode`, `enablePolygonOffset`, `disablePolygonOffset`, `polygonOffset` is removed
+        - `enableColorLogicOp`, `disableColorLogicOp`, `logicOp` is removed
+        - `bindTexture`, `viewport` is removed
+        - `colorMask`, `clearColor`, `clear` is removed
+        - `setupShaderLights(CompiledShaderProgram)` is removed
+        - `getShaderLights` - Returns the vectors representing the block and sky lights.
+        - `drawElements`, `getString` is removed
+        - `initRenderer` now takes in the window pointer, the default shader source, and a boolean of whether to use debug labels
+        - `setupDefaultState` no longer takes in any parameters
+        - `maxSupportTextureSize` is removed
+        - `glDeleteVertexArrays` is removed
+        - `defaultBlendFunc` is removed
+        - `setShaderTexture` is removed
+        - `getQuadVertices` -> `getQuadVertexBuffer`, not one-to-one
+        - `getDevice`, `tryGetDevice` - Returns the `GpuDevice` representing the underlying render system to use.
+        - `$AutoStorageIndexBuffer#bind` -> `getBuffer`, not one-to-one
+        - `$GpuAsyncTask` - A record that holds the callback and fence object used to sync information to the GPU.
+    - `ScissorState` - A class which holds the part of the screen to render.
 - `com.mojang.blaze3d.textures`
     - `AddressMode` - The mode set for how to render a texture to a specific location.
     - `FilterMode` - The mode set for how to render a texture whenever the level-of-detail function determines how the texture should be maximized or minimized.
@@ -1225,9 +1497,17 @@ Note that if you do not define a value for a uniform, they still must be specifi
             - `computeNormalMatrix` is now private
             - `transformNormal` now takes in a `Vector3fc` as its first parameter
             - `translate`, `scale`, `rotate`, `rotateAround`, `setIdentity`, `mulPose` are now available on the pose itself in addition to the stack
-    - `VertexBuffer`
-        - `drawWithRenderPipeline` - Draws the buffer using the provided `RenderPipeline`, applying any setup operations that require the `CompiledShaderProgram`.
-        - `drawWithRenderType` - Draws the buffer using the provided `RenderType`, applying any setup operations that require the `CompiledShaderProgram`.
+    - `VertexBuffer` -> `com.mojang.blaze3d.buffers.GpuBuffer`, not one-to-one
+        - Some logic is also moved to `VertexFormat`
+    - `VertexFormat`
+        - `bindAttributes` is removed
+        - `setupBufferState`, `clearBufferState`, `getImmediateDrawVertexBuffer` -> `uploadImmediateVertexBuffer`, `uploadImmediateIndexBuffer`; not one-to-one
+        - `$IndexType` no longer stores the GL codes, now in `GlConst#toGl`
+        - `$Mode` no longer stores the GL codes, now in `GlConst#toGl`
+    - `VertexFormatElement`
+        - `setupBufferState` is removed
+        - `$Type` no longer stores the GL codes, now in `GlConst#toGl`
+        - `$Usage` no longer stores the GL function calls, now in `VertexArrayCache#setupCombinedAttributes`
 - `com.mojang.math`
     - `MatrixUtil`
         - `isIdentity`, `isPureTranslation`, `isOrthonormal` now take in a `Matrix4fc`
@@ -1241,24 +1521,33 @@ Note that if you do not define a value for a uniform, they still must be specifi
         - `getMatrix` now returns a `Matrix4fc`
         - `getMatrixCopy` - Returns a deep copy of the current matrix.
 - `net.minecraft.client.gui.font.FontTexture` now takes in a supplied label string
+- `net.minecraft.client.main.GameConfig` now takes in a boolean representing whether to render debug labels
 - `net.minecraft.client.renderer`
     - `CloudRenderer#render` no longer takes in the `Matrix4f`s used for projection or posing
-    - `CompiledShaderProgram`
+    - `CompiledShaderProgram` -> `com.mojang.blaze3d.opengl.GlProgram`
         - `link` now takes in a string for the shader name
         - `setupUniforms` now take in the list of `$UniformDescription`s along with a list of names used by the samplers
         - `getUniformConfig` is removed
         - `bindSampler` now takes in a `GpuTexture` instead of the integer bind identifier
         - `parseUniformNode` is removed
     - `CoreShaders` -> `RenderPipelines`, not one-to-one
-    - `DepthTestFunction` - An enum representing the supported depth tests to apply when rendering a sample to the framebuffer.
-    - `LightTexture#getTarget` - Returns the texture taget that contains the light texture for the current level based on the player.
-    - `PostChain#load` now takes in a `ResourceLocation` representing the name of the chain
+    - `LightTexture#getTarget` - Returns the `GpuTexture` that contains the light texture for the current level based on the player.
+    - `PostChain`
+        - `load` no longer takes in the `ShaderManager`, now taking in a `ResourceLocation` representing the name of the chain
+        - `addToFrame`, `process` now takes in a `RenderPass` consumer to apply any additional settings to the pass to render
+        - `setUniform` is removed
+        - `setOnRenderPass` - Sets the uniform within the post chain on the `RenderPass` for use in the shaders.
     - `PostChainConfig`
         - `$Pass` now takes in the ids of the vertex and fragment shader instead of the program id
             - `program` is removed
         - `$Uniform` now takes in the type of the uniform along with an optional list of floats if the value does not need to be overridden
-    - `PostPass` now takes in the `RenderPipeline` instead of a string representing the name of the pass
+    - `PostPass` no longer takes in the `CompiledShaderProgram`, now taking in the `RenderPipeline` instead of a string representing the name of the pass
+         - `addToFrame` now takes in a `RenderPass` consumer to apply any additional settings to the pass to render
+         - `getShader` is removed
+         - `$Input#bindTo` now takes in a `RenderPass` instead of the `CompiledShaderProgram`
     - `RenderStateShard`
+        - `$LayerStateShard`s using polygon offsets have been removed
+        - `getName` - Returns the name of the shard.
         - `$TransparencyStateShard` class is removed
             - Now handled through `BlendFunction`
         - `$ShaderStateShard` class is removed
@@ -1271,35 +1560,44 @@ Note that if you do not define a value for a uniform, they still must be specifi
             - Now handled as a setting on the `RenderPipeline`
         - `$ColorLogicStateShard` class is removed
             - Now handled as a setting on the `RenderPipeline`
+        - `$OutputStateShard` now takes in a supplied `RenderTarget` instead of the runnables for the startup and teardown states
     - `RenderType` no longer takes in the `VertexFormat` or `VertexFormat$Mode`
+        - `SKY`, `END_SKY`, `sky`, `endSky`, `stars` is removed
+        - `ENTITY_OUTLINE_BLIT`, `entityOutlineBlit` is removed
+        - `PANORAMA`, `panorama` is removed
+        - `CREATE_LIGHTMAP`, `createLightmap` is removed
+        - `createClouds`, `flatClouds`, `clouds`, `cloudsDepthOnly` is removed
+        - `worldBorder` is removed
         - `debugLine` - Returns the `RenderType` associated with the debug line.
         - `entityOutlineBlit` - Returns the `RenderType` used for rendering an entity outline.
         - `panorama` - Returns the `RenderType` used for rendering panorama mode.
         - `createLightmap` - Returns the `RenderType` used for rendering the lightmap texture.
         - `create` no longer takes in the `VertexFormat` or `VertexFormat$Mode`, instead the `RenderPipeline`
-        - `getCompiledShaderProgram` - Returns the shader program used for rendering.
-        - `format` and `mode` are now abstract
+        - `getRenderTarget`, `getRenderPipeline` - Returns the target and pipeline used for rendering.
+        - `format`, `mode`, `draw` are now abstract
         - `$CompositeStateBuilder` methods are now protected
         - `$OutlineProperty` is now protected
     - `ShaderDefines$Builder#define` now has an overload that takes in an integer
     - `ShaderManager`
         - `SHADER_INCLUDE_PATH` is now private
         - `MAX_LOG_LENGTH` is removed
-        - `preloadForStartup` now takes in a varargs of `RenderPipeline`s instead of `ShaderProgram`s
-        - `getProgram` now takes in a `RenderPipeline` instead of a `ShaderProgram`
-        - `getProgramForLoading` now takes in a `RenderPipeline` instead of a `ShaderProgram`
+        - `preloadForStartup` is removed, replaced by `GpuDevice#precompilePipeline`
+        - `getProgram`, `getProgramForLoading` -> `getShader`, not one-to-one
         - `linkProgram` now takes in a `RenderPipeline` instead of a `ShaderProgram` and `ShaderProgramConfig`
-        - `$CompilationCache`
-            - `getOrCompileProgram` now takes in a `RenderPipeline` instead of a `ShaderProgram`
-            - `getOrCompileShader` is now public
+        - `$CompilationCache#getOrCompileProgram`, `getOrCompileShader` -> `getShaderSource`, not one-to-one
         - `$Configs` no longer takes in the map of programs
+        - `$ShaderCompilationKey` record is removed
     - `ShaderProgram`, `ShaderProgramConfig` -> `RenderPipeline`, not one-to-one
     - `SkyRenderer#renderDarkDisc` no longer takes in the `PoseStack`
+- `net.minecraft.client.renderer.chunk.SectionRenderDispatcher`
+    - `uploadSectionLayer`, `uploadSectionIndexBuffer` -> `$RenderSection#uploadSectionLayer`, `uploadSectionIndexBuffer`
+    - `$SectionBuffers` - A class that holds the buffers used to render the sections.
 - `net.minecraft.client.renderer.texture`
     - `AbstractTexture`
         - `NOT_ASSIGNED` is removed
         - `texture`, `getTexture` - Holds the reference to the texture to render.
         - `getId`, `releaseId` is removed
+        - `bind` is removed
     - `DynamicTexture` now takes in the label of the texture
     - `SpriteContents#uploadFirstFrame`, `$AnimatedTexture#uploadFirstFrame` now takes in a `GpuTexture`
     - `SpriteTicker#tickAndUpload` now takes in the `GpuTexture`
@@ -1311,11 +1609,13 @@ The model system has been further separated into models for block states, blocks
 
 First, let's start from the base model JSON used between blocks and items. These are loaded into an `UnbakedModel` (specifically `BlockModel`) which contains the familiar properties such as gui light and texture slots. However, one change is the splitting of the elements from their render settings. These elements that hold the render quads are stored in an `UnbakedGeometry`. The `UnbakedGeometry` is responsible for baking the model into a `QuadCollection`, which effectively holds the list of `BakedQuad`s to render. Currently, vanilla only has the `SimpleUnbakedGeometry`, which holds the familiar list of `BlockElement`s. These `UnbakedModel`, once loaded, are then passed to the `ModelDiscovery` for resolving the block state and item models.
 
-Next we have the `ResolvableModel`s, which is the base of both block state and item models. These models essentially function as markers requesting the `UnbakedModel`s that they will be using. From there, we have their subtypes `BlockStateModel$Unbaked` for the block state JSON and `ItemModel$Unbaked` for the model referenced in the client item JSON. Each of these implement `resolveDependencies` in some way to call `ResolvableModel$Resolver#markDependency` with the model location they would like to use.
+Next we have the `ResolvableModel`s, which is the base of both block state and item models. These models essentially function as markers requesting the `UnbakedModel`s that they will be using. From there, we have their subtypes `BlockStateModel$UnbakedRoot` for the block state JSON and `ItemModel$Unbaked` for the model referenced in the client item JSON. Each of these implement `resolveDependencies` in some way to call `ResolvableModel$Resolver#markDependency` with the model location they would like to use.
+
+> Technically, `BlockStateModel`s are a bit more complex as variants use `BlockStateModel$Unbaked` during loading which are then transformed into an `$UnbakedRoot` during initialization.
 
 Now that we know what models that should be loaded, they now have to be put into a usable state for baking. This is the job of the `ModelDiscovery`, which takes in a `ResolvableModel` and loads the `UnbakedModel`s into a `ResolvedModel` on first reference. `ResolvedModel`s are functionally wrappers around `UnbakedModel`s used to resolve all dependency chains, as the name implies.
 
-From there, model groups are built for `BlockState`s and the textures are loaded, leading to the final step of actually baking the `BlockStateModel` and the `ItemModel`. This is handled through the `bake` methods provided on the `$Unbaked` and the `ModelBakery`. In a nutshell, `bake` constructs the list of `BakedQuad`s stored with whatever additional information is desired by the block state or item model itself. The `ResolvedModel`s are obtained from the baker, from which the instance methods are called. For `BlockStateModel`s, this is resolved via `SimpleModelWrapper#bake`, from which the `ModelState` is obtained from the `Variant` data. For `ItemModel`s, it just consumes the `BakedQuad`s list directly along with information provided by `ModelRenderProperties#fromResolvedModel`. This does mean that each `BlockStateModel` and `ItemModel` may contain duplicated (but unique) `BakedQuad`s if the same model is referenced in multiple locations.
+From there, model groups are built for `BlockState`s and the textures are loaded, leading to the final step of actually baking the `BlockStateModel` and the `ItemModel`. This is handled through the `bake` methods provided on the `$UnbakedRoot` (or `$Unbaked`) and the `ModelBakery`. In a nutshell, `bake` constructs the list of `BakedQuad`s stored with whatever additional information is desired by the block state or item model itself. The `ResolvedModel`s are obtained from the baker, from which the instance methods are called. For `BlockStateModel`s, this is resolved via `SimpleModelWrapper#bake`, from which the `ModelState` is obtained from the `Variant` data. They stored the baked quads in a `BlockModelPart`. For `ItemModel`s, it just consumes the `BakedQuad`s list directly along with information provided by `ModelRenderProperties#fromResolvedModel`. This does mean that each `BlockStateModel` and `ItemModel` may contain duplicated (but unique) `BakedQuad`s if the same model is referenced in multiple locations.
 
 ### Block Generators: The Variant Mutator
 
@@ -1382,7 +1682,12 @@ this.blockStateOutput.accept(
     - `VariantProperties` -> `net.minecraft.client.renderer.block.model.VariantMutator`, not one-to-one
     - `VariantProperty` -> `net.minecraft.client.renderer.block.model.VariantMutator$VariantProperty`, not one-to-one
 - `net.minecraft.client.renderer.ItemInHandRenderer#renderItem` no longer takes in the boolean representing if the item is held in the left hand
-- `net.minecraft.client.renderer.block.BlockModelShaper#stateToModelLocation`, `statePropertiesToString` is removed
+- `net.minecraft.client.renderer.block`
+    - `BlockModelShaper#stateToModelLocation`, `statePropertiesToString` is removed
+    - `BlockRenderDispatcher#renderBatched` now takes in a list of `BlockModelPart`s instead of a `RandomSource`
+    - `ModelBlockRenderer`
+        - `tesselateBlock`, `tesselateWithAO`, `tesselateWithoutAO` no longer takes in a `RandomSource` and replaces `BlockStateModel` with a list of `BlockModelPart`s
+        - `renderModel` no longer takes in the `BlockState`
 - `net.minecraft.client.renderer.block.model`
     - `BakedQuad` is now a record
     - `BlockElement` is now a record
@@ -1393,37 +1698,46 @@ this.blockStateOutput.accept(
     - `BlockFaceUV` -> `BlockElementFace$UVs`, not one-to-one
     - `BlockModel` is now a record, taking in an `UnbakedGeometry` instead of the direct list of `BlockElement`s
         - `$Deserializer#getElements` now returns an `UnbakedGeometry`
-    - `BlockModelDefinition` is now a record
+    - `BlockModelDefinition` is now a record, taking in `$SimpleModelSelectors` and `$MultiPartDefinition`s
         - `GSON`, `fromStream`, `fromJsonElement` -> `CODEC`, not one-to-one
         - `instantiate` now takes in a supplied string instead of the string directly
         - `$Deserializer` is removed
+        - `$MultiPartDefinition` - A record that holds a list of selectors to get for the multi part model.
+        - `$SimpleModelSelectors` - A record that holds a map of variants to their unbaked model instances.
+    - `BlockModelPart` - A baked model representation of a block.
+    - `BlockStateModel` - A baked representation of a block state.
+        - `collectParts` - Obtains the list of baked models used to render this state.
+        - `$SimpleCachedUnbakedRoot` - A class that represents a delegate of some `$Unbaked` model.
+        - `$Unbaked` - An extension over `$UnbakedRoot` that can create a `$SimpleCachedUnbakedRoot`
     - `FaceBakery`
         - `bakeQuad` now takes in `Vector3fc`s instead of `Vector3f`s
         - `recomputeUVs` is removed
         - `extractPositions` - Extracts the face positions and passes them to a consumer for use.
     - `ItemTransform` is now a record, vectors are `Vector3fc`s
-    - `MultiVariant`
+    - `MultiVariant` -> `net.minecraft.client.data.models.MultiVariant`
         - `CODEC`
         - `with` - Creates a `MultiVariant` with the specified mutators.
         - `$Deserializer` class is removed
+    - `SimpleModelWrapper` now implements `BlockModelPart`
     - `SimpleUnbakedGeometry` - An unbaked geometry that holds a list of `BlockElement`s to bake.
-    - `UnbakedBlockStateModel` -> `BlockStateModel$Unbaked`
+    - `SingleVariant` - A `BlockStateModel` implementation with only one model for its state.
+    - `UnbakedBlockStateModel` -> `BlockStateModel$UnbakedRoot`
     - `Variant` no longer implements `ModelState`, now taking in a `$SimpleModelState` instead of the direct rotation and uv lock
-        - The constructor now has an overload for only providing the `ResourceLocation`
+        - The constructor now has an overload for only providing the `ResourceLocation` and no longer takes in the weight, leaving that to the `MultiVariant`
         - `CODEC`
-        - `withXRot`, `withYRot`, `withUvLock`, `withModel`, `withState`, `withWeight`, `with` - Mutates the variant into a new object with the given setting applied.
+        - `withXRot`, `withYRot`, `withUvLock`, `withModel`, `withState`, `with` - Mutates the variant into a new object with the given setting applied.
         - `$Deserializer` class is removed
         - `$SimpleModelState` - A record that holds the x/y rotations and uv lock.
     - `VariantMutator` - A unary operator on a variant that applies the specified setting to the variant. Used during state generation.
 - `net.minecraft.client.renderer.block.model.multipart`
     - `AndCondition`, `OrCondition` -> `CombinedCondition`, not one-to-one
     - `KeyValueCondition` is now a record that takes in a map of keys to terms to test
-    - `MultiPart`
+    - `MultiPart` -> `MultiPartModel$Unbaked`
         - `$Definition`
             - `CODEC`
             - `getMultiVariants` is removed
         - `$Deserializer` class is removed
-    - `Selector` is now a record
+    - `Selector` is now a record, taking in a `BlockStateModel$Unbaked` instead of a `MultiVariant`
         - `$Deserializer` class is removed
 - `net.minecraft.client.renderer.entity.ItemRenderer`
     - `renderItem` now takes in a `List<BakedQuad>` instead of a `BakedModel`
@@ -1455,14 +1769,17 @@ this.blockStateOutput.accept(
         - `ModelResourceLocation` fields are removed
         - `loadBlockState` no longer takes in the missing model
         - `$LoadedModel` class is removed
-        - `$LoadedModels#forResolving`, `plainModels` is removed
+        - `$LoadedModels` now takes in a `BlockStateModel$UnbakedRoot` instead of an `$Unbaked`
+            - `forResolving`, `plainModels` is removed
     - `DelegateBakedModel` -> `net.minecraft.client.renderer.block.model.SimpleModelWrapper`, not one-to-one
     - `MissingBlockModel#VARIANT` is removed
     - `ModelBaker`
         - `bake` -> `getModel`, not one-to-one
             - The baker is simply retrieving the `ResolvedModel`
         - `rootName` is removed
-    - `ModelBakery` now takes in a `Map<BlockState, BlockStateModel$Unbaked>` for the unbaked block state models, a `Map<ResourceLocation, ResolvedModel>` for the loaded models, and a `ResolvedModel` for the missing model
+        - `compute` - Computes the provided key that contains the `ModelBaker`. Typically used for baking `BlockStateModel`s
+        - `$SharedOperationKey` - An interface which typically computes some baking process for an unbaked model.
+    - `ModelBakery` now takes in a `Map<BlockState, BlockStateModel$UnbakedRoot>` for the unbaked block state models, a `Map<ResourceLocation, ResolvedModel>` for the loaded models, and a `ResolvedModel` for the missing model
         - `bakeModels` now takes in a `SpriteGetter` and an `Executor` while returning a `CompletableFuture` for parallel loading and baking
         - `$BakingResult` now takes in a `$MissingModels` for the missing block state and item model and a `Map<BlockState, BlockStateModel>` for the baked block state models; the missing item model is stored within `$MissingModels`
         - `$MissingModels` - Holds the missing models for a block state and item.
@@ -1475,6 +1792,7 @@ this.blockStateOutput.accept(
         - `addSpecialModel` - Adds a root model to the list of arbitrarily loaded models.
         - `missingModel` - Returns the missing model
         - `resolve` - Resolves all model dependencies, returning a map of model names to their models.
+    - `ModelGroupCollector$GroupKey#create` now takes in a `BlockStateModel$UnbakedRoot` instead of an `$Unbaked`
     - `ModelManager`
         - `getModel` is removed
         - `getMissingModel` -> `getMissingBlockStateModel`
@@ -1484,7 +1802,9 @@ this.blockStateOutput.accept(
         - `getRotation` -> `transformation`
         - `isUvLocked` is removed
         - `faceTransfomration`, `inverseFaceTransformation` - Handles returning the transformed `Matrix4fc` for baking the face vertices.
-    - `MultiPartBakedModel` now implements `BlockStateModel` instead of extending `DelegateBakedModel`
+    - `MultiPartBakedModel` -> `net.minecraft.client.renderer.block.model.multipart.MultiPartModel`
+        - Now implements `BlockStateModel` instead of extending `DelegateBakedModel`
+        - `$SharedBlockState` - A holder that contains the `BlockStateModel`s mapped to their `$Selector`s.
     - `QuadCollection` - A data object containing the list of quads to render based on the associated direction and culling.
     - `ResolvableModel$Resolver#resolve` -> `markDependency`, not one-to-one
         - Instead of directly resolving, the dependency is marked for a later post processing step
@@ -1506,7 +1826,8 @@ this.blockStateOutput.accept(
         - `getParent` -> `parent`, not one-to-one
         - `bakeWithTopModelValues` is removed
         - `getTopTextureSlots`, `getTopAmbientOcclusion`, `getTopGuiLight`, `getTopTransform`, `getTopTransforms` is removed
-    - `WeightedBakedModel` now implements `BlockStateModel` instead of extending `DelegateBakedModel`
+    - `WeightedBakedModel` -> `WeightedVariants`
+        - Now implements `BlockStateModel` instead of extending `DelegateBakedModel`
 - `net.minecraft.world.item.ItemDisplayContext#leftHand` - Returns whether the display context is rendering with the entity's left hand.
 
 ## Minor Migrations
@@ -1787,9 +2108,6 @@ This is a list of technical changes that could cause highly specific errors depe
     - `HolderGetter$Provider#getOrThrow` - Gets a holder reference from a resource key.
     - `SectionPos#sectionToChunk` - Converts a compressed section position to a compressed chunk position.
     - `Vec3i#STREAM_CODEC`
-- `net.minecraft.nbt.CompoundTag`
-    - `getFloatOrDefault`, `getIntOrDefault`, `getLongOrDefault` - Gets the value with the associated key, or the default if not present or an exception is thrown.
-    - `storeNullable` - When not null, uses the codec to write the value to the tag.
 - `net.minecraft.network.codec.ByteBufCodecs#LONG_ARRAY`
 - `net.minecraft.server.bossevents.CustomBossEvent$Packed` - A record that backs the event information for serialization.
 - `net.minecraft.server.commands.InCommandFunction` - A command function that takes in some input and returns a result.
@@ -1811,6 +2129,8 @@ This is a list of technical changes that could cause highly specific errors depe
     - `Util`
         - `mapValues` - Updates the values of a map with the given function.
         - `mapValuesLazy` - Updates the values of a map with the given function, but each value is resolved when first accessed.
+        - `growByHalf` - Returns an integer multiplied by 1.5, rounding down, clamping the value to some minimum and the max integer size.
+- `net.minecraft.util.random.Weighted#map`, `WeightedList#map` - Transforms the stored object(s) to a new type.
 - `net.minecraft.util.thread.ParallelMapTransform` - A helper that handles scheduling and batching tasks in parallel.
 - `net.minecraft.world.effect.MobEffectInstance#withScaledDuration` - Constructs a new instance with the duration scaled by some float value.
 - `net.minecraft.world.entity`
@@ -1823,6 +2143,7 @@ This is a list of technical changes that could cause highly specific errors depe
         - `propagateFallToPassengers` - Propogates the fall damage of a vehicle to its passengers.
         - `lavaIgnite` - Ignites the entity for 15 seconds if not immune.
         - `clearFreeze` - Sets the number of ticks the entity is frozen for to 0.
+        - `removeLatestMovementRecordingBatch` - Removes the last element from all movements performed this tick.
     - `InterpolationHandler` - A class meant to easily handle the interpolation of the position and rotation of the given entity as necessary.
     - `LivingEntity`
         - `getLuck` - Returns the luck of the entity for random events.
@@ -1891,8 +2212,12 @@ This is a list of technical changes that could cause highly specific errors depe
 - `net.minecraft.world.level.levelgen.Heightmap$Types#STREAM_CODEC`
 - `net.minecraft.world.level.levelgen.feature`
     - `AbstractHugeMushroomFeature#placeMushroomBlock` - Places a mushroom block that specified location, replacing a block if it can.
+    - `FallenTreeFeature` - A feature that generates flane trees with a stump of given lengths.
     - `TreeFeature#getLowestTrunkOrRootOfTree` - Retruns the lowest block positions of the tree decorator.
-- `net.minecraft.world.level.levelgen.feature.treedecorators.PlaceOnGroundDecorator` - A decorator that places the tree on a valid block position.
+- `net.minecraft.world.level.levelgen.feature.configurations.FallenTreeConfiguration` - A configuration for fallen trees with stumps.
+- `net.minecraft.world.level.levelgen.feature.treedecorators`
+    - `AttachedToLogsDecorator` - A decorator that attaches a random block to a given direction on a log with a set probability.
+    - `PlaceOnGroundDecorator` - A decorator that places the tree on a valid block position.
 - `net.minecraft.world.level.levelgen.structure.pools`
     - `ListPoolElement#getElements` - Returns the elements of the structure pool.
     - `SinglePoolElement#getTemplateLocation` - Returns the location of the template used by the element.
@@ -1949,7 +2274,6 @@ This is a list of technical changes that could cause highly specific errors depe
     - `SelectItemModel` now takes in a `$ModelSelector` instead of an object map
 - `net.minecraft.client.renderer.item.properties.conditional.ConditionalItemModelProperty` now implements `ItemModelPropertyTest`
     - `ItemModelPropertyTest` holds the `get` method previously within `ConditionalItemModelProperty`
-- `net.minecraft.commands.ParserUtils#parseJson` -> `parseSnbtWithCodec`, not one-to-one
 - `net.minecraft.commands.arguments`
     - `ComponentArgument`
         - `ERROR_INVALID_JSON` -> `ERROR_INVALID_COMPONENT`
@@ -1969,14 +2293,6 @@ This is a list of technical changes that could cause highly specific errors depe
     - `Rotations` is now a record
 - `net.minecraft.data.loot.BlockLootSubProvider#createPetalDrops` -> `createSegmentedBlockDrops`
 - `net.minecraft.network.chat.ComponentSerialization#flatCodec` -> `flatRestrictedCodec`
-- `net.minecraft.nbt`
-    - `NbtOps` now has a private constructor
-    - `TagParser` now holds a generic referncing the type of the intermediate object to parse to
-        - `AS_CODEC` -> `FLATTENED_CODEC`
-        - `parseTag` -> `parseCompoundFully` or `parseCompoundAsArgument`
-            - Additional methods such as `parseFully`, `parseAsArgument` parse to some intermediary object
-        - The constructor is now private
-    - `NbtUtils#getDataVersion` now has an overload that takes in a `Dynamic`
 - `net.minecraft.network.FriendlyByteBuf`
     - `writeLongArray`, `readLongArray` now have static delegates which take in the `ByteBuf` and `*Fixed*` versions for fixed size arrays
 - `net.minecraft.network.codec.StreamCodec#composite` now has an overload for nine parameters
@@ -1984,13 +2300,16 @@ This is a list of technical changes that could cause highly specific errors depe
     - `ClientboundMoveEntityPacket#getyRot`, `getxRot` -> `getYRot`, `getXRot`
     - `ClientboundLevelChunkPacketdata#getHeightmaps` now returns a `Map<Heightmap.Types, long[]>`
     - `ClientboundUpdateAdvancementsPacket` now takes in a boolean representing whether to show the adavncements as a toast
+    - `ServerboundMovePlayerPacket$Pos`, `$PosRot` now has an overload that takes in a `Vec3` for the position
     - `ServerboundSetStructureBlockPacket` now takes in an additional boolean representing whether the structure should be generated in strict mode
 - `net.minecraft.server.PlayerAdvancements#flushDirty` now takes in a boolean that represents whether the advancements show display as a toast
 - `net.minecraft.server.bossevents.CustomBossEvent`
     - `save` -> `pack`, not one-to-one
     - `load` now takes in the id and the packed variant to unpack
 - `net.minecraft.server.level`
-    - `DistanceManager#hasPlayersNearby` now returns a `TriState`
+    - `DistanceManager`
+        - `hasPlayersNearby` now returns a `TriState`
+        - `forEachBlockTickingChunks` -> `forEachEntityTickingChunk`, not one-to-one
     - `ServerEntity` now takes in a consumer for broadcasting a packet to all players but those in the ignore list
     - `ServerLevel`
         - `getForcedChunks` -> `getForceLoadedChunks`
@@ -1999,6 +2318,7 @@ This is a list of technical changes that could cause highly specific errors depe
     - `ServerPlayer`
         - `getRespawnPosition`, `getRespawnAngle`, `getRespawnDimension`, `isRespawnForced` -> `getRespawnConfig`, not one-to-one
         - `setRespawnPosition` now takes in a `$RespawnConfig` instead of the individual respawn information
+        - `loadAndSpawnParentVehicle`, `loadAndSpawnEnderpearls` now takes in a `CompoundTag` without the optional wrapping
 - `net.minecraft.sounds.SoundEvents` have the following sounds now `Holder` wrapped:
     - `ITEM_BREAK`
     - `SHIELD_BLOCK`, `SHIELD_BREAK`,
@@ -2036,6 +2356,7 @@ This is a list of technical changes that could cause highly specific errors depe
         - `moveTo` -> `snapTo`
         - `sendBubbleColumnParticles` is now static, taking in the `Level`
         - `onInsideBubbleColumn` logic delegates to the protected static `handleOnInsideBubbleColumn`
+        - `applyEffectsFromBlocks` are now protected
     - `EntityType`
         - `POTION` -> `SPLASH_POTION`, `LINGERING_POTION`, not one-to-one
         - `$EntityFactory#create` can now return a null instance
@@ -2159,6 +2480,7 @@ This is a list of technical changes that could cause highly specific errors depe
     - `Direct` -> `DirectPoolAlias`
     - `Random` -> `RandomPoolAlias`
     - `RandomGroup` -> `RandomGroupPoolAlias`
+- `net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate$JigsawBlockInfo` now takes in a `ResourceKey` to the `StructureTemplatePool` instead of a raw `ResourceLocation`
 - `net.minecraft.world.level.saveddata.maps.MapFrame` is now a record
     - `save`, `load` -> `CODEC`, not one-to-one
 - `net.minecraft.world.level.storage.loot.functions.SetWrittenBookPagesFunction#PAGE_CODEC` -> `WrittenBookContent#PAGES_CODEC`
@@ -2177,12 +2499,6 @@ This is a list of technical changes that could cause highly specific errors depe
 
 - `com.mojang.blaze3d.vertex.BufferUploader`
 - `net.minecraft.core.Rotations#getWrapped*`
-- `net.minecraft.nbt`
-    - `CompoundTag#putUUID`, `getUUID`, `hasUUID`
-    - `NbtUtils`
-        - `createUUID`, `loadUUID`
-        - `readBlockPos`, `writeBlockPos`
-    - `TabParser#readKey`, `readTypedValue`
 - `net.minecraft.network.chat.ComponentSerialization#FLAT_CODEC`
 - `net.minecraft.network.protocol.game`
     - `ClientboundAddExperimentOrbPacket`
@@ -2197,6 +2513,7 @@ This is a list of technical changes that could cause highly specific errors depe
         - `isInBubbleColumn`
         - `isInWaterRainOrBubble`, `isInWaterOrBubble`
         - `newDoubleList`, `newFloatList`
+        - `recordMovementThroughBlocks`
     - `EntityEvent#ATTACK_BLOCKED`, `SHIELD_DISABLED`
     - `ItemBasedSteering`
         - `addAdditionalSaveData`, `readAdditionalSaveData`
@@ -2238,6 +2555,7 @@ This is a list of technical changes that could cause highly specific errors depe
 - `net.minecraft.world.level.block.entity`
     - `CampfireBlockEntity#dowse`
     - `PotDecorations#save`, `load`
+- `net.minecraft.world.level.levelgen.BelowZeroRetrogen#read`
 - `net.minecraft.world.level.levelgen.structure.structures.RuinedPortalPiece$VerticalPlacement#byName`
 - `net.minecraft.world.level.saveddata.maps.MapBanner#LIST_CODEC`
 - `net.minecraft.world.scores.Team`
