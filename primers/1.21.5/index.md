@@ -459,7 +459,7 @@ The data component system can now be represented on arbitrary objects through th
     - `ItemContainerPredicate` -> `ContainerPredicate`
     - `ItemCustomDataPredicate` -> `CustomDataPredicate`
     - `ItemDamagePredicate` -> `DamagePredicate`
-    - `ItemEnchantmentsPredicate` -> `EnchantmentsPredicate`z
+    - `ItemEnchantmentsPredicate` -> `EnchantmentsPredicate`
     - `ItemFireworkExplosionPredicate` -> `FireworkExplosionPredicate`
     - `ItemFireworksPredicate` -> `FireworksPredicate`
     - `ItemJukeboxPlayablePredicate` -> `JukeboxPlayablePredicate`
