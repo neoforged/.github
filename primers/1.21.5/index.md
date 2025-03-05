@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 ## Pack Changes
 
-There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=25w09b&tab=changelog).
+There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.5&tab=changelog).
 
 ## Handling the Removal of Block Entities Properly
 
@@ -459,21 +459,27 @@ The data component system can now be represented on arbitrary objects through th
     - `ItemContainerPredicate` -> `ContainerPredicate`
     - `ItemCustomDataPredicate` -> `CustomDataPredicate`
     - `ItemDamagePredicate` -> `DamagePredicate`
-    - `ItemEnchantmentsPredicate` -> `EnchantmentsPredicate`
+    - `ItemEnchantmentsPredicate` -> `EnchantmentsPredicate`z
     - `ItemFireworkExplosionPredicate` -> `FireworkExplosionPredicate`
     - `ItemFireworksPredicate` -> `FireworksPredicate`
     - `ItemJukeboxPlayablePredicate` -> `JukeboxPlayablePredicate`
     - `ItemPotionsPredicate` -> `PotionsPredicate`
-    - `ItemPredicate` now takes in a `DataComponentExactPredicate` for the required components and a map of component types to `DataComponentPredicate` for subtypes
     - `ItemSubPredicate` -> `DataComponentPredicate`, not one-to-one
+        - `SINGLE_STREAM_CODEC`
     - `ItemSubPredicates` -> `DataComponentPredicates`, not one-to-one
     - `ItemTrimPredicate` -> `TrimPredicate`
     - `ItemWritableBookPredicate` -> `WritableBookPredicate`
     - `ItemWrittenBookPredicate` -> `WrittenBookPredicate`
+- `net.minecraft.advancements.critereon`
+    - `BlockPredicate` now takes in a `DataComponentMatchers` for matching any delegated component data
+    - `DataComponentMatchers` - A predicate that operates on a `DataComponentGetter`, matching any exact and partial component data on the provider.
+    - `EntityPredicate` now takes in a `DataComponentMatchers` instead of a `Optional<DataComponentExactPredicate>`
+    - `ItemPredicate` now takes in a `DataComponentMatchers` for matching any delegated component data
     - `NbtPredicate#matches` now takes in a `DataComponentGetter` instead of an `ItemStack`
     - `SingleComponentItemPredicate` now implements `DataComponentPredicate` instead of `ItemSubPredicate`
         - `matches(ItemStack, T)` -> `matches(T)`
 - `net.minecraft.core.component.DataComponentPredicate` -> `DataComponentExactPredicate`
+    - `isEmpty` - Checks if the expected components list within the predicate is empty.
 - `net.minecraft.core.registries.Registries#ITEM_SUB_PREDICATE_TYPE` -> `DATA_COMPONENT_PREDICATE_TYPE`, not one-to-one
 - `net.minecraft.world.item.AdventureModePredicate` no longer takes in a boolean to show in tooltip
 - `net.minecraft.world.item`
@@ -486,7 +492,7 @@ The data component system can now be represented on arbitrary objects through th
 - `net.minecraft.world.item.component`
     - `BlockItemStateProperties` now implements `TooltipProvider`
     - `ChargedProjectiles` now implements `TooltipProvider`
-    - `CustomData` now implements `TooltipProvider`
+    - `CustomData#itemMatcher` is removed
     - `DyedItemColor#showInTooltip` is removed
     - `FireworkExplosion#addShapeNameTooltip` is removed
     - `ItemAttributeModifiers#showInTooltip` is removed
@@ -836,6 +842,7 @@ The packrat parser has been updated with new rules and systems, allowing command
     - `PrimitiveTag` - A sealed interface that represents the tag data as being a primitive object.
     - `ShortTag` is now a record
     - `SnbtGrammar` - A parser creater for stringified NBTs.
+    - `SnbtOperations` - A helper that contains the built in operations for parsing some value.
     - `StringTag` is now a record
     - `StringTagVisitor`
         - `visit` -> `build`, not one-to-one
@@ -1009,7 +1016,7 @@ try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRen
 }
 ```
 
-Within the `RenderPass`, you can set the `RenderPipeline` to use, which defines the associated shaders, bind any samplers from other targets or set uniforms, scisssor a part of a screen to render, and set the vertex and index buffers used to define the vertices to render. Finally, Everything can be drawn to the screen using one of the `draw` methods, providing the starting index and the vertex count.
+Within the `RenderPass`, you can set the `RenderPipeline` to use, which defines the associated shaders, bind any samplers from other targets or set uniforms, scissor a part of a screen to render, and set the vertex and index buffers used to define the vertices to render. Finally, everything can be drawn to the screen using one of the `draw` methods, providing the starting index and the vertex count.
 
 ```java
 // We will assume you have constructed a `GpuTexture` texture for the color data
@@ -1018,7 +1025,7 @@ try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRen
 
     // If the buffers are not created or cached, create them here
     RenderSystem.AutoStorageIndexBuffer indexBuffer = RenderSystem.getSequentialBuffer(VertexFormat.Mode.QUADS);
-    GpuBuffer vertexBuffer = RenderSystem.getQuadVertexBuffer(() -> "Example vertex buffer");
+    GpuBuffer vertexBuffer = RenderSystem.getQuadVertexBuffer();
 
     // Set pipeline information along with any samplers and uniforms
     pass.setPipeline(EXAMPLE_PIPELINE);
@@ -2042,6 +2049,7 @@ Mojang has opted to lessen the restriction on JOML objects by passing around the
 - `minecraft:item`
     - `book_cloning_target`
     - `eggs`
+    - `flowers`
 
 ### Mob Effects Field Renames
 
@@ -2117,7 +2125,7 @@ This is a list of technical changes that could cause highly specific errors depe
 - `net.minecraft.server.level`
     - `DistanceManager#forEachBlockTickingChucnks` - Applies the provided consumer for each chunk with block ticking enabled.
     - `ServerLevel`
-        - `areEntitiesActuallyTicking` - Returns whether the entity manager is actually ticking entities.
+        - `areEntitiesActuallyLoadedAndTicking` - Returns whether the entity manager is actually ticking and loading entities in the given chunk.
         - `tickThunder` - Ticks the thunger logic within a given level.
         - `anyPlayerCloseEnoughForSpawning` - Returns if a player is close enough to spawn the entity at the given location.
     - `ServerPlayer$RespawnConfig` - A record containing the respawn information for the player.
@@ -2466,6 +2474,7 @@ This is a list of technical changes that could cause highly specific errors depe
     - `StemBlock` now extends `VegetationBlock`
     - `SweetBerryBushBlock` now extends `VegetationBlock`
     - `TallGrassBlock` now extends `VegetationBlock`
+    - `TntBlock#prime` now returns whether the primed tnt was spawned.
     - `WaterlilyBlock` now extends `VegetationBlock`
 - `net.minecraft.world.level.block.entity.BlockEntity`
     - `parseCustomNameSafe` now takes in a nullable `Tag` instead of a string
@@ -2478,6 +2487,7 @@ This is a list of technical changes that could cause highly specific errors depe
     - `ChunkAccess#setBlockState` now takes in the block flags instead of a boolean, and has an overload to update all set
     - `LevelChunk#replaceWithPacketData` now takes in a `Map<Heightmap$Types, long[]>` instead of a `CompoundTag`
 - `net.minecraft.world.level.chunk.storage.SerializableChunkData#getChunkTypeFromTag` -> `getChunkStatusFromTag`, not one-to-one
+- `net.minecraft.world.level.gameevent.vibrations.VibrationSystem#DEFAULT_VIBRATION_FREQUENCY` -> `NO_VIBRATION_FREQUENCY`
 - `net.minecraft.world.level.levelgen.feature.TreeFeature#isVine` is now public
 - `net.minecraft.world.level.levelgen.structure.pools.alias`
     - `Direct` -> `DirectPoolAlias`
