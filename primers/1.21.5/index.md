@@ -342,9 +342,372 @@ Then there is the `Ticket` class, which are actually stored and handled within t
 
 ## The Game Test Overhaul
 
-Game tests have been completely overhauled into a registry based system, completely revamped from the previous automatic annotation-driven system. However, as of the current version, they are not fully implemented. As such, the full update primer of the system will wait until a later update.
+Game tests have been completely overhauled into a registry based system, completely revamped from the previous automatic annotation-driven system. However, most implementations required to use the system must be implemented yourself rather than provided by vanilla. As such, this explanation will go over the entire system, including which parts need substantial work to use it similarly to the annotation-driven system of the previous version.
 
-For a quick explanation, the game test system is broken into test functions, test environments, and test instances. Test environments are the analog of the batching system -- the server level is setup before the game tests are run and then teardowned afterwards. Test instances represent an indivdual test to run. These take in a `TestData`, which is the closest analog to the previous `TestFunction`. Finally, Test functions are a subtype for a test instance used to run the test instance. A test function is basically a consumer wrapped around the `GameTestHelper`. In its current state, it is expected that a test function either fails or succeeds.
+### The Environment
+
+All game tests happen within some environment. Most of the time, a test can occur independent of the area, but sometimes, the environment needs to be curated in some fashion, such as checking whether an entity or block does something at a given time or whether. To facilitate the setup and teardown of the environment for a given test instance, a `TestEnvironmentDefinition` is created.
+
+A `TestEnvironmentDefinition` works similarly to the `BeforeBatch` and `AfterBatch` annotations. The environment contains two methods `setup` and `teardown` that manage the `ServerLevel` for the test. The environments are structured in a type-based registry system, meaning that every environment registers a `MapCodec` to built-in registry `minecraft:test_environment_definition_type` that is then consumed via the `TestEnvironmentDefinition` in a datapack registry `minecraft:test_environment`.
+
+Vanilla, by default, provides the `minecraft:default` test environment which does not do anything. However, additional test environments can be created using the available test definition types.
+
+#### Game Rules
+
+This environment type sets the game rules to use for the test. During teardown, the game rules are set back to their default value.
+
+```json5
+// examplemod:example_environment
+// In 'data/examplemod/test_environment/example_environment.json'
+{
+    "type": "minecraft:game_rules",
+
+    // A list of game rules with boolean values to set
+    "bool_rules": [
+        {
+            // The name of the rule
+            "rule": "doFireTick",
+            "value": false
+        }
+        // ...
+    ],
+
+    // A list of game rules with integer values to set
+    "int_rules": [
+        {
+            "rule": "playersSleepingPercentage",
+            "value": 50
+        }
+        // ...
+    ]
+}
+```
+
+#### Time of Day
+
+This environment type sets the time to some non-negative integer, similar to how the `/time set <number>` command is used.
+
+```json5
+// examplemod:example_environment
+// In 'data/examplemod/test_environment/example_environment.json'
+{
+    "type": "minecraft:time_of_day",
+
+    // Sets the time of day in the world
+    // Common values:
+    // - Day      -> 1000
+    // - Noon     -> 6000
+    // - Night    -> 13000
+    // - Midnight -> 18000
+    "time": 13000
+}
+```
+
+#### Weather
+
+This environment type sets the weather, similar to how the `/weather` command is used.
+
+```json5
+// examplemod:example_environment
+// In 'data/examplemod/test_environment/example_environment.json'
+{
+    "type": "minecraft:weather",
+
+    // Can be one of three values:
+    // - clear   (No weather)
+    // - rain    (Rain)
+    // - thunder (Rain and thunder)
+    "weather": "thunder"
+}
+```
+
+#### Function
+
+This environment type provides two `ResourceLocation`s to mcfunctions to setup and teardown the level, respectively.
+
+```json5
+// examplemod:example_environment
+// In 'data/examplemod/test_environment/example_environment.json'
+{
+    "type": "minecraft:function",
+
+    // The setup mcfunction to use
+    // If not specified, nothing will be ran
+    // Points to 'data/examplemod/function/example/setup.mcfunction'
+    "setup": "examplemod:example/setup",
+
+    // The teardown mcfunction to use
+    // If not specified, nothing will be ran
+    // Points to 'data/examplemod/function/example/teardown.mcfunction'
+    "teardown": "examplemod:example/teardown"
+}
+```
+
+#### Composite
+
+If multiple combinations are required, then the composite environment type (aptly named `all_of`) can be used to string multiple of the above environment types together.
+
+```json5
+// examplemod:example_environment
+// In 'data/examplemod/test_environment/example_environment.json'
+{
+    "type": "minecraft:all_of",
+
+    // A list of test environments to use
+    // Can either specified the registry name or the environment itself
+    "definitions": [
+        // Points to 'data/minecraft/test_environment/default.json'
+        "minecraft:default",
+        {
+            // A raw environment definition
+            "type": "..."
+        }
+        // ...
+    ]
+}
+```
+
+### Custom Types
+
+If none of the types above work, then a custom definition can be created by implementing `TestEnvironmentDefinition` and creating an associated `MapCodec`:
+
+```java
+public record ExampleEnvironmentType(int value1, boolean value2) implements TestEnvironmentDefinition {
+
+    // Construct the map codec to register
+    public static final MapCodec<ExampleEnvironmentType> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
+            Codec.INT.fieldOf("value1").forGetter(ExampleEnvironmentType::value1),
+            Codec.BOOL.fieldOf("value2").forGetter(ExampleEnvironmentType::value2)
+        ).apply(instance, ExampleEnvironmentType::new)
+    );
+
+    @Override
+    public void setup(ServerLevel level) {
+        // Setup whatever is necessary here
+    }
+
+    @Override
+    public void teardown(ServerLevel level) {
+        // Undo whatever was changed within the setup method
+        // This should either return to default or the previous value
+    }
+
+    @Override
+    public MapCodec<ExampleEnvironmentType> codec() {
+        return CODEC;
+    }
+}
+```
+
+Then register the `MapCodec` using whatever registry method is required by your mod loader:
+
+```java
+Registry.register(
+    BuiltInRegistries.TEST_ENVIRONMENT_DEFINITION_TYPE,
+    ResourceLocation.fromNamespaceAndPath("examplemod", "example_environment_type"),
+    ExampleEnvironmentType.CODEC
+);
+```
+
+Finally, you can use it in your environment definition:
+
+```json5
+// examplemod:example_environment
+// In 'data/examplemod/test_environment/example_environment.json'
+{
+    "type": "examplemod:example_environment_type",
+
+    "value1": 0,
+    "value2": true
+}
+```
+
+### Test Functions
+
+The initial concept of game tests were structured around running functions from `GameTestHelper` determining whether the test succeeds or fails. Test functions are the registry-driven representation of those. Essentially, every test function is a method that takes in a `GameTestHelper`.
+
+At the moment, vanilla only provides `minecraft:always_pass`, which just calls `GameTestHelper#succeed`. Test functions are also not generated, meaning it simply runs the value with whatever is provided. As such, a test function should generally represent a single old game test:
+
+```java
+Registry.register(
+    BuiltInRegistries.TEST_FUNCTION,
+    ResourceLocation.fromNamespaceAndPath("examplemod", "example_function"),
+    (GameTestHelper helper) -> {
+        // Run whatever game test commands you want
+        helper.assertBlockPresent(...);
+
+        // Make sure you have some way to succeed
+        helper.succeedIf(() -> ...);
+    }
+);
+```
+
+### Test Data
+
+Now that we have environments and test functions, we can get into defining our game test. This is done through `TestData`, which is the equivalent of the `GameTest` annotation. The only things changed are that structures are now referenced by their `ResourceLocation` via `structure`, `GameTest#timeoutTicks` is now renamed to `TestData#maxTicks`, and instead of specifying `GameTest#rotationSteps`, you simply provide the `Rotation` via `TestData#rotation`. Everything else remains the same, just represented in a different format.
+
+### The Game Test Instance
+
+With the `TestData` in hand, we can now link everything together through the `GameTestInstance`. This instance is what actually represents a single test. Once again, vanilla only provides the default `minecraft:always_pass`, so we will need to construct the instance ourselves.
+
+#### The Original Instance
+
+The previous game tests are implemented using `minecraft:function`, which links a test function to the test data.
+
+```json
+// examplemod:example_test
+// In 'data/examplemod/test_instance/example_test.json'
+{
+    "type": "minecraft:function",
+
+    // Points to a 'Consumer<GameTestHelper>' in the test function registry
+    "function": "examplemod:example_function",
+
+    // The 'TestData' information
+
+    // The environment to run the test in
+    // Points to 'data/examplemod/test_environment/example_environment.json'
+    "environment": "examplemod:example_environment",
+    // The structure used for the game test
+    // Points to 'data/examplemod/structure/example_structure.nbt'
+    "structure": "examplemod:example_structure",
+    // The number of ticks that the game test will run until it automatically fails
+    "max_ticks": 400,
+    // The number of ticks that are used to setup everying required for the game test
+    // This is not counted towards the maximum number of ticks the test can take
+    // If not specified, defaults to 0
+    "setup_ticks": 50,
+    // Whether the test is required to succeed to mark the batch run as successful
+    // If not specified, defaults to true
+    "required": true,
+    // Specifies how the structure and all subsequent helper methods should be rotated for the test
+    // If not specified, nothing is rotated
+    "rotation": "clockwise_90",
+    // When true, the test can only be ran through the `/test` command
+    // If not specified, defaults to false
+    "manual_only": true,
+    // Specifies the maximum number of times that the test can be reran
+    // If not specified, defaults to 1
+    "max_attempts": 3,
+    // Specifies the minimum number of successes that must occur for a test to be marked as successful
+    // This must be less than or equal to the maximum number of attempts allowed
+    // If not specified, defaults to 1
+    "required_successes": 1,
+    // Returns whether the structure boundary should keep the top empty
+    // This is currently only used in block-based test instances
+    // If not specified, defaults to false 
+    "sky_access": false
+}
+```
+
+#### Block-Based Instances
+
+Vanilla also provides a block-based test instance via `minecraft:block_based`. This is handled through via structures with test blocks receiving signals via `Level#hasNeighborSignal`. To start, a structure must have one test block which is set to its start mode. This block is then triggered, sending a fifteen signal pulse for one tick. Structures may then have as many test blocks with either a log, accept, or fail mode set. Log test blocks also send a fifteen signal pulse when activated. Accept and fail test blocks either succeed or fail the game test if any of them are activated (success takes precedent over failure).
+
+As this test relies on test blocks in the structure, no additional information is required other than the test data:
+
+```json
+// examplemod:example_test
+// In 'data/examplemod/test_instance/example_test.json'
+{
+    "type": "minecraft:block_based",
+
+    // The 'TestData' information
+
+    // Points to 'data/examplemod/test_environment/example_environment.json'
+    "environment": "examplemod:example_environment",
+    // Points to 'data/examplemod/structure/example_structure.nbt'
+    "structure": "examplemod:example_structure",
+    "max_ticks": 400,
+    "setup_ticks": 50,
+    "required": true,
+    "rotation": "clockwise_90",
+    "manual_only": true,
+    "max_attempts": 3,
+    "required_successes": 1,
+    "sky_access": false
+}
+```
+
+#### Custom Tests
+
+If you need to implement your own test-based logic, whether using a more dynamic feature ~~or because you can't be bothered to migrated all of your data logic to the new systems~~, you can create your own custom test instance by extending `GameTestInstance` and creating an associated `MapCodec`:
+
+```java
+public class ExampleTestInstance extends GameTestInstance {
+
+    // Construct the map codec to register
+    public static final MapCodec<ExampleTestInstance> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
+            Codec.INT.fieldOf("value1").forGetter(test -> test.value1),
+            Codec.BOOL.fieldOf("value2").forGetter(test -> test.value2),
+            TestData.CODEC.forGetter(ExampleTestInstance::info)
+        ).apply(instance, ExampleTestInstance::new)
+    );
+
+    public ExampleTestInstance(int value1, boolean value2, TestData<Holder<TestEnvironmentDefinition>> info) {
+        super(info);
+    }
+
+    @Override
+    public void run(GameTestHelper helper) {
+        // Run whatever game test commands you want
+        helper.assertBlockPresent(...);
+
+        // Make sure you have some way to succeed
+        helper.succeedIf(() -> ...);
+    }
+
+    @Override
+    public MapCodec<ExampleTestInstance> codec() {
+        return CODEC;
+    }
+
+    @Override
+    protected MutableComponent typeDescription() {
+        // Provides a description about what this test is supposed to be
+        // Should use a translatable component
+        return Component.literal("Example Test Instance");
+    }
+}
+```
+
+Then register the `MapCodec` using whatever registry method is required by your mod loader:
+
+```java
+Registry.register(
+    BuiltInRegistries.TEST_INSTANCE_TYPE,
+    ResourceLocation.fromNamespaceAndPath("examplemod", "example_test_instance"),
+    ExampleTestInstance.CODEC
+);
+```
+
+Finally, you can use it in your test instance:
+
+```json
+// examplemod:example_test
+// In 'data/examplemod/test_instance/example_test.json'
+{
+    "type": "examplemod:example_test_instance",
+
+    "value1": 0,
+    "value2": true,
+
+    // The 'TestData' information
+
+    // Points to 'data/examplemod/test_environment/example_environment.json'
+    "environment": "examplemod:example_environment",
+    // Points to 'data/examplemod/structure/example_structure.nbt'
+    "structure": "examplemod:example_structure",
+    "max_ticks": 400,
+    "setup_ticks": 50,
+    "required": true,
+    "rotation": "clockwise_90",
+    "manual_only": true,
+    "max_attempts": 3,
+    "required_successes": 1,
+    "sky_access": false
+}
+```
 
 - `net.minecraft.client.renderer.blockentity`
     - `BeaconRenderer` now has a generic that takes in a subtype of `BlockEntity` and `BeaconBeamOwner`
