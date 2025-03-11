@@ -1010,7 +1010,7 @@ GpuDevice device = RenderSystem.getDevice();
 
 The `GpuDevice` can the create either buffers with the desired data or a texture containing information on what to render using `createBuffer` and `createTexture`, respectively. Just for redundancy, buffers hold the vertex data while textures hold the texture (color and depth) data. Whether it makes sense to cache a buffer or a texture to be uploaded to is up to you. For reference, buffers are typically created by using a `BufferBuilder` with a `ByteBufferBuilder` to build the `MeshData` first, before passing that into `createBuffer`.
 
-With the desired buffers and textures set up, how do we actually modify render them to the screen? Well, this is handled through the `CommandEncoder`, which can also be optained from the device via `GpuDevice#createCommandEncoder`. The encoder contain the familiar read and write methods along with a few extra to resize a buffer, clear texture to a given color, or simply blit the the texture immediately to the screen (`presentTexture`). However, the most important method here is `createRenderPass`. This takes in the `GpuTexture` to draw to the screen along with a default ARGB color for the background. Additionally, it can take in a depth texture as well. This should be created using a try with resources block like so:
+With the desired buffers and textures set up, how do we actually modify render them to the screen? Well, this is handled through the `CommandEncoder`, which can also be optained from the device via `GpuDevice#createCommandEncoder`. The encoder contain the familiar read and write methods along with a few extra to clear texture to a given color or simply blit the the texture immediately to the screen (`presentTexture`). However, the most important method here is `createRenderPass`. This takes in the `GpuTexture` to draw to the screen along with a default ARGB color for the background. Additionally, it can take in a depth texture as well. This should be created using a try with resources block like so:
 
 ```java
 // We will assume you have constructed a `GpuTexture` texture for the color data
@@ -1023,13 +1023,13 @@ try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRen
 Within the `RenderPass`, you can set the `RenderPipeline` to use, which defines the associated shaders, bind any samplers from other targets or set uniforms, scissor a part of a screen to render, and set the vertex and index buffers used to define the vertices to render. Finally, everything can be drawn to the screen using one of the `draw` methods, providing the starting index and the vertex count.
 
 ```java
+// If the buffers/textures are not created or cached, create them here
+// Any methods ran from `CommandEncoder` cannot be run while a render pass is open
+RenderSystem.AutoStorageIndexBuffer indexBuffer = RenderSystem.getSequentialBuffer(VertexFormat.Mode.QUADS);
+GpuBuffer vertexBuffer = RenderSystem.getQuadVertexBuffer();
+
 // We will assume you have constructed a `GpuTexture` texture for the color data
 try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(this.texture, OptionalInt.of(0xFFFFFFFF))) {
-    // Setup things here
-
-    // If the buffers are not created or cached, create them here
-    RenderSystem.AutoStorageIndexBuffer indexBuffer = RenderSystem.getSequentialBuffer(VertexFormat.Mode.QUADS);
-    GpuBuffer vertexBuffer = RenderSystem.getQuadVertexBuffer();
 
     // Set pipeline information along with any samplers and uniforms
     pass.setPipeline(EXAMPLE_PIPELINE);
