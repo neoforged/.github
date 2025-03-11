@@ -478,8 +478,12 @@ The data component system can now be represented on arbitrary objects through th
     - `NbtPredicate#matches` now takes in a `DataComponentGetter` instead of an `ItemStack`
     - `SingleComponentItemPredicate` now implements `DataComponentPredicate` instead of `ItemSubPredicate`
         - `matches(ItemStack, T)` -> `matches(T)`
-- `net.minecraft.core.component.DataComponentPredicate` -> `DataComponentExactPredicate`
-    - `isEmpty` - Checks if the expected components list within the predicate is empty.
+- `net.minecraft.core.component`
+    - `DataComponentPatch`
+        - `DELIMITED_STREAM_CODEC`
+        - `$CodecGetter` - Gets the codec for a given component type.
+    - `DataComponentPredicate` -> `DataComponentExactPredicate`
+        - `isEmpty` - Checks if the expected components list within the predicate is empty.
 - `net.minecraft.core.registries.Registries#ITEM_SUB_PREDICATE_TYPE` -> `DATA_COMPONENT_PREDICATE_TYPE`, not one-to-one
 - `net.minecraft.world.item.AdventureModePredicate` no longer takes in a boolean to show in tooltip
 - `net.minecraft.world.item`
@@ -1341,7 +1345,10 @@ post.process(Minecraft.getInstance().getMainRenderTarget(), GraphicsResourceAllo
         - `isClosed` - Returns whether the buffer has been closed.
         - `$ReadView` is now an interface that defines the buffer data and how to close the view
 - `com.mojang.blaze3d.font.SheetGlyphInfo#upload` now takes in a `GpuTexture`
-- `com.mojang.blaze3d.opengl`   
+- `com.mojang.blaze3d.opengl`
+    - `DirectStateAccess` - An interface that creates and binds data to some framebuffer.
+        - `$Core` - An implementation of DSA that modifies the framebuffer without binding them to the context.
+        - `$Emulated` - An abstraction over DSA that still binds the context.
     - `GlBuffer` - An implementation of the `GpuBuffer` for OpenGL.
     - `GlCommandEncoder` - An implementation of the `CommandEncoder` for OpenGL.
     - `GlDebugLabel` - A labeler for handling debug references to GL-specified data structures.
@@ -1350,10 +1357,6 @@ post.process(Minecraft.getInstance().getMainRenderTarget(), GraphicsResourceAllo
     - `GlRenderPipeline` - An implementation of `CompiledRenderPipeline` for OpenGL.
     - `GlTexture` - An implementation of `GpuTexture` for OpenGL.
     - `VertexArrayCache` - A cache for binding and uploading a vertex array to the OpenGL pipeline.
-- `com.mojang.blaze3d.opengl.dsa`
-    - `CoreDsa` - An implementation of DSA that modifies the framebuffer without binding them to the context.
-    - `DirectStateAccess` - An interface that creates and binds data to some framebuffer.
-    - `EmulatedDsa` - An abstraction over DSA that still binds the context.
 - `com.mojang.blaze3d.pipeline`
     - `BlendFunction` - A class that holds the source and destination colors and alphas to apply when overlaying pixels in a target. This also holds all vanilla blend functions.
     - `CompiledRenderPipeline` - An interface that holds the pipeline with all necessary information to render to the screen.
@@ -1372,12 +1375,21 @@ post.process(Minecraft.getInstance().getMainRenderTarget(), GraphicsResourceAllo
         - `blitToScreen` no longer takes in any parameters
         - `blitAndBlendToScreen` -> `blitAndBlendToTexture`, not one-to-one
         - `clear` is removed
+        - `unbindRead` is removed
 - `com.mojang.blaze3d.platform`
     - `DepthTestFunction` - An enum representing the supported depth tests to apply when rendering a sample to the framebuffer.
-    - `GlConst#toGl` - Maps some reference object to its associated OpenGL code.
+    - `DisplayData` is now a record
+        - `withSize` - Creates a new instance with the specified width/height.
+        - `withFullscreen` - Creates a new instance with the specified fullscreen flag.
+    - `FramerateLimitTracker`
+        - `getThrottleReason` - Returns the reason that the framerate of the game was throttled.
+        - `isHeavilyThrottled` - Returns whether the current throttle significantly impacts the game speed.
+        - `$FramerateThrottleReason` - The reason the framerate is throttled.
+    - `GlConst` -> `com.mojang.blaze3d.opengl.GlConst`
+        - `#toGl` - Maps some reference object to its associated OpenGL code.
     - `GlDebug` -> `com.mojang.blaze3d.opengl.GlDebug`
         - `enableDebugCallback` now takes in a set of the enabled extensions.
-    - `GlStateManager`
+    - `GlStateManager` -> `com.mojang.blaze3d.opengl.GlStateManager`
         - `_blendFunc`, `_blendEquation` is removed
         - `_glUniform2(int, IntBuffer)`, `_glUniform4(int, IntBuffer)` is removed
         - `_glUniformMatrix2(int, boolean, FloatBuffer)`, `_glUniformMatrix3(int, boolean, FloatBuffer)` is removed
@@ -1410,6 +1422,7 @@ post.process(Minecraft.getInstance().getMainRenderTarget(), GraphicsResourceAllo
     - `GLX`
         - `getOpenGLVersionString` is removed
         - `_init` -> `_getCpuInfo`, not one-to-one
+        = `_renderCrosshair`, `com.mojang.blaze3d.systems.RenderSystem#renderCrosshair` -> `net.minecraft.client.gui.components.DebugScreenOverlay#render3dCrosshair`, not one-to-one
     - `PolygonMode` - A enum that defines how the polygons will render in the buffer.
     - `NativeImage` constructor is now public
         - `upload` is removed
@@ -1426,6 +1439,11 @@ post.process(Minecraft.getInstance().getMainRenderTarget(), GraphicsResourceAllo
         - `prepareImage` is removed
         - `writeAsPNG` now takes in a `GpuTexture` instead of the direct three integers
             - The overload without the `IntUnaryOperator` is removed
+- `com.mojang.blaze3d.resource`
+    - `RenderTargetDescriptor` now takes in an integer representing the color to clear to
+    - `ResourceDescriptor`
+        - `prepare` - Prepares the resource for use after allocation.
+        - `canUsePhysicalResource` - Typically returns whether a descriptor is already allocated with the same information.
 - `com.mojang.blaze3d.shaders`
     - `AbstractUniform` -> `com.mojang.blaze3d.opengl.AbstractUniform`
         - `setSafe` methods are removed
@@ -1487,9 +1505,11 @@ post.process(Minecraft.getInstance().getMainRenderTarget(), GraphicsResourceAllo
         - `glDeleteVertexArrays` is removed
         - `defaultBlendFunc` is removed
         - `setShaderTexture` is removed
-        - `getQuadVertices` -> `getQuadVertexBuffer`, not one-to-one
+        - `getQuadVertexBuffer` - Returns a vertex buffer with a quad bound to it.
         - `getDevice`, `tryGetDevice` - Returns the `GpuDevice` representing the underlying render system to use.
         - `getCapsString` is removed
+        - `activeTexture` is removed
+        - `setModelOffset`, `resetModelOffset`, `getModelOffset` - Handles the offset to apply to a model when rendering for the uniform `ModelOffset`. Typically for clouds and world borders.
         - `$AutoStorageIndexBuffer#bind` -> `getBuffer`, not one-to-one
         - `$GpuAsyncTask` - A record that holds the callback and fence object used to sync information to the GPU.
     - `ScissorState` - A class which holds the part of the screen to render.
@@ -1697,7 +1717,10 @@ this.blockStateOutput.accept(
     - `BlockRenderDispatcher#renderBatched` now takes in a list of `BlockModelPart`s instead of a `RandomSource`
     - `ModelBlockRenderer`
         - `tesselateBlock`, `tesselateWithAO`, `tesselateWithoutAO` no longer takes in a `RandomSource` and replaces `BlockStateModel` with a list of `BlockModelPart`s
-        - `renderModel` no longer takes in the `BlockState`
+        - `renderModel` is now static and no longer takes in the `BlockState`
+        - `$AmbientOcclusionFace` -> `$AmbientOcclusionRenderStorage`
+        - `$CommonRenderStorage` - A class that holds some metadata used to render a block at its given position.
+        - `$SizeInfo` now takes in the direct index rather than computing the info from its direction and a flipped boolean
 - `net.minecraft.client.renderer.block.model`
     - `BakedQuad` is now a record
     - `BlockElement` is now a record
@@ -2074,21 +2097,9 @@ This is a list of technical changes that could cause highly specific errors depe
 
 ### List of Additions
 
-- `com.mojang.blaze3d.platform`
-    - `DisplayData`
-        - `withSize` - Creates a new instance with the specified width/height.
-        - `withFullscreen` - Creates a new instance with the specified fullscreen flag.
-    - `FramerateLimitTracker`
-        - `getThrottleReason` - Returns the reason that the framerate of the game was throttled.
-        - `isHeavilyThrottled` - Returns whether the current throttle significantly impacts the game speed.
-        - `$FramerateThrottleReason` - The reason the framerate is throttled.
-- `com.mojang.blaze3d.resource.ResourceDescriptor`
-    - `prepare` - Prepares the resource for use after allocation.
-    - `canUsePhysicalResource` - Typically returns whether a descriptor is already allocated with the same information.
-- `com.mojang.blaze3d.systems.RenderSystem`
-    - `getQuadVertices` - Returns a vertex buffer with a quad bound to it.
-    - `setModelOffset`, `resetModelOffset`, `getModelOffset` - Handles the offset to apply to a model when rendering for the uniform `ModelOffset`. Typically for clouds and world borders.
-- `net.minecraft.ChatFormatting#COLOR_CODEC`
+- `net.minecraft`
+    - `ChatFormatting#COLOR_CODEC`
+    - `CrashReportCategory#populateBlockLocationDetails` - Adds the block location details to a crash report.
 - `net.minecraft.advancements.critereon.MinMaxBounds#createStreamCodec` - Constructs a stream codec for a `MinMaxBounds` implementation.
 - `net.minecraft.client.Options#startedCleanly` - Sets whether the game started cleanly on last startup.
 - `net.minecraft.client.data.models`
@@ -2099,6 +2110,7 @@ This is a list of technical changes that could cause highly specific errors depe
 - `net.minecraft.client.model.geom.builders`
     - `MeshDefinition#apply` - Applies the given transformer to the mesh before returning a new instance.
     - `MeshTransformer#IDENTITY`- Performs the identity transformation.
+- `net.minecraft.client.multiplayer.ClientPacketListener#decoratedHashOpsGenenerator` - Returns the generator used to create a hash of a data component and its value.
 - `net.minecraft.client.particle`
     - `FallingLeavesParticle$TintedLeavesProvider` - A provider for a `FallingLeavesParticle` that uses the color specified by the block above the particle the spawn location.
     - `FireflyParticle` - A particle that spawns fireflies around a given non-air block position.
@@ -2106,7 +2118,19 @@ This is a list of technical changes that could cause highly specific errors depe
     - `BiomeColors#getAverageDryFoliageColor` - Returns the average foliage color for dry biomes.
     - `PostChainConfig$Pass#referencedTargets` - Returns the targets referenced in the pass to apply.
     - `WorldBorderRenderer#invalidate` - Invalidates the current render of the world border to be rerendered.
-- `net.minecraft.client.renderer.entity.state.PigRenderState#variant` - The variant of the pig.
+- `net.minecraft.client.renderer.entity`
+    - `EntityRenderDispatcher#getRenderer` - Gets the renderer to use from the data stored on the render state.
+    - `EntityRenderer#extractAdditionalHitboxes` - Gets any additional hitboxes to render when the 'show hitboxes' debug state is enabled.
+- `net.minecraft.client.renderer.entity.state`
+    - `EntityRenderState`
+        - `entityType` - The type of the entity.
+        - `hitboxesRenderState` - The hitbox information of the entity relative to the entity's position.
+        - `serverHitboxesRenderState` - The hitbox information of the entity synced from the server.
+        - `fillCrashReportCategory` - Sets the details for any crashes related to the render state.
+    - `HitboxesRenderState` - The render state of the hitboxes for the entity relative to the entity's position.
+    - `HitboxRenderState` - The render state of a single hitbox to render along with its color, such as the eye height of an entity.
+    - `ServerHitboxesRenderState` - The render state containing the last synced information from the related server entity.
+    - `PigRenderState#variant` - The variant of the pig.
 - `net.minecraft.client.renderer.item.SelectItemModel$ModelSelector` - A functional interface that selects the item model based on the switch case and level.
 - `net.minecraft.client.renderer.item.properties.conditional.ComponentMatches` - A conditional property that checks whether the given predicate matches the component data.
 - `net.minecraft.client.renderer.item.properties.select`
@@ -2119,7 +2143,35 @@ This is a list of technical changes that could cause highly specific errors depe
     - `HolderGetter$Provider#getOrThrow` - Gets a holder reference from a resource key.
     - `SectionPos#sectionToChunk` - Converts a compressed section position to a compressed chunk position.
     - `Vec3i#STREAM_CODEC`
-- `net.minecraft.network.codec.ByteBufCodecs#LONG_ARRAY`
+- `net.minecraft.network`
+    - `HashedPatchMap` - A record containing a map of components to their hashed type/value along with a set of removed components.
+    - `HashedStack` - An `ItemStack` representation that hashes the stored components.
+    - `ProtocolInfo$DetailsProvider` - Provides the details for a given protocol.
+    - `SkipPacketDecoderException` - An exception thrown when an error occurs during decoding before having its data ignored.
+    - `SkipPacketEncoderException` - An exception thrown when an error occurs during encoding before having its data ignored.
+- `net.minecraft.network.chat`
+    - `LastSeenMessages`
+        - `computeChecksum` - Computes a byte representing the merged checksums of all message signatures.
+        - `$Update#verifyChecksum` - Verifies that the update checksum matches those within the last seen messages.
+    - `LastSeenMessagesValidator$ValidationException` - An exception thrown if the messages can not be validated.
+    - `MessageSignature`
+        - `describe` - Returns a stringified version of the message signature.
+        - `checksum` - Hashes the bytes within the signature into a single integer.
+    - `PlayerChatMessage#describeSigned` - Returns a stringified version of the chat message.
+- `net.minecraft.network.codec`
+    - `ByteBufCodecs`
+        - `LONG_ARRAY`
+        - `lengthPrefixed` - Returns an operation that limits the size of the buffer to the given size.
+    - `IdDispatchCodec$DontDecorateException` - An interface that tells the exception handler to rethrow the raw exception rather than wrap it within an `EncoderException`.
+- `net.minecraft.network.protocol`
+    - `CodecModifier` - A function that modifies some codec using a given object.
+    - `ProtocolInfoBuilder#context*Protocol` - Builds an `UnboundProtocol` with the given context used to modify the codecs to send.
+- `net.minecraft.network.protocol.game.GameProtocols`
+    - `HAS_INFINITE_MATERIALS` - A modifier that checks the `ServerboundSetCreativeModeSlotPacket` for if the player has the necessary settings. If not, the packet is discarded.
+    - `$Context` - Returns the context used by the packet to modify the incoming codec.
+- `net.minecraft.resources.DelegatingOps`
+    - `$DelegateListBuilder` - A list builder that can be subclassed if needed.
+    - `$DelegateRecordBuilder` - A record builder that can be subclassed if needed.
 - `net.minecraft.server.bossevents.CustomBossEvent$Packed` - A record that backs the event information for serialization.
 - `net.minecraft.server.commands.InCommandFunction` - A command function that takes in some input and returns a result.
 - `net.minecraft.server.level`
@@ -2130,6 +2182,8 @@ This is a list of technical changes that could cause highly specific errors depe
         - `anyPlayerCloseEnoughForSpawning` - Returns if a player is close enough to spawn the entity at the given location.
     - `ServerPlayer$RespawnConfig` - A record containing the respawn information for the player.
 - `net.minecraft.util`
+    - `AbstractListBuilder` - A ops list builder which boils the implementation down to three methods which initializes, appends, and builds the final list.
+    - `HashOps` - A dynamic ops that generates a hashcode for the data.
     - `ExtraCodecs`
         - `UNTRUSTED_URI` - A codec for a URI that is not trusted by the game.
         - `CHAT_STRING` - A codec for a string in a chat message.
@@ -2166,10 +2220,14 @@ This is a list of technical changes that could cause highly specific errors depe
 - `net.minecraft.world.entity.animal.sheep.SheepColorSpawnRules` - A class that contains the color spawn configurations for a sheep's wool when spawning within a given climate.
 - `net.minecraft.world.entity.npc.Villager#createDefaultVillagerData` - Returns the default type and profession of the villager to use when no data is set.
 - `net.minecraft.world.entity.player.Player#preventsBlockDrops` - Whether the player cannot drop any blocks on destruction.
+- `net.minecraft.world.inventory`
+    - `ContainerSynchronizer#createSlot` - Creates a `RemoteSlot` that represents a slot on the opposite side.
+    - `RemoteSlot` - A slot that represents the data on the opposing side, syncing when the data is not consistent. 
 - `net.minecraft.world.item`
     - `EitherHolder#key` - Returns the resource key of the held registry object.
     - `Item#STREAM_CODEC`
     - `ItemStack`
+        - `OPTIONAL_UNTRUSTED_STREAM_CODEC`
         - `MAP_CODEC`
         - `canDestroyBlock` - Returns whether this item can destroy the provided block state.
 - `net.minecraft.world.item.alchemy.PotionContents#getPotionDescription` - Returns the description of the mob effect with some amplifier.
@@ -2255,10 +2313,6 @@ This is a list of technical changes that could cause highly specific errors depe
 
 ### List of Changes
 
-- `com.mojang.blaze3d.pipeline.RenderTarget#clear` now has an overload that take in four floats specifying that RGBA values to clear the color with
-- `com.mojang.blaze3d.platform.DisplayData` is now a record
-- `com.mojang.blaze3d.platform.GLX._renderCrosshair`, `com.mojang.blaze3d.systems.RenderSystem#renderCrosshair` -> `net.minecraft.client.gui.components.DebugScreenOverlay#render3dCrosshair`, not one-to-one
-- `com.mojang.blaze3d.resource.RenderTargetDescriptor` now takes in an integer representing the color to clear to
 - `net.minecraft.client.Screenshot` is now a utility instead of an instance class, meaning all instance methods are removed
     - `takeScreenshot(RenderTarget)` -> `takeScreenshot(RenderTarget, Consumer<NativeImage>)`, not returning anything
 - `net.minecraft.client.multiplayer`
@@ -2271,7 +2325,10 @@ This is a list of technical changes that could cause highly specific errors depe
     - `LocalPlayer#spinningEffectIntensity`, `oSpinningEffectIntensity` -> `portalEffectIntensity`, `oPortalEffectIntensity`
 - `net.minecraft.client.renderer.blockentity.BlockEntityRenderer#render` now takes in a `Vec3` representing the camera's position
 - `net.minecraft.client.renderer.chunk.SectionRenderDispatcher`
-    - `$RenderSection#getOrigin` -> `getRenderOrigin`
+    - `$RenderSection`
+        - `getOrigin` -> `getRenderOrigin`
+        - `reset` is now public
+        - `releaseBuffers` is removed
     - `$CompileTask#getOrigin` -> `getRenderOrigin`
 - `net.minecraft.client.renderer.entity`
     - `DonkeyRenderer` now takes in a `DonekyRenderer$Type` containing the textures, model layers, and equipment information
@@ -2303,16 +2360,37 @@ This is a list of technical changes that could cause highly specific errors depe
     - `Direction#rotate` now takes in a `Matrix4fc` instead of a `Matrix4f`
     - `Rotations` is now a record
 - `net.minecraft.data.loot.BlockLootSubProvider#createPetalDrops` -> `createSegmentedBlockDrops`
-- `net.minecraft.network.chat.ComponentSerialization#flatCodec` -> `flatRestrictedCodec`
-- `net.minecraft.network.FriendlyByteBuf`
-    - `writeLongArray`, `readLongArray` now have static delegates which take in the `ByteBuf` and `*Fixed*` versions for fixed size arrays
+- `net.minecraft.network`
+    - `FriendlyByteBuf`
+        - `writeLongArray`, `readLongArray` now have static delegates which take in the `ByteBuf` and `*Fixed*` versions for fixed size arrays
+    - `ProtocolInfo$Unbound` -> `$Details`, `net.minecraft.network.protocol.SimpleUnboundProtocol`, `net.minecraft.network.protocol.UnboundProtocol`; not one-to-one
+        - `#bind` -> `net.minecraft.network.protocol.SimpleUnboundProtocol#bind`, `UnboundProtocol#bind`; not one-to-one
+    - `SkipPacketException` is now an interface instead of a subclass of `EncoderException`
+- `net.minecraft.network.chat`
+    - `ComponentSerialization#flatCodec` -> `flatRestrictedCodec`
+    - `LastSeenMessages$Update` now takes in a byte representing the checksum value
+    - `LastSeenMessagesValidator`
+        - `applyOffset` now returns nothing and can throw a `$ValidationException`
+        - `applyUpdate` now returns the raw messages and can throw a `$ValidationException`
 - `net.minecraft.network.codec.StreamCodec#composite` now has an overload for nine parameters
+- `net.minecraft.network.protocol.ProtocolInfoBuilder` now takes in a third generic representing how to modify the provided codec.
+    - `addPacket` now has an overload that takes in a `CodecModifier`
+    - `build` -> `buildUnbound`, not one-to-one
+    - `protocol`, `serverboundProtocol`, `clientboundProtocol` now returns a `SimpleUnboundProtocol`
+- `net.minecraft.network.protocol.ConfigurationProtocols` now contain `SimpleUnboundProtocol` constants
 - `net.minecraft.network.protocol.game`
+    - `ClientboundContainerSetContentPacket` is now a record
     - `ClientboundMoveEntityPacket#getyRot`, `getxRot` -> `getYRot`, `getXRot`
+    - `ClientboundPlayerChatPacket` now takes in a global index for the chat message
     - `ClientboundLevelChunkPacketdata#getHeightmaps` now returns a `Map<Heightmap.Types, long[]>`
     - `ClientboundUpdateAdvancementsPacket` now takes in a boolean representing whether to show the adavncements as a toast
+    - `GameProtocols` constants are now either `SimpleUnboundProtocol`s or `UnboundProtocol`s
+    - `ServerboundContainerClickPacket` is now a record
     - `ServerboundMovePlayerPacket$Pos`, `$PosRot` now has an overload that takes in a `Vec3` for the position
     - `ServerboundSetStructureBlockPacket` now takes in an additional boolean representing whether the structure should be generated in strict mode
+- `net.minecraft.network.protocol.handshake.HandshakeProtocols#SERVERBOUND_TEMPLATE` is now a `SimpleUnboundProtocol`
+- `net.minecraft.network.protocol.login.LoginProtocols#SERVERBOUND_TEMPLATE` constants are now `SimpleUnboundProtocol`s
+- `net.minecraft.network.protocol.status.StatusProtocols#SERVERBOUND_TEMPLATE` constants are now `SimpleUnboundProtocol`s
 - `net.minecraft.server.PlayerAdvancements#flushDirty` now takes in a boolean that represents whether the advancements show display as a toast
 - `net.minecraft.server.bossevents.CustomBossEvent`
     - `save` -> `pack`, not one-to-one
@@ -2329,7 +2407,8 @@ This is a list of technical changes that could cause highly specific errors depe
     - `ServerPlayer`
         - `getRespawnPosition`, `getRespawnAngle`, `getRespawnDimension`, `isRespawnForced` -> `getRespawnConfig`, not one-to-one
         - `setRespawnPosition` now takes in a `$RespawnConfig` instead of the individual respawn information
-        - `loadAndSpawnParentVehicle`, `loadAndSpawnEnderpearls` now takes in a `CompoundTag` without the optional wrapping
+        - `loadAndSpawnParentVehicle`, `loadAndSpawnEnderpearls` now takes in a `CompoundTag` without the optional wrapping\
+- `net.minecraft.server.network.ServerGamePacketListenerImpl` now implements `GameProtocols$Context`
 - `net.minecraft.sounds.SoundEvents` have the following sounds now `Holder` wrapped:
     - `ITEM_BREAK`
     - `SHIELD_BLOCK`, `SHIELD_BREAK`,
@@ -2416,6 +2495,12 @@ This is a list of technical changes that could cause highly specific errors depe
         - `cancelLerp` -> `InterpolationHandler#cancel`
         - `lerpTargetX`, `lerpTargetY`, `lerpTargetZ`, `lerpTargetXRot`, `lerpTargetYRot` -> `getInterpolation`
     - `MinecartTNT#primeFuse` now takes in the `DamageSource` cause
+- `net.minecraft.world.inventory`
+    - `AbstractContainerMenu`
+        - `setRemoteSlotNoCopy` -> `setRemoteSlotUnsafe`, not one-to-one
+        - `setRemoteCarried` now takes in a `HashedStack`
+    - `ClickType` now takes in an id for its representations
+    - `ContainerSynchronizer#sendInitialData` now takes in a list of stacks rather than a `NonNullList`
 - `net.minecraft.world.item`
     - `EitherHolder` now takes in an `Either` instance rather than just an `Optional` holder and `ResourceKey`
     - `Item`
@@ -2476,9 +2561,12 @@ This is a list of technical changes that could cause highly specific errors depe
     - `TallGrassBlock` now extends `VegetationBlock`
     - `TntBlock#prime` now returns whether the primed tnt was spawned.
     - `WaterlilyBlock` now extends `VegetationBlock`
-- `net.minecraft.world.level.block.entity.BlockEntity`
-    - `parseCustomNameSafe` now takes in a nullable `Tag` instead of a string
-    - `$ComponentHolder#COMPONENTS_CODEC` is now a `MapCodec`
+- `net.minecraft.world.level.block.entity`
+    - `BlockEntity`
+        - `parseCustomNameSafe` now takes in a nullable `Tag` instead of a string
+        - `getPosFromTag` now takes in the `ChunkPos`
+        - `$ComponentHolder#COMPONENTS_CODEC` is now a `MapCodec`
+    - `BLockEntityType#create` is no longer nullable
 - `net.minecraft.world.level.block.entity.trialspawner.TrialSpawner#codec` now returns a `MapCodec`
 - `net.minecraft.world.level.block.state.StateHolder`
     - `getNullableValue` is now private
@@ -2517,6 +2605,7 @@ This is a list of technical changes that could cause highly specific errors depe
     - `ClientboundAddExperimentOrbPacket`
     - `ClientGamePacketListener#handleAddExperienceOrb`
 - `net.minecraft.resources.ResourceLocation$Serializer`
+- `net.minecraft.server.network.ServerGamePacketListenerImpl#addPendingMessage`
 - `net.minecraft.world`
     - `BossEvent$BossBarColor#byName`, `$BossBarOverlay#byName`
     - `Clearable#tryClear`
