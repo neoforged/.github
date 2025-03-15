@@ -1357,13 +1357,13 @@ ExampleSavedData data = storage.computeIfAbsent(ExampleSavedData.TYPE);
 
 Rendering an object to the screen, whether through a shader or a `RenderType`, has been fully or partially reworked, depending on what systems you were using previously. As such, a lot of things need to be reexplained, which a more in-depth look will be below. However, for the people who don't care, here's the TL;DR.
 
-First, shader JSONs no longer exist. This is replaced by a `RenderPipeline`, which is effectively an in-code substitute, that must be registered via `RenderPipelines#register`. Second, the `RenderPipeline`s forcibly make most abtrarily values into objects. For example, instead of storing the blend function mode id, you store a `BlendFunction` object. Similarly, you no longer store or setup the direct texture objects, but instead manage it through a `GpuTexture`. Finally, the `VertexBuffer` can either draw to the framebuffer by directly passing in the `RenderPipeline`, updating any necessary uniforms in the consumer, or by passing in the `RenderType`.
+First, shader JSONs no longer exist. This is replaced by a `RenderPipeline`, which is effectively an in-code substitute. Second, the `RenderPipeline`s forcibly make most abtrarily values into objects. For example, instead of storing the blend function mode id, you store a `BlendFunction` object. Similarly, you no longer store or setup the direct texture objects, but instead manage it through a `GpuTexture`. Finally, the `VertexBuffer` can either draw to the framebuffer by directly passing in the `RenderPipeline`, updating any necessary uniforms in the consumer, or by passing in the `RenderType`.
 
 Now, for those who need the details, let's jump into them.
 
 ### Abstracting Open GL
 
-As many are aware, Minecraft has been abstracting away their OpenGL calls and constants, and this release is no different. Most of the calls to GL codes have been moved out of object references, to be obtained typically by calling `GlConst$toGl`. However, with all of the other rendering reworks, there are numerous changes and complexities that require learning an entirely new system, assuming you're not using `RenderType`s.
+As many are aware, Minecraft has been abstracting away their OpenGL calls and constants, and this release is no different. All of the calls to GL codes, except `BufferUsage`, have been moved out of object references, to be obtained typically by calling `GlConst$toGl`. However, with all of the other rendering reworks, there are numerous changes and complexities that require learning an entirely new system, assuming you're not using `RenderType`s.
 
 Starting from the top, all calls to the underlying render system goes through `GpuDevice`, an interface that acts like a general implementation of a render library like OpenGL or Vulkan. The device is responsible for creating buffers and textures, executing whatever commands are desired. Getting the current `GpuDevice` can be accessed through the `RenderSystem` via `getDevice` like so:
 
@@ -1371,7 +1371,7 @@ Starting from the top, all calls to the underlying render system goes through `G
 GpuDevice device = RenderSystem.getDevice();
 ```
 
-The `GpuDevice` can the create either buffers with the desired data or a texture containing information on what to render using `createBuffer` and `createTexture`, respectively. Just for redundancy, buffers hold the vertex data while textures hold the texture (color and depth) data. Whether it makes sense to cache a buffer or a texture to be uploaded to is up to you. For reference, buffers are typically created by using a `BufferBuilder` with a `ByteBufferBuilder` to build the `MeshData` first, before passing that into `createBuffer`.
+The `GpuDevice` can the create either buffers with the desired data or a texture containing information on what to render using `createBuffer` and `createTexture`, respectively. Just for redundancy, buffers hold the vertex data while textures hold the texture (color and depth) data. You should generally cache the buffer or texture object for later use with any additional data updated as needed. For reference, buffers are typically created by using a `BufferBuilder` with a `ByteBufferBuilder` to build the `MeshData` first, before passing that into `createBuffer`.
 
 With the desired buffers and textures set up, how do we actually modify render them to the screen? Well, this is handled through the `CommandEncoder`, which can also be optained from the device via `GpuDevice#createCommandEncoder`. The encoder contain the familiar read and write methods along with a few extra to clear texture to a given color or simply blit the the texture immediately to the screen (`presentTexture`). However, the most important method here is `createRenderPass`. This takes in the `GpuTexture` to draw to the screen along with a default ARGB color for the background. Additionally, it can take in a depth texture as well. This should be created using a try with resources block like so:
 
@@ -1388,8 +1388,9 @@ Within the `RenderPass`, you can set the `RenderPipeline` to use, which defines 
 ```java
 // If the buffers/textures are not created or cached, create them here
 // Any methods ran from `CommandEncoder` cannot be run while a render pass is open
-RenderSystem.AutoStorageIndexBuffer indexBuffer = RenderSystem.getSequentialBuffer(VertexFormat.Mode.QUADS);
+RenderSystem.AutoStorageIndexBuffer indices = RenderSystem.getSequentialBuffer(VertexFormat.Mode.QUADS);
 GpuBuffer vertexBuffer = RenderSystem.getQuadVertexBuffer();
+GpuBuffer indexBuffer = indices.getBuffer(6);
 
 // We will assume you have constructed a `GpuTexture` texture for the color data
 try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(this.texture, OptionalInt.of(0xFFFFFFFF))) {
@@ -1397,7 +1398,7 @@ try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRen
     // Set pipeline information along with any samplers and uniforms
     pass.setPipeline(EXAMPLE_PIPELINE);
     pass.setVertexBuffer(0, vertexBuffer);
-    pass.setIndexBuffer(indexBuffer.getBuffer(6), indexBuffer.type());
+    pass.setIndexBuffer(indexBuffer, indices.type());
     pass.bindSampler("Sampler0", RenderSystem.getShaderTexture(0));
 
     // Then, draw everything to the screen
@@ -1467,27 +1468,31 @@ public class MyTextureManager {
 }
 ```
 
-Then, whenever you want to upload something to the texture, you call one of the `write` functions. This either takes in the `NativeImage` to write from or an `IntBuffer` with the texture data and a `NativeImage$Format` to use.
+Then, whenever you want to upload something to the texture, you call `CommandEncoder#writeToTexture` or `CommandEncoder#copyTextureToTexture`. This either takes in the `NativeImage` to write from or an `IntBuffer` with the texture data and a `NativeImage$Format` to use.
 
 ```java
-this.texture.write(
-    // The image to write from
+// Like other buffer/texture modification methods, this must be done outside of a render pass
+// We will assume you have some `NativeImage` image to load into the texture
+RenderSystem.getDevice().createCommandEncoder().writeToTexture(
+    // The texture (destination) being written to
+    this.texture,
+    // The image (source) being read from
     image,
-    // The mipmap level to use (0-index)
+    // The mipmap level
     0,
-    // Starting x coordinate to copy to the texture
+    // The starting destination x offset
     0,
-    // Starting y coordinate to copy to the texture
+    // The starting destination y offset
     0,
-    // Width of the image to copy
+    // The destination width (x size)
     16,
-    // Height of the image to copy
+    // The desintation height (y size)
     16,
-    // Starting x coordinate to copy from the image
+    // The starting source x offset
     0,
-    // Starting y coordinate to copy from the image
+    // The starting source y offset
     0
-);
+)
 ```
 
 Finally, once you're done with the texture, don't forget to release it via `#close` if it's not already handled for you.
@@ -1496,7 +1501,7 @@ Finally, once you're done with the texture, don't forget to release it via `#clo
 
 Previously, a pipeline was constructed using a JSON that contained all metadata from the vertex and fragement shader to their defined values, samplers, and uniforms. However, this has all been replaced with an in-code solution that more localizes some parts of the JSON and some parts that were relegated to the `RenderType`. This is known as a `RenderPipeline`.
 
-A `RenderPipeline` can be constructed using its builder via `RenderPipeline#builder`. A pipeline can then be built by calling `build` and passing it into `RenderPipeline#register`. If you have snippets that are used across multiple pipelines, then a partial pipeline can be built via `$Builder#buildSnippet` and then passed to the constructing pipelines in the `builder` method.
+A `RenderPipeline` can be constructed using its builder via `RenderPipeline#builder`. A pipeline can then be built by calling `build`. If you want the shader to be pre-compiled without any additional work, the final pipeline can be passed to `RenderPipeline#register`. However, you can also handle the compilation yourself if more graceful fail states are desired. If you have snippets that are used across multiple pipelines, then a partial pipeline can be built via `$Builder#buildSnippet` and then passed to the constructing pipelines in the `builder` method.
 
 > The following enums described in the examples have their GL codes provided with them as they have been abstracted away.
 
@@ -1532,13 +1537,14 @@ public static final RenderPipeline EXAMPLE_PIPELINE = RenderPipelines.register(
     // These are just definitions which are then populated by default or by the caller depending on the scenario
     // Defaults can be found in `CompiledShaderProgram#setupUniforms`
     .withUniform("ModelOffset", UniformType.VEC3)
-    // Custom uniforms must be drawn manually as the vanilla batching system does not support such an operation
+    // Custom uniforms must be set manually as the vanilla batching system does not support such an operation
     .withUniform("CustomUniform", UniformType.INT)
     // Sets the depth test functions used rendering objects at varying distances from the camera
     // Values:
     // - NO_DEPTH_TEST      (GL_ALWAYS)
     // - EQUAL_DEPTH_TEST   (GL_EQUAL)
     // - LEQUAL_DEPTH_TEST  (GL_LEQUAL)
+    // - LESS_DEPTH_TEST    (GL_LESS)
     // - GREATER_DEPTH_TEST (GL_GREATER)
     .withDepthTestFunction(DepthTestFunction.LEQUAL_DEPTH_TEST)
     // Sets how the polygons should render
