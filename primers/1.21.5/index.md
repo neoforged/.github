@@ -793,7 +793,7 @@ Finally, you can use it in your test instance:
     - `ServerboundSetTestBlockPacket` - A packet sent to the server to set the information within the test block to run.
     - `ServerboundTestInstanceBlockActionPacket` - A packet sent to the server to set up the test instance within the test block.
 - `net.minecraft.world.entity.player.Player`
-    - `openTestBlock` -> Opens a test block.
+    - `openTestBlock` - Opens a test block.
     - `openTestInstanceBlock` - Opens a test block for a game test instance.
 - `net.minecraft.world.level.block`
     - `TestBlock` - A block used for running game tests.
@@ -1791,7 +1791,7 @@ post.process(Minecraft.getInstance().getMainRenderTarget(), GraphicsResourceAllo
     - `GLX`
         - `getOpenGLVersionString` is removed
         - `_init` -> `_getCpuInfo`, not one-to-one
-        = `_renderCrosshair`, `com.mojang.blaze3d.systems.RenderSystem#renderCrosshair` -> `net.minecraft.client.gui.components.DebugScreenOverlay#render3dCrosshair`, not one-to-one
+        - `_renderCrosshair`, `com.mojang.blaze3d.systems.RenderSystem#renderCrosshair` -> `net.minecraft.client.gui.components.DebugScreenOverlay#render3dCrosshair`, not one-to-one
     - `PolygonMode` - A enum that defines how the polygons will render in the buffer.
     - `NativeImage` constructor is now public
         - `upload` is removed
@@ -2474,6 +2474,11 @@ This is a list of technical changes that could cause highly specific errors depe
 - `net.minecraft.client.data.models`
     - `BlockModelGenerators#createSegmentedBlock` - Generates a multipart blockstate definition with horizontal rotation that displays up to four models based on some integer property.
     - `ItemModelGenerators#prefixForSlotTrim` - Generates a vanilla `ResourceLocation` for a trim in some slot.
+- `net.minecraft.client.MouseHandler`
+    - `fillMousePositionDetails` - Adds details about the current mouse location and screen size to a crash report.
+    - `getScaledXPos` - Gets the current x position scaled by the gui scaling option.
+    - `getScaledYPos` - Gets the current y position scaled by the gui scaling option.
+    - `drawDebugMouseInfo` - Draws information about the scaled position of the mouse to the screen.
 - `net.minecraft.client.gui.components.toasts.Toast#getSoundEvent` - Returns the sound to play when the toast is displayed.
 - `net.minecraft.client.gui.screens.options.VideoSettingsScreen#updateFullscreenButton` - Sets the fullscreen option to the specified boolean.
 - `net.minecraft.client.model.geom.builders`
@@ -2588,7 +2593,10 @@ This is a list of technical changes that could cause highly specific errors depe
 - `net.minecraft.world.entity.animal.camel.Camel#checkCamelSpawnRules` - Checks if a camel can spawn at a particular position.
 - `net.minecraft.world.entity.animal.sheep.SheepColorSpawnRules` - A class that contains the color spawn configurations for a sheep's wool when spawning within a given climate.
 - `net.minecraft.world.entity.npc.Villager#createDefaultVillagerData` - Returns the default type and profession of the villager to use when no data is set.
-- `net.minecraft.world.entity.player.Player#preventsBlockDrops` - Whether the player cannot drop any blocks on destruction.
+- `net.minecraft.world.entity.player.Player`
+    - `preventsBlockDrops` - Whether the player cannot drop any blocks on destruction.
+    - `gameMode` - Returns the current game mode of the player.
+    - `debugInfo` - Returns the common information about the player as a single string.
 - `net.minecraft.world.inventory`
     - `ContainerSynchronizer#createSlot` - Creates a `RemoteSlot` that represents a slot on the opposite side.
     - `RemoteSlot` - A slot that represents the data on the opposing side, syncing when the data is not consistent. 
@@ -2854,7 +2862,9 @@ This is a list of technical changes that could cause highly specific errors depe
         - `TRADES` now takes in a resource key as the key of the map
             - This is similar for all other type specific trades
         - `$FailureItemListing` is now private
-- `net.minecraft.world.entity.player.Player#stopFallFlying` -> `LivingEntity#stopFallFlying`
+- `net.minecraft.world.entity.player.Player`
+    - `stopFallFlying` -> `LivingEntity#stopFallFlying`
+    - `isSpectator`, `isCreative` no longer abstract in the `Player` class
 - `net.minecraft.world.entity.projectile.ThrownPotion` -> `AbstractThrownPotion`, implemented in `ThrownLingeringPotion` and `ThrownSplashPotion`
 - `net.minecraft.world.entity.raid.Raid(int, ServerLevel, BlockPos)` -> `Raid(BlockPos, Difficulty)`
     - `tick`, `addWaveMob` now takes in the `ServerLevel`
@@ -2875,7 +2885,13 @@ This is a list of technical changes that could cause highly specific errors depe
     - `Item`
         - `canAttackBlock` -> `canDestroyBlock`
         - `hurtEnemy` no longer returns anything
-    - `ItemStack#validateStrict` is now public
+        - `onCraftedBy` no longer takes in a separate `Level` instance, now relying on the one provided by the `Player`
+    - `ItemStack`
+        - `validateStrict` is now public
+        - `onCraftedBy` no longer takes in a separate `Level` instance, now relying on the one provided by the `Player`
+    - `MapItem`
+        - `create` now takes in a `ServerLevel` instead of a `Level`
+        - `lockMap` is now private
     - `ThrowablePotionItem` is now abstract, containing two methods to create the `AbstractThrownPotion` entity
     - `WrittenBookItem#resolveBookComponents` -> `WrittenBookContent#resolveForItem`
 - `net.minecraft.world.item.alchemy.PotionContents` now implements `TooltipProvider`
@@ -2896,6 +2912,8 @@ This is a list of technical changes that could cause highly specific errors depe
         - `onBlockStateChange` -> `updatePOIOnBlockStateChange`
         - `isDay` -> `isBrightOutside`
         - `isNight` -> `isDarkOutside`
+        - `setMapData` -> `net.minecraft.server.level.ServerLevel#setMapData`
+        - `getFreeMapId` -> `net.minecraft.server.level.ServerLevel#getFreeMapId`
     - `LevelAccessor#blockUpdated` -> `updateNeighborsAt`
 - `net.minecraft.world.level.biome.MobSpawnSettings$SpawnerData` is now a record
 - `net.minecraft.world.level.block`
