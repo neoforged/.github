@@ -1938,6 +1938,7 @@ post.process(Minecraft.getInstance().getMainRenderTarget(), GraphicsResourceAllo
         - `setOnRenderPass` - Sets the uniform within the post chain on the `RenderPass` for use in the shaders.
     - `PostChainConfig`
         - `$Pass` now takes in the ids of the vertex and fragment shader instead of the program id
+            - `referencedTargets` - Returns the targets referenced in the pass to apply.
             - `program` is removed
         - `$Uniform` now takes in the type of the uniform along with an optional list of floats if the value does not need to be overridden
     - `PostPass` no longer takes in the `CompiledShaderProgram`, now taking in the `RenderPipeline` instead of a string representing the name of the pass
@@ -2490,7 +2491,7 @@ This is a list of technical changes that could cause highly specific errors depe
     - `FireflyParticle` - A particle that spawns fireflies around a given non-air block position.
 - `net.minecraft.client.renderer`
     - `BiomeColors#getAverageDryFoliageColor` - Returns the average foliage color for dry biomes.
-    - `PostChainConfig$Pass#referencedTargets` - Returns the targets referenced in the pass to apply.
+    - `LevelRenderer$BrightnessGetter` - An interfaces which obtains the packed brightness at a given block position.
     - `WorldBorderRenderer#invalidate` - Invalidates the current render of the world border to be rerendered.
 - `net.minecraft.client.renderer.entity`
     - `EntityRenderDispatcher#getRenderer` - Gets the renderer to use from the data stored on the render state.
@@ -2557,6 +2558,9 @@ This is a list of technical changes that could cause highly specific errors depe
     - `ServerPlayer$RespawnConfig` - A record containing the respawn information for the player.
 - `net.minecraft.util`
     - `AbstractListBuilder` - A ops list builder which boils the implementation down to three methods which initializes, appends, and builds the final list.
+    - `Brightness`
+        - `block` - Returns the block light from a packed value.
+        - `sky` - Returns the sky light from a packed value.
     - `HashOps` - A dynamic ops that generates a hashcode for the data.
     - `ExtraCodecs`
         - `UNTRUSTED_URI` - A codec for a URI that is not trusted by the game.
@@ -2700,6 +2704,7 @@ This is a list of technical changes that could cause highly specific errors depe
 - `net.minecraft.client.player`
     - `ClientInput#leftImpulse`, `forwardImpulse` -> `moveVector`, now protected
     - `LocalPlayer#spinningEffectIntensity`, `oSpinningEffectIntensity` -> `portalEffectIntensity`, `oPortalEffectIntensity`
+- `net.minecraft.client.renderer.LevelRenderer#getLightColor(BlockAndTintGetter, BlockState, BlockPos)` -> `getLightColor(LevelRenderer$BrightnessGetter, BlockAndTintGetter, BlockState, BlockPos)`
 - `net.minecraft.client.renderer.blockentity.BlockEntityRenderer#render` now takes in a `Vec3` representing the camera's position
 - `net.minecraft.client.renderer.chunk.SectionRenderDispatcher`
     - `$RenderSection`
@@ -2791,6 +2796,9 @@ This is a list of technical changes that could cause highly specific errors depe
     - `SHIELD_BLOCK`, `SHIELD_BREAK`,
     - `WOLF_ARMOR_BREAK`
 - `net.minecraft.util`
+    - `Brightness`
+        - `FULL_BRIGHT` is now final
+        - `pack` now has a static overload that takes in the block and sky light.
     - `ExtraCodecs#MATRIX4f` now is a `Codec<Matrix4fc>`
     - `Util#makeEnumMap` returns the `Map` superinstance rather than the specific `EnumMap`
 - `net.minecraft.util.parsing.packrat.commands.TagParseRule` now takes in a generic for the tag type
