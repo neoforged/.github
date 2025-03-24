@@ -2831,7 +2831,6 @@ This is a list of technical changes that could cause highly specific errors depe
         - `moveTo` -> `snapTo`
         - `sendBubbleColumnParticles` is now static, taking in the `Level`
         - `onInsideBubbleColumn` logic delegates to the protected static `handleOnInsideBubbleColumn`
-        - `applyEffectsFromBlocks` are now protected
     - `EntityType`
         - `POTION` -> `SPLASH_POTION`, `LINGERING_POTION`, not one-to-one
         - `$EntityFactory#create` can now return a null instance
