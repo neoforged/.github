@@ -81,7 +81,7 @@ var blocker = new BlocksAttacks(
             90f,
             // A set of damage types this reduction should apply for.
             // When empty, it applies for all damage types.
-            Optiona.empty(),
+            Optional.empty(),
             // The base damage to reduce the attack by.
             1f,
             // A scalar representing the fraction of the damage blocked.
