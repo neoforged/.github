@@ -6,6 +6,11 @@ This primer is licensed under the [Creative Commons Attribution 4.0 Internationa
 
 If there's any incorrect or missing information, please file an issue on this repository or ping @ChampionAsh5357 in the Neoforged Discord server.
 
+Thank you to:
+
+- @TelepathicGrunt for the information within the 'Very Technical Changes' section
+- @RogueLogix for their review and comments on the 'Render Pipeline Rework' section
+
 ## Pack Changes
 
 There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.5&tab=changelog).
@@ -2464,6 +2469,9 @@ Some mob effects have been renamed to their in-game name, rather than some inter
 This is a list of technical changes that could cause highly specific errors depending on your specific setup.
 
 - The order of the `minecraft:patch_sugar_cane` feature and `minecraft:patch_pumpkin` feature have swapped orders (first pumpkin, then sugar cane), meaning modded biomes that generate both of these features will need to update their JSONs to the new ordering.
+
+- Serveral vanilla oak tree and tree selector features now have `_leaf_litter` appended at the end.
+    - For example: `trees_birch_and_oak` -> `trees_birch_and_oak_leaf_litter`
 
 ### List of Additions
 
