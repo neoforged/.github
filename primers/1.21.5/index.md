@@ -10,6 +10,7 @@ Thank you to:
 
 - @TelepathicGrunt for the information within the 'Very Technical Changes' section
 - @RogueLogix for their review and comments on the 'Render Pipeline Rework' section
+- @Tslat for catching an error about `equipOnInteract`
 
 ## Pack Changes
 
@@ -193,7 +194,7 @@ First, rendering an equipment slot for an entity can now be handled as an additi
 
 Next, instead of having individual lists for each equipment slot on the entity, there is now a general `EntityEquipment` object that holds a delegate to a map of slots to `ItemStack`s. This simplifies the storage logic greatly.
 
-Finally, equippables can now specify whether wearing one will contribute to the bonus XP earned when killing a mob by setting `equipOnInteract`.
+Finally, equippables can now specify whether an item should be equipped to a mob on interact (usually right-click) by setting `equipOnInteract`.
 
 - `net.minecraft.client.model`
     - `CamelModel`
