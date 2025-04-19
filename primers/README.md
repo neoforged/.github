@@ -1,6 +1,6 @@
 # Primers
 
-The primers in this repository are meant to provide a high level, non-exhaustive overview on mirgating a mod between two Minecraft versions. Each subdirectory represents the version the primer is written for. The main `index` file contains vanilla changes while mod loader changes are in a file with its name.
+The primers in this repository are meant to provide a high level, non-exhaustive overview on migrating a mod between two Minecraft versions. Each subdirectory represents the version the primer is written for. The main `index` file contains vanilla changes while mod loader changes are in a file with its name.
 
 The primers were written by [@ChampionAsh5357](https://github.com/ChampionAsh5357).
 
