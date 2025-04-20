@@ -24,29 +24,39 @@ The render phase is what actually handles the rendering of all the objects. This
 
 ### Element Ordering
 
-Now, how are elements rendered onto screen? In the previous versions, this happened mainly based on the order of the render calls. However, the new system sorts elements using a comparator based on four things (in order of priority): the `GuiLayer`, the `ScreenRectangle` scissor, the `RenderPipeline` order, and the element's `z` or depth value. These are all stored on the `GuiElementRenderState` passed to the `GuiRenderState` via `GuiRenderState#submitGuiElement`.
+Now, how are elements rendered onto screen? In the previous versions, this happened mainly based on the order of the render calls. However, the new system using two different methods of sorting. The first method handles the depth using strata and a linear tree. The second method uses a comparator based on three things (in order of priorty): the `ScreenRectangle` scissor, the `RenderPipeline` order, and the `TextureSetup`'s hash code. These are all stored on the `GuiElementRenderState` passed to the `GuiRenderState` via `GuiRenderState#submitGuiElement`.
 
-As a warning, due to the element sort order, certain custom configurations may result in incorrect screen renders (e.g., a transparent element rendering before the background element). As such, it is imperative that you understand how the comparator and their assigned values work when sorting elements.
+Once the elements have been ordered, they are rendered starting at a Z of `0`, with each element rendered `0.01` ahead of the previous.
 
-#### Gui Layers
+As a warning, due to the element sort order, certain custom configurations may result in incorrect screen renders. As such, it is imperative that you understand how the methods and their assigned values work when sorting elements.
 
-`GuiLayer` is simply an enum which uses its ordinal to determine the order of which elements should be rendered. This can be stored via `GuiElementRenderState#layer` For example, elements on the `SCREEN_BACKGROUND` layer will be drawn first, followed by elements on the `SCREEN` layer. As this is an enum that relies on ordering, if you want to add new elements, you must make sure your mod loader supports adding arbitrary enum objects or has a separate method of order handling.
+#### Strata and Trees
 
-#### Screen Rectangle Scissor
+The first method of sorting handles the z-depth an object is rendered at.
+
+First let's start with the linear tree. As the name implies, it is basically a doubly-linked `GuiRenderState$Node` list. Each node contains its own list of elements to render. Navigating the node list is handled using `GuiRenderState#up` or `down`, where each either gets the next node, or creates a new one if it doesn't exist. There are also methods for adding a new node to the top of the list (`upToTop`) or to go back to the previous `node`. You can also push a specific node to a stack for use later (`pushCheckpoint` and `backToCheckpoint`) if you don't want to fix the navigation tree. Nodes within a given tree are rendered from bottom to top, meaning that `down` will render any elements submitted before the current node, while `up` will render any elements submitted after the current node.
+
+Then there are strata. A stratum is essentially a linear tree. Strata are rendered in the order they are created, which means calling `nextStratum` will render all elements after the previous stratum. This can be used if you want to group elements into a specific layer. There are two things to note: you can not have any checkpoints to create another stratum, and you cannot navigate to a prior stratum.
+
+#### The Comparator
+
+The comparator handles sorting the elements within a given node in a linear tree in a strata.
+
+##### Screen Rectangle Scissor
 
 The `ScreenRectangle` is simply the area that the element is allowed to draw to, stored via `GuiElementRenderState#scissorArea`. Elements with no specified `ScreenRectangle` will be ordered first, followed by the minimum Y, the maximum Y, the minimum X, and the maximum X.
 
-#### Render Pipeline
+##### Render Pipeline
 
 `RenderPipeline`s define the pipeline used to render some object to the screen, including its shaders, format, uniforms, etc. This is stored via `GuiElementRenderState#pipeline`. Pipelines are sorted in the order they are built. This means that `RenderPipelines#ENTITY_TRANSLUCENT` will be rendered before `RenderPipelines#GUI` if on the same layer and scissor rectangle. As this is a system that relies on classloading constants, if you want to add new elements, make sure your mod loader supports some kind of dynamic pipeline ordering.
 
-#### Depth
+##### Texture Hash Code
 
-The element's depth, or `GuiElementRenderState#z`, is the final comparator that determines what element gets rendered first. Assuming that all of your submit calls have been through calling one of the `GuiGraphics` methods, the `z` value is based upon the order of the method calls. For every submit action, `GuiGraphics` calls `getNextDepth`, which increases the Z value by `0.01`.
+`TextureSetup` defines `Sampler0`, `Sampler1`, and `Sampler2` for use in the render pipelines, stored via `GuiElementRenderState#textureSetup`. Elements with no textures will be ordered first, followed by the hash code of the record object. Note that this may be non-deterministic as `GpuTexture` does not implement `hashCode`, relying instead on the identity object hash.
 
 ### GuiElementRenderState
 
-Now that we understand ordering, what exactly is the `GuiElementRenderState` that we've been using? Well essentially, every object rendered to the screen is represented by a `GuiElementRenderState`, from the player seen in the inventory menu to each individual item. A `GuiElementRenderState` defines six methods. First, there are the common ones used for ordering (`z`, `layer`) and how to render to the screen (`pipeline`, `scissorArea`). Then there is the `TextureSetup` (via `textureSetup`) which defines `Sampler0`, `Sampler1`, and `Sampler2` that is used in the shaders when present. Finally, `buildVertices` is responsible for filling the buffer with its required vertices. For GUIs, this typically calls `VertexConsumer#addVertexWith2DPose`.
+Now that we understand ordering, what exactly is the `GuiElementRenderState` that we've been using? Well essentially, every object rendered to the screen is represented by a `GuiElementRenderState`, from the player seen in the inventory menu to each individual item. A `GuiElementRenderState` defines four methods. First, there are the common ones used for ordering and how to render to the screen (`pipeline`, `scissorArea`, `textureSetup`). Then there is `buildVertices`, which takes in the `VertexConsumer` to write the vertices to and the z-depth. For GUIs, this typically calls `VertexConsumer#addVertexWith2DPose`.
 
 There are three types of `GuiElementRenderState`s provided by vanilla: `BlitRenderState`, `ColoredRectangleRenderState`, and `GlyphRenderState`. `ColoredRectangleRenderState` and `GlyphRenderState` are simple cases for handling a basic color rectangle and text character, respectively. `BlitRenderState` covers every other case as almost every method eventually writes to a `GpuTexture` which is then consumed by this.
 
@@ -54,17 +64,17 @@ There are three types of `GuiElementRenderState`s provided by vanilla: `BlitRend
 
 #### GuiItemRenderState
 
-`GuiItemRenderState` is a special case used to render an item to the screen. It takes in the stringified name of the item, the current pose, its XYZ coordinates, a layer, and its scissor area. The `ItemStackRenderState` it holds is what defines how the item is rendered.
+`GuiItemRenderState` is a special case used to render an item to the screen. It takes in the stringified name of the item, the current pose, its XY coordinates, and its scissor area. The `ItemStackRenderState` it holds is what defines how the item is rendered.
 
-Just before the 'render' phase, the `GuiRenderer` effectively turns the `GuiItemRenderState` into a `GuiElementRenderState`, more specifically a `BlitRenderState`. This is done by constructing an item atlas `GpuTexture` which the item is drawn to, and then that texture is submitted as a `BlitRenderState`. All `GuiitemRenderState`s use `RenderPipelines#GUI_TEXTURED_PREMULTIPLIED_ALPHA`.
+Just before the 'render' phase, the `GuiRenderer` effectively turns the `GuiItemRenderState` into a `GuiElementRenderState`, more specifically a `BlitRenderState`. This is done by constructing an item atlas `GpuTexture` which the item is drawn to, and then that texture is submitted as a `BlitRenderState`. All `GuiItemRenderState`s use `RenderPipelines#GUI_TEXTURED_PREMULTIPLIED_ALPHA`.
 
 `GuiElementRenderState`s are added to the `GuiRenderState` via `GuiRenderState#submitItem`. This is called by `GuiGraphics#render*Item*` methods.
 
 #### GuiTextRenderState
 
-`GuiTextRenderState` is a special case used to render text to the screen. It takes in the `TextRenderState`; the current pose; its XY coordinates; Z values for the background, text and shadow, and effect and shadow, a layer, and its scissor area. The `TextRenderState` simply defines whether to draw the drop shadow, the default main background colors, how the text is displayed, light coordinates, the text and its effects as a list of glyphs, the line height, the empty glyph, and the max X.
+`GuiTextRenderState` is a special case used to render text to the screen. It takes in the `TextRenderState`, the current pose, its XY coordinates, and its scissor area. The `TextRenderState` simply defines whether to draw the drop shadow, the default colors, how the text is displayed, light coordinates, the text and its effects as a list of glyphs, the line height, the empty glyph, and the max X.
 
-Just before the 'render' phase, the `GuiRenderer` turns the `GuiTextRenderState` into a `GuiElementRenderState`, more specifically a `GlyphRenderState`. This performs a similar process as the item render state where the text is written to a `GpuTexture` to be consumed.
+Just before the 'render' phase, the `GuiRenderer` turns the `GuiTextRenderState` into a `GuiElementRenderState`, more specifically a `GlyphRenderState`. This performs a similar process as the item render state where the text is written to a `GpuTexture` to be consumed. Any backgrounds are rendered first, followed by the background effects, then the character, then finally the foreground effects.
 
 `GuiElementRenderState`s are added to the `GuiRenderState` via `GuiRenderState#submitText`. This is called by `GuiGraphics#draw*String` and `render*Tooltip` methods.
 
@@ -72,10 +82,10 @@ Just before the 'render' phase, the `GuiRenderer` turns the `GuiTextRenderState`
 
 Picture-in-Picture is a special case used to render arbitrary objects to a `GpuTexture` to be passed into a `BlitRenderState`. A Picture-in-Picture is made up of two components the `PictureInPictureRenderState`, and the `PictureInPictureRenderer`.
 
-`PictureInPictureRenderState` is an interface which can store some data used to render the object to the texture. By default, it must supply the minimum and maximum XY coordinates, the Z coordinate, the texture scale, the scissor area, and the layer to render on. Any other data can be added by the implementor.
+`PictureInPictureRenderState` is an interface which can store some data used to render the object to the texture. By default, it must supply the minimum and maximum XY coordinates, the texture scale, and the scissor area. Any other data can be added by the implementor.
 
 ```java
-public record ExamplePIPRenderState(boolean data, int x0, int x1, int y0, int y1, float z, float scale, @Nullable ScreenRectangle scissorArea, GuiLayer layer)
+public record ExamplePIPRenderState(boolean data, int x0, int x1, int y0, int y1, float scale, @Nullable ScreenRectangle scissorArea)
     implements PictureInPictureRenderState {}
 ```
 
@@ -176,15 +186,21 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
         - `MAX_GUI_Z`, `MIN_GUI_Z` are removed
         - `pose` now returns a `Matrix3x2fStack`
         - `flush` is removed
-        - `pushGuiLayer`, `popPushGuiLayer`, `popGuiLayer` - Handles what layer to render to when submitting a draw call. These are used to sort the elements initially before using the depth values from the generic render call order.
+        - `depthTreeUp` - Adds a new or goes to an existing node that will render after this current one.
+        - `depthTreeUpToTop` - Adds a new node at the very top of the stratum that will render last.
+        - `nextStratum` - Adds another layer to traverse through that renders after all nodes in the previous tree.
+        - `depthTreeDown` - Adds a new or goes to an existing node that will render before this current one.
+        - `depthTreeBack` - Goes to the previously linked node, which is either above or below some parent.
+        - `depthTreePushCheckpoint` - Pushes the current node to a stack such that it can be jumped back to.
+        - `depthTreeBackToCheckpoint` - Retrieves the previously pushed node to the stack.
         - All methods no longer take in a `RenderType`, `VertexConsumer`, or `Function<ResourceLocation, RenderType>`, instead specifying a `RenderPipeline` and a `TextureSetup` depending on the call
         - `drawString`, `drawStringWithBackdrop` no longer returns anything
         - `renderItem(ItemStack, int, int, int, int)` is removed
-        - `renderItemDecorations` now has an overload to specify an `$ItemSlotContext`
         - `drawSpecial` is removed, relaced by individual `submit*RenderState` depending on the special case
-        - `$ItemSlotContext` - Specifies an indirect link to the layer to render item decorations to.
         - `$ScissorStack#peek` - Gets the last rectangle on the stack.
     - `LayeredDraw` class is removed
+- `net.minecraft.client.gui.components.LogoRenderer#keepLogoThroughFade` - When true, keeps the logo visible even when the title screen is fading.
+- `net.minecraft.client.gui.components.spectator.SpectatorGui#renderTooltip` -> `renderAction`
 - `net.minecraft.client.gui.contextualbar`
     - `ContextualBarRenderer` - An interface which defines an object with some background to render.
     - `ExperienceBarRenderer` - Draws the experience bar.
@@ -196,7 +212,6 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
     - `extractBackground` - Extracts a glyph effect and submits the element to be rendered on the background Z.
 - `net.minecraft.client.gui.navigation.ScreenRectangle#transformAxisAligned` now takes in a `Matrix3x2f` instead of a `Matrix4f`
 - `net.minecraft.client.gui.render`
-    - `GuiLayer` - An enum that defines the order of how elements render on the screen.
     - `GuiRenderer` - A class that renders all submitted elements to the screen.
     - `TextureSetup` - A record that specifies samplers 0-2 for use in a render pipeline. The first two textures are arbitrary with the third being for the current lightmap texture.
 - `net.minecraft.client.gui.render.pip`
@@ -225,12 +240,24 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
     - `GuiSkinRenderState` - The state of a player with a given skin.
     - `PictureInPictureRenderState` - An interfaces that defines the basic state necessary to render the picture-in-picture to the screen.
 - `net.minecraft.client.gui.screens.inventory`
-    - `AbstractContainerScreen#SLOT_ITEM_BLIT_OFFSET` is removed
+    - `AbstractContainerScreen`
+        - `SLOT_ITEM_BLIT_OFFSET` is removed
+        - `renderContents` - Renders the slot and labels of an inventory.
+        - `renderCarriedItem` - Renders the held item.
+        - `renderSnapbackItem` - Renders the swapped item with the held item.
+        - `$SnapbackData` - Holds the information about the dragging or swapped item as it moves from the held location to its slot location.
     - `AbstractSignEditScreen#offsetSign` -> `getSignYOffset`, not one-to-one
+    - `EffectsInInventory`
+        - `renderEffects` is now public
+        - `renderTooltip` has been overloaded to a public method
     - `InventoryScreen#renderEntityInInventory` no longer takes in the XY offset, instead taking in 4 `int`s to represent the region to render to
+    - `ItemCombinerScreen#renderFg` is removed
 - `net.minecraft.client.gui.screens.inventory.tooltip`
     - `ClientTooltipComponent#renderText` no longer takes in the pose and buffer, instead the `GuiGraphics` to submit the text for rendering
     - `TooltipRenderUtil#renderTooltipBackground` no longer takes in a Z offset
+- `net.minecraft.client.gui.screens.social`
+    - `PlayerEntry#refreshHasDraftReport` - Sets whether the current context as a report for this player.
+    - `SocialInteractionsPlayerList#refreshHasDraftReport` - Refreshes whether the current context as a report for all players.
 - `net.minecraft.client.player.LocalPlayer#experienceDisplayStartTick` - Represents the start tick of when the experience display should be prioritized.
 - `net.minecraft.client.renderer`
     - `GameRenderer` no longer takes in a `ResourceManager`
@@ -254,6 +281,9 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
         - The constructor takes in the current `Minecraft` instance and a `MultiBufferSource`
         - `renderScreenEffect` is now an instance method, taking in whether the entity is sleeping and the partial tick
         - `resetItemActivation`, `displayItemActivation` - Handles when an item is automatically activated (e.g., totem).
+- `net.minecraft.client.renderer.entity.ItemRenderer`
+    - `GUI_SLOT_CENTER_X`, `GUI_SLOT_CENTER_Y`, `ITEM_DECORATION_BLIT_OFFSET` are removed
+    - `COMPASS_*` -> `SPECIAL_*`
 - `net.minecraft.client.renderer.item.ItemStackRenderState`
     - `setAnimated`, `isAnimated` - Returns whether the item is animated (e.g., foil).
     - `appendModelIdentityElement`, `getModelIdentity` - Returns the identity component being rendered.
@@ -410,23 +440,323 @@ serverLevel.getWaypointManager().untrackWaypoint(be);
     - `WaypointManager` - An interface that tracks and updates waypoints.
     - `WaypointTransmitter` - An object that transmits some position that can be connected to and tracked.
 
-## Minor Migrations
+## Blaze3d Changes
 
-The following is a list of useful or interesting additions, changes, and removals that do not deserve their own section in the primer.
+Just like the previous update Blaze3d has new redesigns that change how rendering is handled.
+
+### Buffer Slices
+
+The most important change within the rendering system is the use of `GpuBufferSlice`s. As the name implies, it simply takes some slice of a `GpuBuffer`, using an `offset` to indicate the starting index, and the `length` to indicate its size. When dealing with anything rendering related, even when passing to a shader, you will almost always be dealing with a `GpuBufferSlice`. A way to think about it is that the buffer is just some arbitrary list of object where a slice represents a specific object.
+
+To create a slice, simply call `GpuBuffer#slice`, optionally providing the starting index and length. In most instances, you will not be calling this method directly, instead dealing with other methods that call it for you. Note that as you are generally writing data to these slices, they should be constructed before a try-with-resources `RenderPass` is created.
+
+### Uniform Rework
+
+The uniform system has been completely overhauled such that, unless you are familiar with specific features, it might seem completely foreign. In a nutshell, uniforms are now stored as either interface objects, a texel buffer, or a sampler. These are populated either by `GpuBuffer`s or `GpuBufferSlice`s.
+
+#### Uniform Types
+
+A uniform is currently represented as one of two `UniformType`s: either as an `UNIFORM_BUFFER`/interface block, or a `TEXEL_BUFFER`. When setting up a pipeline and calling `withUniform`, you must specify your uniform with one of the above types. If you choose to use a texel buffer, you must also specify the format of the texture data. Samplers have not changed.
+
+```java
+public static final RenderPipeline EXAMPLE_PIPELINE = RenderPipeline.builder(...)
+    // Uses a uniform interface block called 'ExampleUniform'
+    .withUniform("ExampleUniform", UniformType.UNIFORM_BUFFER)
+    // Uses a buffer called 'ExampleTexel' that stores texture data as a 8-bit R value
+    .withUniform("ExampleTexel", UniformType.TEXEL_BUFFER, TextureFormat.RED8I)
+    // Perform other setups
+    .build();
+```
+
+#### Interface Blocks
+
+A `UNIFORM_BUFFER` is stored as a `std140` interface block. In GLSL, this is represented like so:
+
+```glsl
+// In assets/examplemod/shaders/core/example_shader.json
+
+// ExampleUniform is the name of the block
+layout(std140) uniform ExampleUniform {
+    // The data within the block
+    // Post Effects can only use int, float, vec2, vec3, ivec3, vec4, or mat4
+    vec4 Param1;
+    float Param2;
+};
+```
+
+The values can be used freely inside the main block like so:
+
+```glsl
+// In assets/examplemod/shaders/core/example_shader.json
+
+out vec4 fragColor;
+
+void main() {
+    fragColor = Param1;
+}
+```
+
+The uniform block can either be inside the same file as the main function or, if it will be reused, as a `moj_import`, where the uniform file is within `assets/<modid>/shaders/include/<path>`. Note that any shaders used before resource packs are loaded cannot use `moj_import`.
+
+Post Effects define their interface blocks in the `uniform` input:
+
+```json5
+// In assets/examplemod/post_effect/example_post_effect.json
+// Inside a 'passes' object
+{
+    "vertex_shader": "...",
+    // ...
+    "uniforms": {
+        // The name of the interface block
+        "ExampleUniform": [
+            // A parameter within the uniform block
+            // See `UniformValue` for codec formats
+            {
+                // The name of the parameter
+                "name": "Param1",
+                // The parameter type, one of:
+                // - int
+                // - ivec3
+                // - float
+                // - vec2
+                // - vec3
+                // - vec4
+                // - matrix4x4 (mat4)
+                "type": "vec4",
+                // The value stored in the uniform
+                // Dynamic values from the codebase are no longer supported
+                "value": [ 0.0, 0.0, 0.0, 0.0 ]
+            },
+            {
+                "name": "Param2",
+                "type": "float",
+                "value": 0
+            }
+        ]
+    }
+}
+```
+
+#### Texel Buffers
+
+Texel buffers are typically represented as a `isamplerBuffer` to be queried from, typically using `texelFetch`:
+
+```glsl
+// In assets/examplemod/shaders/core/example_shader.json
+
+uniform isamplerBuffer ExampleTexel;
+
+void main() {
+    // Read the documentation to understand how texel fetch works
+    texelFetch(ExampleTexel, gl_InstanceID);
+}
+```
+
+#### Writing Custom Uniforms
+
+Writing custom uniforms can only happen when you are the one responsible for creating the `RenderPass`. Like before, you create and cache the object before opening the `RenderPass`, then you set the uniform by calling `RenderPass#withUniform`. The only difference is that, instead of providing arbitrary objects, you must now either provide a `GpuBuffer` or `GpuBufferSlice` with the uniform data written to it. For a texel buffer, this is usually some encoded data in the desired texture format (such as a mesh). For an interface block, the easiest method is to use the `Std140Builder` to populate the buffer with the correct values.
+
+There are many different methods of writing to a `GpuBuffer` or `GpuBufferSlice`, such as using the newly created `MappableRingBuffer`. It is up to you to figure out what method works best in your scenario. The following is simply one solution out of many.
+
+```java
+// Buffer for 'ExampleUniform'
+// Takes in the name of the buffer, its usage, and the size
+private final MappableRingBuffer ubo = new MappableRingBuffer(
+    // Buffer name
+    "Example UBO",
+    // Buffer Usage
+    // We set 128 as its used for a uniform and 2 since we are writing to it
+    // Other bits can be found as constants in `GpuBuffer`
+    GpuBuffer.USAGE_UNIFORM | GpuBuffer.USAGE_MAP_WRITE,
+    // The size of the buffer
+    // Easiest method is to use Std140SizeCalculator to properly calculate this
+    new Std140SizeCalculator()
+        // Param1
+        .putVec4()
+        // Param2
+        .putFloat()
+        .get()
+);
+
+// Buffer for 'ExampleTexel'
+private final MappableRingBuffer utb = new MappableRingBuffer(
+    // Bufer name
+    "Example UTB",
+    // We set 256 as its used for a texel buffer and 2 since we are writing to it
+    GpuBuffer.USAGE_UNIFORM_TEXEL_BUFFER | GpuBuffer.USAGE_MAP_WRITE,
+    // The size of the buffer
+    // It will likely be larger than this for you
+    3
+);
+
+// In some render method
+
+// Populate the buffers as required
+
+// As we are using a ring buffer, this simply uses the next available buffer in the list
+this.ubo.rotate();
+// Write the data to the buffer
+try (GpuBuffer.MappedView view = RenderSystem.getDevice().createCommandEncoder().mapBuffer(this.ubo.currentBuffer(), false, true)) {
+    Std140Builder.intoBuffer(view.data())
+        .putVec4(0f, 0f, 0f, 0f)
+        .putFloat(0f);
+}
+
+// Similar thing here
+this.utb.rotate();
+try (GpuBuffer.MappedView view = RenderSystem.getDevice().createCommandEncoder().mapBuffer(this.utb.currentBuffer(), false, true)) {
+    view.data()
+        .put((byte) 0)
+        .put((byte) 0)
+        .put((byte) 0);
+}
+
+// Create the render pass and pass in the buffers as part of the uniform
+try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(...)) {
+    // ..
+    pass.setUniform("ExampleUniform", this.ubo.currentBuffer());
+    pass.setUniform("ExampleTexel", this.utb.currentBuffer());
+    // ...
+}
+```
 
 ### Render Pass Scissoring now only OpenGL
 
 The scissoring state has been removed from the generic pipeline code, now only accessible through the OpenGL implementation. Generic region handling has been delegated to `CommandEncoder#clearColorAndDepthTextures`. Note that this does not affect the existing `ScreenRectangle` system that handles the blit facing scissoring.
 
-- `com.mojang.blaze3d.opengl.GlRenderPass`
-    - `isScissorEnabled` - Returns whether the scissoring state is enabled which crops the area that is rendered to the screen.
-    - `getScissorX`, `getScissorY`, `getScissorWidth`, `getScissorHeight` - Returns the values representing the scissored rectangle.
-    - `$ScissorState` - A class that holds a bounding rectangle to render within.
-- `com.mojang.blaze3d.systems.CommandEncoder#clearColorAndDepthTextures` now has an overload that takes in four `int`s representing the region to clear the texture information within
+- `com.mojang.blaze3d.buffers`
+    - `BufferType` enum is removed
+    - `BufferUsage` enum is removed
+    - `GpuBuffer` now takes two ints represent the size and usage, the type is no longer specified
+        - `type` is removed
+        - `usage` now returns an int
+        - `slice` - Returns a record representing a slice of some buffer. The actual buffer is not modified in any way.
+        - `$ReadView` -> `$MappedView`
+    - `GpuBufferSlice` - A record that represents a slice of some buffer by holding a reference to the entire buffer, an offset index of the starting point, and the length of the slice.
+    - `GpuFence` is now an interface, with its OpenGL implementation moved to `blaze3d.opengl.GlFence`
+    - `Std140Builder` - A buffer inserter for an interface block laid out in the `std140` format. This is used for the uniform blocks within shaders.
+    - `Std140SizeCalculator` - An object used for keeping track of the size of some interface block.
+- `com.mojang.blaze3d.opengl`
+    - `AbstractUniform` is removed, replaced by the `Std140*` classes
+    - `BufferStorage` - A class that create buffers given its types. Its implementations define its general usage.
+    - `DirectStateAccess`
+        - `createBuffer` - Creates a buffer.
+        - `bufferData` - Initializes a buffer's data store.
+        - `bufferSubData` - Updates a subset of a buffer's data store.
+        - `bufferStorage` - Creates the data store of a buffer.
+        - `mapBufferRange` - Maps a section of a buffer's data store.
+        - `unmapBuffer` - Relinguishes the mapping of a buffer and invalidates the pointer to its data store.
+    - `GlBuffer` now takes in a `DirectStateAccess`, two ints, and a `ByteBuffer` instead of a `GlDebugLabel` and its `Buffer*` enums
+        - `initialized` is removed
+        - `persistentBuffer` - Holds a reference to an immutable section of some buffer.
+        - `$ReadView` -> `$GlMappedView`
+    - `GlCommandEncoder`
+        - `executeDrawMultiple` now takes in a collection of strings that defines the list of required uniforms
+        - `executeDraw` now takes in an `int` that represents the number of instances of the specified range of indices to be rendered
+    - `GlConst#toGl` for `BufferType` and `BufferUsage` -> `bufferUsageToGlFlag`, `bufferUsageToGlEnum`
+    - `GlDevice`
+        - `USE_GL_ARB_buffer_storage` - Sets the extension flag for `GL_ARB_buffer_storage`.
+        - `getBufferStorage` - Returns the storage responsible for creating buffers.
+    - `GlProgram`
+        - `Uniform` fields have been removed
+        - `safeGetUniform`, `setDefaultUniforms` are removed
+        - `bindSampler` is removed
+        - `getSamplerLocations`, `getSamplers`, `getUniforms` -> `getUniforms` which returns a map of names to their `Uniform` objects
+    - `GlRenderPass`
+        - `uniforms` now is a `HashMap<String, GpuBufferSlice>`
+        - `dirtSamplers` is removed
+        - `isScissorEnabled` - Returns whether the scissoring state is enabled which crops the area that is rendered to the screen.
+        - `getScissorX`, `getScissorY`, `getScissorWidth`, `getScissorHeight` - Returns the values representing the scissored rectangle.
+        - `$ScissorState` - A class that holds a bounding rectangle to render within.
+    - `Uniform` is now a sealed interface which is implemented as either a buffer object, texel buffer, or a sampler.
+- `com.mojang.blaze3d.pipeline`
+    - `BlendFunction#PANORAMA` is removed
+    - `CompiledRenderPipeline#containsUniform` is removed
+    - `RenderPipeline`
+        - `$Builder#withUniform` now has an overload that can take in a `TextureFormat`
+        - `$UniformDescription` now takes in a nullable `TextureFormat`
+- `com.mojang.blaze3d.platform.Lightning` is now `AutoCloseable`
+    - `setup*` -> `setupFor`, an instance method that takes in an `$Entry`
+    - `updateLevel` - Updates the lighting buffer, taking in whether to use the nether diffused lighting.
+- `com.mojang.blaze3d.shaders.UniformType` now only holds two types: `UNIFORM_BUFFER`, or `TEXEL_BUFFER`, and no longer takes in a count
 - `com.mojang.blaze3d.systems`
-    - `RenderPass#enableScissor` is removed
-    - `RenderSystem#SCISSOR_STATE`, `enableScissor`, `disableScissor` are removed
+    - `CommandEncoder`
+        - `clearColorAndDepthTextures` now has an overload that takes in four `int`s representing the region to clear the texture information within
+        - `writeToBuffer`, `mapBuffer(GpuBuffer, int, int)` now take in a `GpuBufferSlice` instead of a `GpuBuffer`
+        - `createFence` - Creates a new sync fence.
+    - `GpuDevice`
+        - `createBuffer` no longer takes in a `BufferUsage`, with `BufferType` replaced by an `int`
+        - `getUniformOffsetAlignment` - Returns the uniform buffer offset alignment.
+    - `RenderPass`
+        - `enableScissor` is removed
+        - `bindSampler` can now take in a nullable `GpuTexture`
+        - `setUniform` can either take in a `GpuBuffer` or `GpuBufferSlice` instead of the raw inputs
+        - `drawIndexed` now has an overload that takes in an additional `int` that represents the number of instances of the specified range of indices to be rendered
+        - `drawMultipleIndexed` now takes in a collection of strings that defines the list of required uniforms
+        - `$UniformUploader#upload` now takes in a `GpuBufferSlice` instead of an array of `float`s
+    - `RenderSystem`
+        - `SCISSOR_STATE`, `enableScissor`, `disableScissor` are removed
+        - `PROJECTION_MATRIX_UBO_SIZE` - Returns the size of the projection matrix uniform
+        - `setShaderFog`, `getShaderFog` now deals with a `GpuBufferSlice`
+        - `setShaderGlintAlpha`, `getShaderGlintAlpha` is removed
+        - `setShaderLights`, `getShaderLights` now deals with a `GpuBufferSlice`
+        - `setShaderColor`, `getShaderColor`
+        - `setup*Lighting` methods are removed
+        - `setProjectionMatrix`, `getProjectionMatrix` (now `getProjectionMatrixBuffer`) now deals with a `GpuBufferSlice`
+        - `setShaderGameTime`, `getShaderGameTime` -> `setGlobalSettingsUniform`, `getGlobalSettingsUniform`; not one-to-one
+        - `getDynamicUniforms` - Returns a list of uniforms to write for the shader.
+        - `bindDefaultUniforms` - Binds the default uniforms to be used within a `RenderPass`
     - `ScissorState` class is removed
+- `com.mojang.blaze3d.textures.TextureFormat#RED8I` - An 8-bit signed integer handling the red color channel.
+- `com.mojang.blaze3d.vertex.DefaultVertexFormat#EMPTY` - A vertex format with no elements.
+- `net.minecraft.client.renderer`
+    - `CachedOrthoProjectionMatrixBuffer` - An object that caches the orthographic projection matrix, rebuilding if the width or height of the screen changes.
+    - `CachedPerspectiveProjectionMatrixBuffer` - An object that caches the perspective projection matrix, rebuilding if the width, height, or field of view changes.
+    - `CloudRenderer#endFrame` - Ends the current frame being rendered to by constructing a fence.
+    - `CubeMap#render` no longer takes in the float for the partial tick.
+    - `DynamicUniforms` - A class that writes the uniform interface blocks to the buffer for use in shaders.
+    - `DynamicUniformStorage` - A class that holds the uniforms within a slice of a mappable ring buffer.
+    - `FogParameters` record is removed, now stored in a general `GpuBufferSlice`
+    - `FogRenderer` now implements `AutoCloseable`
+        - `endFrame` - Ends the current frame being rendered to by constructing a fence.
+        - `getBuffer` - Gets the buffer slice that holds the uniform for the current fog mode.
+        - `setupFog` no longer takes in the `FogMode`, returning nothing
+        - `$FogData#mode` is removed, replaced by `skyEnd`, `cloudEnd`
+        - `$FogMode` enums have been replaced with `NONE` and `WORLD`, not one-to-one
+    - `GameRenderer`
+        - `getGlobalSettingsUniform` - Returns the uniform for the game settings.
+        - `getLighting` - Gets the lighting renderer.
+        - `setLevel` - Sets the current level the renderer is rendering.
+    - `GlobalSettingsUniform` - An object fod handling the uniform holding the current game settings.
+    - `LevelRenderer`
+        - `endFrame` - Ends the current frame being rendered to by constructing a fence.
+        - `getFogRenderer` - Returns the fog renderer.
+    - `MappableRingBuffer` - An object that contains three buffers that are written to as required, then rotates to the next buffer to use on end. These are synced using fences.
+    - `PanoramaRenderer#render` now takes in a boolean for whether to change the spin up the spin rather than two floats.
+    - `PerspectiveProjectionMatrixBuffer` - An object that holds the projection matrix uniform.
+    - `PostChain`
+        - `load` now takes in the `CachedOrthoProjectionMatrixBuffer`
+        - `addToFrame` no longer takes in the `Consumer<RenderPass>`
+        - `process` no longer takes in the `Consumer<RenderPass>`
+    - `PostChainConfig`
+        - `$FixedSizedTarget` record is removed
+        - `$FullScreenTarget` record is removed
+        - `$InternalTarget` is now a record which can take in an optional width, height, whether the target is persistent, and the clear color to use
+        - `$Pass#uniforms` is now a `Map<String, List<UniformValue>>`
+        - `$Uniform` record is removed
+    - `PostPass` is now `AutoCloseable`, taking in a `Map<String, List<UniformValue>>` for the uniforms along with a list of `PostPass$Input`s
+        - `addToFrame` no longer takes in the `Consumer<RenderPass>`, with the `Matrix4f` passed in as a `GpuBufferSlice`
+        - `$Input`
+            - `bindTo` is removed
+            - `texture` - Constructs a `GpuTexture` for the input given the map of resources.
+            - `samplerName` - Returns the name of the sampler.
+    - `SkyRenderer#renderSunMoonAndStars` no longer takes in the `FogParameters`
+    - `UniformValue` - An interface that represents a uniform stored within an interface block.
+- `net.minecraft.client.renderer.chunk.SectionRendererDispatcher$RenderSection#setDynamicTransformIndex`, `getDynamicTransformIndex` - Handles the index used to query the correct dynamic transforms for a given section.
+
+## Minor Migrations
+
+The following is a list of useful or interesting additions, changes, and removals that do not deserve their own section in the primer.
 
 ### Attribute Receivers
 
@@ -436,6 +766,48 @@ Living entities now implement an interface called `AttributeReceiver`, which is 
 - `net.minecraft.world.entity.ai.attributes`
     - `AttributeMap` now has an overload that takes in an `AttributeReceiver`
     - `AttributeReceiver` - An interface that performs an operation if some attribute is modified.
+
+### Leashes
+
+The leash system has been updated to support up to four on enabled entities. Additionally, the physics have been updated to more properly handle real-world elasicity of some stretchable object.
+
+- `net.minecraft.client.renderer.entity.state.EntityRenderState`
+    - `leashState` now returns a list of `$LeashState`s
+    - `$LeashState#slack` - Whether the leash has any slack.
+- `net.minecraft.world.entity`
+    - `Entity`
+        - `shearOffAllLeashConnections` - Handles when shears are used to removed a leash.
+        - `dropAllLeashConnections` - Handles when all leashes should be removed from an entity.
+        - `getQuadLeashHolderOffsets` - Gets the offsets when four leashes attached to an entity.
+        - `supportQuadLeashAsHolder` - Returns whether the entity can be leashed up to four times.
+        - `notifyLeashHolder`, `notifyLeasheeRemoved` - Handles when the leash is ticked on an entity and when its removed.
+        - `setLeashOffset` is removed
+        - `getLeashOffset` -> `Leashable#getLeashOffset`
+    - `Leashable`
+        - `MAXIMUM_ALLOWED_LEASHED_DIST` - The maximum distance a leash can be attached to an entity.
+        - `AXIS_SPECIFIC_ELASTICITY` - The resistance of the leash along each axis.
+        - `SPRING_DAMPENING` - The loss of energy when the leash is oscillating on stretch.
+        - `TORSIONAL_ELASTICITY` - The resistance of the leash under torque.
+        - `STIFFNESS` - The stiffness of the leash.
+        - `ENTITY_ATTACHMENT_POINT` - Specifies the attachment point of the leash on the entity.
+        - `LEASHER_ATTACHMENT_POINT` - Specifies the attachment point of the leash on the holder.
+        - `SHARED_QUAD_ATTACHMENT_POINTS` - Specifies the attachment points of the leashes on an entity.
+        - `canHaveALeashAttachedToIt` -> `canHaveALeashAttachedTo`, not one-to-one
+        - `leashDistanceTo` - Returns the distance of the leash traveled between the holder and leashee.
+        - `onElasticLeashPull` - Handles when the leash is being pulled upon.
+        - `leashSnapDistance` - Returns when the leash will attempt to remove itself from the entity.
+        - `leashElasticDistance` - Returns the max distance before the elasticity of the leash becomes a physics factor.
+        - `handleLeashAtDistance` is removed
+        - `angularFriction` - Returns the angular friction of the entity on a block or within a liquid.
+        - `whenLeashedTo` - Notifies the entity that the leash is attached.
+        - `elasticRangeLeashBehaviour`, `legacyElasticRangeLeashBehaviour` -> `checkElasticInteractions`, not one-to-one
+        - `supportQuadLeash` - Whether the entity can be leashed up to four times.
+        - `getQuadLeashOffsets` - Returns the offsets of each leash attached to the entity.
+        - `createQuadLeashOffsets` - Creates the offsets for each of the four possible leash positions.
+        - `leashableLeashedTo` - Gets all entities within a 32-block radius that are leashed to this holder.
+        - `$LeashData#angularMomentum` - Returns the angular momentum of the entity when leashed.
+        - `$Wrench` - A record which handles the force and torque applied to the leash.
+- `net.minecraft.world.item.LeadItem#leashableInArea` -> `Leashable#leashableInArea`
 
 ### Tag Changes
 
@@ -476,7 +848,8 @@ Living entities now implement an interface called `AttributeReceiver`, which is 
     - `HappyGhastModel` - A model representing a 'tamed' ghast.
     - `QuadrupedModel#createBodyMesh` now takes in two booleans for handling if the left and right hind leg textures are mirrored, respectively. 
 - `net.minecraft.client.renderer.entity.HappyGhastRenderer` - The renderer for a 'tamed' ghast.
-- `net.minecraft.client.renderer.entity.state.HappyGhastRenderState` - The state of a 'tamed' ghast.
+- `net.minecraft.client.renderer.entity.layers.RopesLayer` - The render layer for the ropes used on a 'tamed' ghast.
+- `net.mienecraft.client.renderer.entity.state.HappyGhastRenderState` - The state of a 'tamed' ghast.
 - `net.minecraft.client.renderer.texture.AbstractTexture#setUseMipmaps` - Sets whether the texture should use mipmapping.
 - `net.minecraft.client.resources.model.EquipmentclientInfo$LayerType#HAPPY_GHAST_BODY` - A layer representing the body of a happy ghast.
 - `net.minecraft.client.resources.sounds.RidingHappyGhastSoundInstance` - A tickable sound instance that plays when riding a happy ghast.
@@ -489,11 +862,15 @@ Living entities now implement an interface called `AttributeReceiver`, which is 
 - `net.minecraft.server.level.ServerLevel#updateNeighboursOnBlockSet` - Updates the neighbors of the current position. If the blocks are not the same (not including their properties), then `BlockState#affectNeighborsAfterRemoval` is called.
 - `net.minecraft.util`
     - `ARGB#setBrightness` - Returns the brightness of some color using a float between 0 and 1.
+    - `ExtraCodecs`
+        - `VECTOR2F`
+        - `VECTOR3I`
     - `Mth#smallestSquareSide` - Takes the ceiled square root of a number.
 - `net.minecraft.world.entity`
     - `Entity`
         - `isInClouds` - Returns whether the entity's Y position is between the cloud height and four units above.
         - `teleportSpectators` - Teleports the spectators currently viewing from the player's perspective.
+        - `isFlyingVehicle` - Returns whether the vehicle can fly.
     - `Mob#isWithinRestriction` - Returns whether the position is within the entity's restriction radius.
 - `net.minecraft.world.entity.ai.control.MoveControl#setWait` - Sets the operation to `WAIT`.
 - `net.minecraft.world.entity.ai.goal.TemptGoal`
@@ -516,7 +893,9 @@ Living entities now implement an interface called `AttributeReceiver`, which is 
     - `$OverrideText` - Overrides the attribute text with the component provided.
 - `net.minecraft.world.item.equipment.Equippable#harness` - Represents a harness to equip.
 - `net.minecraft.world.level.Level#precipitationAt` - Returns the precipitation at a given position.
-- `net.minecraft.world.level.block.DriedGhastBlock` - A block that represents a dried ghast.
+- `net.minecraft.world.level.block`
+    - `BaseRailBlock#rotate` - Rotates the current rail shape in the associated direction.
+    - `DriedGhastBlock` - A block that represents a dried ghast.
 - `net.minecraft.world.level.dimension.DimensionDefaults`
     - `CLOUD_THICKNESS` - The block thickness of the clouds.
     - `OVERWORLD_CLOUD_HEIGHT` - The cloud height level in the overworld.
@@ -544,12 +923,16 @@ Living entities now implement an interface called `AttributeReceiver`, which is 
 - `net.minecraft.client.gui.components.debugchart.ProfilerPieChart`
     - `RADIUS` is now public
     - `CHART_Z_OFFSET` -> `PIE_CHART_THICKNESS`, now public
+- `net.minecraft.client.multiplayer.MultiPlayerGameMode#createPlayer` now takes in an `Input` instead of a `boolean`
+- `net.minecraft.client.player.LocalPlayer` now takes in the last sent `Input` instead of a `boolean` for the shift key
+    - `getLastSentInput` - Gets the last sent input from the server.
 - `net.minecraft.client.renderer`
     - `DimensionSpecialEffects` no longer takes in the current cloud level and whether there is a ground
     - `LightTexture#getTarget` -> `getTexture`
 - `net.minecraft.data.recipes.RecipeProvider#colorBlockWithDye` -> `colorItemWithDye`
 - `net.minecraft.world.entity`
     - `AreaEffectCloud#setParticle` -> `setCustomParticle`
+    - `Entity#checkSlowFallDistance` -> `checkFallDistanceAccumulation`
     - `FlyingMob` is replaced by calling `LivingEntity#travelFlying`
     - `LivingEntity#canBreatheUnderwater` is no longer `final`
 - `net.minecraft.world.entity.ai.behavior`
@@ -572,7 +955,9 @@ Living entities now implement an interface called `AttributeReceiver`, which is 
         - `$GhastMoveControl` is now public, taking in whether it should be careful when moving and its speed
         - `$RandomFloatAroundGoal` is now `public`, taking in a `Mob` and a block distance
     - `Phantom` now implements `Mob`
-- `net.minecraft.world.item.ItemStack#forEachModifier` now takes in a `TriConsumer` that provides the modifier display
+- `net.minecraft.world.item.ItemStack`
+    - `forEachModifier` now takes in a `TriConsumer` that provides the modifier display
+    - `hurtAndBreak` now has an overload which gets the `EquipmentSlot` from the `InteractionHand`
 - `net.minecraft.world.level.block.sounds.AmbientDesertBlockSoundsPlayer#playAmbientBlockSounds` has been split into `playAmbientSandSounds`, `playAmbientDryGrassSounds`, `playAmbientDeadBushSounds`, `shouldPlayDesertDryVegetationBlockSounds`; not one-to-one
 - `net.minecraft.world.level.dimension.DimensionType` now takes in an optional integer representing the cloud height level
 - `net.minecraft.world.level.storage.DataVersion` is now a record
@@ -583,5 +968,6 @@ Living entities now implement an interface called `AttributeReceiver`, which is 
 - `net.minecraft.client.renderer.texture.AbstractTexture`
     - `defaultBlur`
     - `setFilter`
+- `net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket$Action#*_SHIFT_KEY`
 - `net.minecraft.world.entity.monster.Drowned#waterNavigation`, `groundNavigation`
 - `net.minecraft.world.level.block.TerracottaBlock`
