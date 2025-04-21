@@ -1,4 +1,4 @@
-![NeoForge logo](https://github.com/neoforged/NeoForge/raw/1.20.x/docs/assets/neoforged_logo.png)
+![NeoForge logo](https://github.com/neoforged/.github/raw/main/art/neoforged_logo.png)
 <!-- Eventually, replace this with a link to a dedicated assets repository. -->
 
 We are _NeoForged_, a team of developers and moderators working on **NeoForge**, a free, open-source, community-oriented modding API for [Minecraft: Java Edition](https://www.minecraft.net/en-us).
