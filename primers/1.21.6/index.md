@@ -52,7 +52,7 @@ The `ScreenRectangle` is simply the area that the element is allowed to draw to,
 
 ##### Texture Hash Code
 
-`TextureSetup` defines `Sampler0`, `Sampler1`, and `Sampler2` for use in the render pipelines, stored via `GuiElementRenderState#textureSetup`. Elements with no textures will be ordered first, followed by the hash code of the record object. Note that this may be non-deterministic as `GpuTexture` does not implement `hashCode`, relying instead on the identity object hash.
+`TextureSetup` defines `Sampler0`, `Sampler1`, and `Sampler2` for use in the render pipelines, stored via `GuiElementRenderState#textureSetup`. Elements with no textures will be ordered first, followed by `getSortKey` of the record object. Note that, at the moment, this returns the `hashCode` of the `TextureSetup`, which may be non-deterministic as `GpuTexture` does not implement `hashCode`, relying instead on the identity object hash.
 
 ### GuiElementRenderState
 
@@ -197,10 +197,22 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
         - `drawString`, `drawStringWithBackdrop` no longer returns anything
         - `renderItem(ItemStack, int, int, int, int)` is removed
         - `drawSpecial` is removed, relaced by individual `submit*RenderState` depending on the special case
+        - `blurBeforeThisStratum` - Notifies the render state that a blur effect should render between this strata and all previously rendered ones. This can only be applied between once per frame.
+        - `render*Tooltip` -> `set*TooltipForNextFrame`, does not directly add to the render state, instead waiting for `renderDeferredTooltip` to be called when not present or overridden
+        - `renderDeferredTooltip` - Adds the tooltip information to be rendered on a new stratum.
         - `$ScissorStack#peek` - Gets the last rectangle on the stack.
     - `LayeredDraw` class is removed
-- `net.minecraft.client.gui.components.LogoRenderer#keepLogoThroughFade` - When true, keeps the logo visible even when the title screen is fading.
+- `net.minecraft.client.gui.components`
+    - `AbstractWidget#getTooltip` is removed
+    - `FocusableTextWidget` can now take in a boolean indicating whether to fill the background
+    - `ImageWidget#updateResource` - Updates the sprite of the image on the component.
+    - `LogoRenderer#keepLogoThroughFade` - When true, keeps the logo visible even when the title screen is fading.
+    - `WidgetTooltipHolder#refreshTooltipForNextRenderPass` now takes in the `GuiGraphics` and the XY position
 - `net.minecraft.client.gui.components.spectator.SpectatorGui#renderTooltip` -> `renderAction`
+- `net.minecraft.client.gui.components.tabs`
+    - `Tab#getTabExtraNarration` - Returns the hint narration of the tab.
+    - `TabManager` can now take in two `Consumer`s on what to do when a tab is selected or deselected
+    - `TabNavigationBar#getTabs` - Returns the list of tabs on the navigation bar.
 - `net.minecraft.client.gui.contextualbar`
     - `ContextualBarRenderer` - An interface which defines an object with some background to render.
     - `ExperienceBarRenderer` - Draws the experience bar.
@@ -239,6 +251,9 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
     - `GuiSignRenderState` - The state of the sign background in the edit screen.
     - `GuiSkinRenderState` - The state of a player with a given skin.
     - `PictureInPictureRenderState` - An interfaces that defines the basic state necessary to render the picture-in-picture to the screen.
+- `net.minecraft.client.gui.screens.Screen`
+    - `renderBlurredBackground` now takes in the `GuiGraphics`
+    - `*TooltipForNextRenderPass` methods are either removed or moved to `GuiGraphics`
 - `net.minecraft.client.gui.screens.inventory`
     - `AbstractContainerScreen`
         - `SLOT_ITEM_BLIT_OFFSET` is removed
@@ -295,26 +310,41 @@ Waypoints are simply a method to track the position of some object in the game. 
 
 Entities track waypoints by default.
 
-### Icons
+### Styles and Icons
 
-Every waypoint holds an icon of some kind, which handles both the distance fade and the color of the icon. The distance fade specifies two distance values, in blocks along with two alpha values which is used to lerp between the near and far distance. This can be obtained wither via `WaypointTransmitter#waypointIcon` or `TrackedWaypoint#icon` on the server or client, respectively.
+Every waypoint is represents by an icon of some kind, which is defined by its `WaypointStyle` and the color of the icon. A `WaypointStyle` is similar to a client item or a equipment model, where it has some key pointed to by a `WaypointStyleAsset` that's located in `assets/<modid>/waypoint_style/<path>.json`. This contains a list of sprites located within `assets/<modid>/textures/gui/sprites/hud/locator_bar_dot/<path>.png` which is chosen based upon the distance from the tracker. The sprites change between the range specified by the near and far distance.
+
+```json5
+// For some style examplemod:example_style
+// It will be found in `assets/examplemod/waypoint_style/example_style.json`
+{
+    // Represents that any value closer will use the first sprite when rendering the bar
+    // Defaults to 128 when not specified
+    "near_distance": 100,
+    // Represents that any value further will use the last sprite when rendering the bar
+    // Defaults to 332 when not specified
+    // Must be greater than near distance
+    "far_distance": 400,
+    // A non-empty list of textures relative to `assets/<modid>/textures/gui/sprites/hud/locator_bar_dot/<path>.png`
+    // This is what's used to lerp between the two distances
+    "sprites": [
+        // Points to `assets/examplemod/textures/gui/sprites/hud/locator_bar_dot/example_style_0.png`
+        "examplemod:example_style_0",
+        "examplemod:example_style_1",
+        "examplemod:example_style_2"
+    ]
+}
+```
+
+The icon can then be constructed using its constructor and referenced via `WaypointTransmitter#waypointIcon` or `TrackedWaypoint#icon` on the server or client, respectively.
 
 ```java
 // We will assume that this constructor is made public for a more dynamic usage
+// Currently, it can only be set on a `LivingEntity` through its `CompoundTag` via `locator_bar_icon`
 public static Waypoint.Icon EXAMPLE_ICON = new Waypoint.Icon(
-    new Waypoint.Icon.Fade(
-        // The number of blocks that the location will be tracked precisely to, provided the chunk is loaded
-        // It additionally represents that any value closer will use the near alpha when rendering the bar
-        256,
-        // The maximum number of blocks that the location will be tracked within its chunks before switching to an angle
-        // It additionally represents that any value larger will use the far alpha when rendering the bar
-        // Values between this and the above will lerp the alpha value
-        1024,
-        // The alpha value to use when the bar is less than the near distance
-        1f,
-        // The alpha value to use when the bar is greater than the far distance
-        0.2f
-    ),
+    // The registry key of the waypoint style
+    // Points to `assets/examplemod/waypoint_style/example_style.json`
+    ResourceKey.create(WaypointStyleAssets.ROOT_ID, ResourceLocation.fromNamespaceAndPath("examplemod", "example_style")),
     // The color of the waypoint
     // When not present, uses the hashcode of the waypoint identifier
     Optional.of(0xFFFFFF)
@@ -419,8 +449,15 @@ serverLevel.getWaypointManager().updateWaypoint(be);
 serverLevel.getWaypointManager().untrackWaypoint(be);
 ```
 
+- `net.minecraft.client`
+    - `Camera` now implements `TrackedWaypoint$Camera`
+    - `Minecraft#getWaypointStyles` - Returns a manager of keys to the style of a waypoint.
+- `net.minecraft.client.data.models.WaypointStyleProvider` - A data provider that generates waypoint styles.
 - `net.minecraft.client.multiplayer.ClientPacketListener#getWaypointManager` - Gets the client manager used for tracking waypoints.
 - `net.minecraft.client.renderer.GameRenderer` now implements `TrackedWaypoint$Projector`
+- `net.minecraft.client.resources`
+    - `WaypointStyle` - Defines the style used to render a waypoint.
+    - `WaypointStyleManager` -  The manager that maps some key to the style of a waypoint.
 - `net.minecraft.client.waypoints.ClientWaypointManager` - A client-side manager for tracked waypoints.
 - `net.minecraft.commands.arguments.WaypointArgument` - A static method holder that gets some waypoint transmitter from an entity.
 - `net.minecraft.network.protocol.game`
@@ -438,6 +475,8 @@ serverLevel.getWaypointManager().untrackWaypoint(be);
     - `TrackedWaypointManager` - A waypoint manager for `TrackedWaypoint`s.
     - `Waypoint` - An interface that represents some positional location. This holds no information, and is typically used in the context of `TrackedWaypoint`.
     - `WaypointManager` - An interface that tracks and updates waypoints.
+    - `WaypointStyleAsset` - A class that indicates a style asset.
+    - `WaypointStyleAssets` - A class that defines all vanilla style assets.
     - `WaypointTransmitter` - An object that transmits some position that can be connected to and tracked.
 
 ## Blaze3d Changes
@@ -563,7 +602,7 @@ There are many different methods of writing to a `GpuBuffer` or `GpuBufferSlice`
 // Takes in the name of the buffer, its usage, and the size
 private final MappableRingBuffer ubo = new MappableRingBuffer(
     // Buffer name
-    "Example UBO",
+    () -> "Example UBO",
     // Buffer Usage
     // We set 128 as its used for a uniform and 2 since we are writing to it
     // Other bits can be found as constants in `GpuBuffer`
@@ -580,8 +619,8 @@ private final MappableRingBuffer ubo = new MappableRingBuffer(
 
 // Buffer for 'ExampleTexel'
 private final MappableRingBuffer utb = new MappableRingBuffer(
-    // Bufer name
-    "Example UTB",
+    // Buffer name
+    () -> "Example UTB",
     // We set 256 as its used for a texel buffer and 2 since we are writing to it
     GpuBuffer.USAGE_UNIFORM_TEXEL_BUFFER | GpuBuffer.USAGE_MAP_WRITE,
     // The size of the buffer
@@ -652,8 +691,9 @@ The scissoring state has been removed from the generic pipeline code, now only a
         - `$ReadView` -> `$GlMappedView`
     - `GlCommandEncoder`
         - `executeDrawMultiple` now takes in a collection of strings that defines the list of required uniforms
-        - `executeDraw` now takes in an `int` that represents the number of instances of the specified range of indices to be rendered
+        - `executeDraw` now takes in two `int`, the number of instances of the specified range of indices to be rendered and the base vertex
     - `GlConst#toGl` for `BufferType` and `BufferUsage` -> `bufferUsageToGlFlag`, `bufferUsageToGlEnum`
+    - `GlDebugLabel#pushDebugGroup`, `popDebugGroup` - Profiler commands for grouping similar calls.
     - `GlDevice`
         - `USE_GL_ARB_buffer_storage` - Sets the extension flag for `GL_ARB_buffer_storage`.
         - `getBufferStorage` - Returns the storage responsible for creating buffers.
@@ -665,9 +705,11 @@ The scissoring state has been removed from the generic pipeline code, now only a
     - `GlRenderPass`
         - `uniforms` now is a `HashMap<String, GpuBufferSlice>`
         - `dirtSamplers` is removed
+        - `pushedDebugGroups` - Returns the number of groups pushed onto the stack. No debug groups must be open for the render pass to be closed.
         - `isScissorEnabled` - Returns whether the scissoring state is enabled which crops the area that is rendered to the screen.
         - `getScissorX`, `getScissorY`, `getScissorWidth`, `getScissorHeight` - Returns the values representing the scissored rectangle.
         - `$ScissorState` - A class that holds a bounding rectangle to render within.
+    - `GlTexture` now takes in an additional integer for the usage
     - `Uniform` is now a sealed interface which is implemented as either a buffer object, texel buffer, or a sampler.
 - `com.mojang.blaze3d.pipeline`
     - `BlendFunction#PANORAMA` is removed
@@ -684,15 +726,18 @@ The scissoring state has been removed from the generic pipeline code, now only a
         - `clearColorAndDepthTextures` now has an overload that takes in four `int`s representing the region to clear the texture information within
         - `writeToBuffer`, `mapBuffer(GpuBuffer, int, int)` now take in a `GpuBufferSlice` instead of a `GpuBuffer`
         - `createFence` - Creates a new sync fence.
+        - `createRenderPass` now takes in a `Supplier<String>`, used for determining the name of the pass to use as a debug group
     - `GpuDevice`
         - `createBuffer` no longer takes in a `BufferUsage`, with `BufferType` replaced by an `int`
         - `getUniformOffsetAlignment` - Returns the uniform buffer offset alignment.
+        - `createTexture` now takes in an additional `int` for the usage, see `GpuTexture` constants
     - `RenderPass`
         - `enableScissor` is removed
         - `bindSampler` can now take in a nullable `GpuTexture`
         - `setUniform` can either take in a `GpuBuffer` or `GpuBufferSlice` instead of the raw inputs
-        - `drawIndexed` now has an overload that takes in an additional `int` that represents the number of instances of the specified range of indices to be rendered
+        - `drawIndexed` now takes the following `int`s: the base vertex, the start index, the number of elements, and the prim count
         - `drawMultipleIndexed` now takes in a collection of strings that defines the list of required uniforms
+        - `pushDebugGroup`, `popDebugGroup` - Profiler commands for grouping similar calls.
         - `$UniformUploader#upload` now takes in a `GpuBufferSlice` instead of an array of `float`s
     - `RenderSystem`
         - `SCISSOR_STATE`, `enableScissor`, `disableScissor` are removed
@@ -707,12 +752,18 @@ The scissoring state has been removed from the generic pipeline code, now only a
         - `getDynamicUniforms` - Returns a list of uniforms to write for the shader.
         - `bindDefaultUniforms` - Binds the default uniforms to be used within a `RenderPass`
     - `ScissorState` class is removed
-- `com.mojang.blaze3d.textures.TextureFormat#RED8I` - An 8-bit signed integer handling the red color channel.
+- `com.mojang.blaze3d.textures`
+    - `GpuTexture` now takes in an int representing the usage flags
+        - `usage` - The flags that define how the texture can be used.
+    - `TextureFormat#RED8I` - An 8-bit signed integer handling the red color channel.
 - `com.mojang.blaze3d.vertex.DefaultVertexFormat#EMPTY` - A vertex format with no elements.
 - `net.minecraft.client.renderer`
     - `CachedOrthoProjectionMatrixBuffer` - An object that caches the orthographic projection matrix, rebuilding if the width or height of the screen changes.
     - `CachedPerspectiveProjectionMatrixBuffer` - An object that caches the perspective projection matrix, rebuilding if the width, height, or field of view changes.
-    - `CloudRenderer#endFrame` - Ends the current frame being rendered to by constructing a fence.
+    - `CloudRenderer`
+        - `FLAG_INSIDE_FACE`, `FLAG_USE_TOP_COLOR` are now private
+        - `RADIUS_BLOCKS` is removed
+        - `endFrame` - Ends the current frame being rendered to by constructing a fence.
     - `CubeMap#render` no longer takes in the float for the partial tick.
     - `DynamicUniforms` - A class that writes the uniform interface blocks to the buffer for use in shaders.
     - `DynamicUniformStorage` - A class that holds the uniforms within a slice of a mappable ring buffer.
@@ -757,15 +808,6 @@ The scissoring state has been removed from the generic pipeline code, now only a
 ## Minor Migrations
 
 The following is a list of useful or interesting additions, changes, and removals that do not deserve their own section in the primer.
-
-### Attribute Receivers
-
-Living entities now implement an interface called `AttributeReceiver`, which is meant as a callback to perform some logic when an `AttributeInstance` is modified in some way. The receiver interacts with the stored attributes by passing it in when constructing the `AttributeMap`. Note that the modifier is only called if it changes the attribute value.
-
-- `net.minecraft.world.entity.LivingEntity` now implements `AttributeReceiver`
-- `net.minecraft.world.entity.ai.attributes`
-    - `AttributeMap` now has an overload that takes in an `AttributeReceiver`
-    - `AttributeReceiver` - An interface that performs an operation if some attribute is modified.
 
 ### Leashes
 
@@ -813,6 +855,8 @@ The leash system has been updated to support up to four on enabled entities. Add
 
 - `minecraft:block`
     - `plays_ambient_desert_block_sounds` is split into `triggers_ambient_desert_sand_block_sounds`, `triggers_ambient_desert_dry_vegetation_block_sounds`
+    - `happy_ghast_avoids`
+    - `triggers_ambient_dried_ghast_block_sounds`
 - `minecraft:entity_type`
     - `can_equip_harness`
     - `followable_friendly_mobs`
@@ -836,6 +880,7 @@ The leash system has been updated to support up to four on enabled entities. Add
 - `net.minecraft.advancements.critereon.ItemUsedOnLocationTrigger$TriggerInstance#placedBlockWithProperties` - Creates a trigger where a block was placed with the specified property.
 - `net.minecraft.client`
     - `GameNarrator#saySystemChatQueued` - Narrates a component if either system or chat message narration is enabled.
+    - `Options#cloudRange` - Returns the maximum distance clouds can render at.
     - `NarratorStatus#shouldNarrateSystemOrChat` - Returns whether the current narration status is anything but `OFF`.
 - `net.minecraft.client.data.models.BlockModelGenerators#createDriedGhastBlock` - Creates the dired ghast block model definition.
 - `net.minecraft.client.data.models.model`
@@ -899,7 +944,9 @@ The leash system has been updated to support up to four on enabled entities. Add
 - `net.minecraft.world.level.dimension.DimensionDefaults`
     - `CLOUD_THICKNESS` - The block thickness of the clouds.
     - `OVERWORLD_CLOUD_HEIGHT` - The cloud height level in the overworld.
-- `net.minecraft.world.phys.Vec3#rotateClockwise90` - Rotates the vector 90 degrees clockwise (flip x and z and invert new x value).
+- `net.minecraft.world.phys`
+    - `AABB#intersects` - Returns whether the `BlockPos` intersects with this box.
+    - `Vec3#rotateClockwise90` - Rotates the vector 90 degrees clockwise (flip x and z and invert new x value).
 
 ### List of Changes
 
@@ -937,7 +984,8 @@ The leash system has been updated to support up to four on enabled entities. Add
     - `LivingEntity#canBreatheUnderwater` is no longer `final`
 - `net.minecraft.world.entity.ai.behavior`
     - `AnimalPanic` now has overloads that take in a radius or a position getter
-    - `BabyFollowAdult#create` now returns a `OneShot<LivingEntity>`
+    - `BabyFollowAdult#create` now returns a `OneShot<LivingEntity>` and can take in a `boolean` of whether to target the eye position
+    - `EntityTracker` can now take in a `boolean` of whether to target the eye position
     - `FollowTemptation` now has an overload that checks whether the entity needs to track the entity's eye height.
 - `net.minecraft.world.entity.ai.goal.TemptGoal` now has an overload that takes in the stop distance
     - `mob` is now a `Mob`
@@ -958,6 +1006,9 @@ The leash system has been updated to support up to four on enabled entities. Add
 - `net.minecraft.world.item.ItemStack`
     - `forEachModifier` now takes in a `TriConsumer` that provides the modifier display
     - `hurtAndBreak` now has an overload which gets the `EquipmentSlot` from the `InteractionHand`
+- `net.minecraft.world.level.BlockGetter`
+    - `forEachBlockIntersectedBetween` now returns a boolean indicating that each block visited in the intersected area can be successfully visited
+    - `$BlockStepVisitor#visit` now returns whether the location can be successfully moved to
 - `net.minecraft.world.level.block.sounds.AmbientDesertBlockSoundsPlayer#playAmbientBlockSounds` has been split into `playAmbientSandSounds`, `playAmbientDryGrassSounds`, `playAmbientDeadBushSounds`, `shouldPlayDesertDryVegetationBlockSounds`; not one-to-one
 - `net.minecraft.world.level.dimension.DimensionType` now takes in an optional integer representing the cloud height level
 - `net.minecraft.world.level.storage.DataVersion` is now a record
