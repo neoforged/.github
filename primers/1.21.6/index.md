@@ -34,9 +34,11 @@ As a warning, due to the element sort order, certain custom configurations may r
 
 The first method of sorting handles the z-depth an object is rendered at.
 
-First let's start with the linear tree. As the name implies, it is basically a doubly-linked `GuiRenderState$Node` list. Each node contains its own list of elements to render. Navigating the node list is handled using `GuiRenderState#up` or `down`, where each either gets the next node, or creates a new one if it doesn't exist. There are also methods for adding a new node to the top of the list (`upToTop`) or to go back to the previous `node`. You can also push a specific node to a stack for use later (`pushCheckpoint` and `backToCheckpoint`) if you don't want to fix the navigation tree. Nodes within a given tree are rendered from bottom to top, meaning that `down` will render any elements submitted before the current node, while `up` will render any elements submitted after the current node.
+First let's start with the linear tree. As the name implies, it is basically a doubly-linked `GuiRenderState$Node` list. Each node contains its own list of elements to render. Navigating the node list is handled using `GuiRenderState#up` or `down`, where each either gets the next node, or creates a new one if it doesn't exist. Nodes within a given tree are rendered from bottom to top, meaning that `down` will render any elements submitted before the current node, while `up` will render any elements submitted after the current node.
 
-Then there are strata. A stratum is essentially a linear tree. Strata are rendered in the order they are created, which means calling `nextStratum` will render all elements after the previous stratum. This can be used if you want to group elements into a specific layer. There are two things to note: you can not have any checkpoints to create another stratum, and you cannot navigate to a prior stratum.
+Determinining what node an object is added to is computed automatically when submitting an element using its `ScreenArea`. The `ScreenArea` defines the `bounds` of your element to be rendered. Essentially, a node will be added in the `up` direction if the bounds of the element intersect with any other element on the current node.
+
+Then there are strata. A stratum is essentially a linear tree. Strata are rendered in the order they are created, which means calling `nextStratum` will render all elements after the previous stratum. This can be used if you want to group elements into a specific layer. Note: you cannot navigate to a prior stratum.
 
 #### The Comparator
 
@@ -56,7 +58,7 @@ The `ScreenRectangle` is simply the area that the element is allowed to draw to,
 
 ### GuiElementRenderState
 
-Now that we understand ordering, what exactly is the `GuiElementRenderState` that we've been using? Well essentially, every object rendered to the screen is represented by a `GuiElementRenderState`, from the player seen in the inventory menu to each individual item. A `GuiElementRenderState` defines four methods. First, there are the common ones used for ordering and how to render to the screen (`pipeline`, `scissorArea`, `textureSetup`). Then there is `buildVertices`, which takes in the `VertexConsumer` to write the vertices to and the z-depth. For GUIs, this typically calls `VertexConsumer#addVertexWith2DPose`.
+Now that we understand ordering, what exactly is the `GuiElementRenderState` that we've been using? Well essentially, every object rendered to the screen is represented by a `GuiElementRenderState`, from the player seen in the inventory menu to each individual item. A `GuiElementRenderState` defines four methods. First, there are the common ones used for ordering and how to render to the screen (`pipeline`, `scissorArea`, `textureSetup`, `bounds`). Then there is `buildVertices`, which takes in the `VertexConsumer` to write the vertices to and the z-depth. For GUIs, this typically calls `VertexConsumer#addVertexWith2DPose`.
 
 There are three types of `GuiElementRenderState`s provided by vanilla: `BlitRenderState`, `ColoredRectangleRenderState`, and `GlyphRenderState`. `ColoredRectangleRenderState` and `GlyphRenderState` are simple cases for handling a basic color rectangle and text character, respectively. `BlitRenderState` covers every other case as almost every method eventually writes to a `GpuTexture` which is then consumed by this.
 
@@ -64,7 +66,7 @@ There are three types of `GuiElementRenderState`s provided by vanilla: `BlitRend
 
 #### GuiItemRenderState
 
-`GuiItemRenderState` is a special case used to render an item to the screen. It takes in the stringified name of the item, the current pose, its XY coordinates, and its scissor area. The `ItemStackRenderState` it holds is what defines how the item is rendered.
+`GuiItemRenderState` is a special case used to render an item to the screen. It takes in the stringified name of the item, the current pose, its XY coordinates, its scissor area, and its rendering bounds. The `ItemStackRenderState` it holds is what defines how the item is rendered.
 
 Just before the 'render' phase, the `GuiRenderer` effectively turns the `GuiItemRenderState` into a `GuiElementRenderState`, more specifically a `BlitRenderState`. This is done by constructing an item atlas `GpuTexture` which the item is drawn to, and then that texture is submitted as a `BlitRenderState`. All `GuiItemRenderState`s use `RenderPipelines#GUI_TEXTURED_PREMULTIPLIED_ALPHA`.
 
@@ -72,7 +74,7 @@ Just before the 'render' phase, the `GuiRenderer` effectively turns the `GuiItem
 
 #### GuiTextRenderState
 
-`GuiTextRenderState` is a special case used to render text to the screen. It takes in the `TextRenderState`, the current pose, its XY coordinates, and its scissor area. The `TextRenderState` simply defines whether to draw the drop shadow, the default colors, how the text is displayed, light coordinates, the text and its effects as a list of glyphs, the line height, the empty glyph, and the max X.
+`GuiTextRenderState` is a special case used to render text to the screen. It takes in the `TextRenderState`, the current pose, its XY coordinates, its scissor area, and its rendering bounds. The `TextRenderState` simply defines whether to draw the drop shadow, the default colors, how the text is displayed, light coordinates, the text and its effects as a list of glyphs, the line height, the empty glyph, and the max X.
 
 Just before the 'render' phase, the `GuiRenderer` turns the `GuiTextRenderState` into a `GuiElementRenderState`, more specifically a `GlyphRenderState`. This performs a similar process as the item render state where the text is written to a `GpuTexture` to be consumed. Any backgrounds are rendered first, followed by the background effects, then the character, then finally the foreground effects.
 
@@ -82,10 +84,10 @@ Just before the 'render' phase, the `GuiRenderer` turns the `GuiTextRenderState`
 
 Picture-in-Picture is a special case used to render arbitrary objects to a `GpuTexture` to be passed into a `BlitRenderState`. A Picture-in-Picture is made up of two components the `PictureInPictureRenderState`, and the `PictureInPictureRenderer`.
 
-`PictureInPictureRenderState` is an interface which can store some data used to render the object to the texture. By default, it must supply the minimum and maximum XY coordinates, the texture scale, and the scissor area. Any other data can be added by the implementor.
+`PictureInPictureRenderState` is an interface which can store some data used to render the object to the texture. By default, it must supply the minimum and maximum XY coordinates, the texture scale, its scissor area, and its rendering bounds. Any other data can be added by the implementor.
 
 ```java
-public record ExamplePIPRenderState(boolean data, int x0, int x1, int y0, int y1, float scale, @Nullable ScreenRectangle scissorArea)
+public record ExamplePIPRenderState(boolean data, int x0, int x1, int y0, int y1, float scale, @Nullable ScreenRectangle scissorArea, @Nullable ScreenRectangle bounds)
     implements PictureInPictureRenderState {}
 ```
 
@@ -178,6 +180,7 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
     - `Font`
         - `drawInBatch` no longer returns anything
         - `extractTextRenderState` - Creates the render state used to render text to the screen.
+        - `ALPHA_CUTOFF` is removed
         - `$StringRenderOutput` no longer takes in the `MultiBufferSource` and the `Matrix4f` representing the pose
     - `Gui`
         - `shouldRenderDebugCrosshair` - Returns true if the debug crosshair should be rendered.
@@ -186,33 +189,42 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
         - `MAX_GUI_Z`, `MIN_GUI_Z` are removed
         - `pose` now returns a `Matrix3x2fStack`
         - `flush` is removed
-        - `depthTreeUp` - Adds a new or goes to an existing node that will render after this current one.
-        - `depthTreeUpToTop` - Adds a new node at the very top of the stratum that will render last.
         - `nextStratum` - Adds another layer to traverse through that renders after all nodes in the previous tree.
-        - `depthTreeDown` - Adds a new or goes to an existing node that will render before this current one.
-        - `depthTreeBack` - Goes to the previously linked node, which is either above or below some parent.
-        - `depthTreePushCheckpoint` - Pushes the current node to a stack such that it can be jumped back to.
-        - `depthTreeBackToCheckpoint` - Retrieves the previously pushed node to the stack.
         - All methods no longer take in a `RenderType`, `VertexConsumer`, or `Function<ResourceLocation, RenderType>`, instead specifying a `RenderPipeline` and a `TextureSetup` depending on the call
         - `drawString`, `drawStringWithBackdrop` no longer returns anything
+        - `draw*String` methods must now pass in an ARGB value, where A cannot be 0.
         - `renderItem(ItemStack, int, int, int, int)` is removed
         - `drawSpecial` is removed, relaced by individual `submit*RenderState` depending on the special case
         - `blurBeforeThisStratum` - Notifies the render state that a blur effect should render between this strata and all previously rendered ones. This can only be applied between once per frame.
         - `render*Tooltip` -> `set*TooltipForNextFrame`, does not directly add to the render state, instead waiting for `renderDeferredTooltip` to be called when not present or overridden
         - `renderDeferredTooltip` - Adds the tooltip information to be rendered on a new stratum.
+        - `blitSprite` now has an overload that takes in a float R tint color
         - `$ScissorStack#peek` - Gets the last rectangle on the stack.
     - `LayeredDraw` class is removed
 - `net.minecraft.client.gui.components`
+    - `AbstractTextAreaWidget` now has an overload which takes in two additional booleans of whether to show the background or decorations
     - `AbstractWidget#getTooltip` is removed
+    - `EditBox`
+        - `setCentered` - Sets whether the text position should be centered.
+        - `setTextShadow` - Sets whether the text should have a drop shadow effect.
     - `FocusableTextWidget` can now take in a boolean indicating whether to fill the background
     - `ImageWidget#updateResource` - Updates the sprite of the image on the component.
     - `LogoRenderer#keepLogoThroughFade` - When true, keeps the logo visible even when the title screen is fading.
+    - `MultiLineEditBox` is now package private and should be constructed via `builder`, calling the `$Builder#set*` methods
+        - `setLineLimit` - Sets the line limit of the text field.
+    - `MultilineTextField#NO_CHARACTER_LIMIT` -> `NO_LIMIT`
+        - `setLineLimit` - Sets the maximum number of lines that can be written on the text field.
+        - `hasLineLimit` - Returns whether the text field has some line limit.
+    - `SplashRenderer#render` now takes in a float for the R color instead of an int
     - `WidgetTooltipHolder#refreshTooltipForNextRenderPass` now takes in the `GuiGraphics` and the XY position
 - `net.minecraft.client.gui.components.spectator.SpectatorGui#renderTooltip` -> `renderAction`
 - `net.minecraft.client.gui.components.tabs`
     - `Tab#getTabExtraNarration` - Returns the hint narration of the tab.
     - `TabManager` can now take in two `Consumer`s on what to do when a tab is selected or deselected
-    - `TabNavigationBar#getTabs` - Returns the list of tabs on the navigation bar.
+    - `TabNavigationBar`
+        - `getTabs` - Returns the list of tabs on the navigation bar.
+        - `setTabActiveState` - Sets the active state of the given tab index.
+        - `setTabTooltip` - Sets the tooltip information of the given tab index.
 - `net.minecraft.client.gui.contextualbar`
     - `ContextualBarRenderer` - An interface which defines an object with some background to render.
     - `ExperienceBarRenderer` - Draws the experience bar.
@@ -222,7 +234,11 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
     - `extractChar` - Extracts a glyph instance submits the element to be rendered.
     - `extractEffect` - Extracts a glyph effect (e.g. drop shadow) submits the element to be rendered.
     - `extractBackground` - Extracts a glyph effect and submits the element to be rendered on the background Z.
-- `net.minecraft.client.gui.navigation.ScreenRectangle#transformAxisAligned` now takes in a `Matrix3x2f` instead of a `Matrix4f`
+- `net.minecraft.client.gui.navigation.ScreenRectangle`
+    - `transformAxisAligned` now takes in a `Matrix3x2f` instead of a `Matrix4f`
+    - `intersects` - Returns whether this rectangle overlaps with another rectangle.
+    - `encompasses` - Returns whether this rectangle contains the entirety of another rectangle.
+    - `transformMaxBounds` - Returns a new rectangle that is moved into a given position by the provided matrix.
 - `net.minecraft.client.gui.render`
     - `GuiRenderer` - A class that renders all submitted elements to the screen.
     - `TextureSetup` - A record that specifies samplers 0-2 for use in a render pipeline. The first two textures are arbitrary with the third being for the current lightmap texture.
@@ -242,6 +258,7 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
     - `GuiItemRenderState` - A record representing the state of an item to render.
     - `GuiRenderState` - The state of the GUI to render to the screen.
     - `GuiTextRenderState` - A record representing the state of the text and its location to render.
+    - `ScreenArea` - An interface which defines the render area of an element. This does not affect scissoring, instead layer orders.
     - `TextRenderState` - A record representing the state of the text to render.
 - `net.minecraft.client.gui.render.state.pip`
     - `GuiBannerResultRenderState` - The state of the banner result preview.
@@ -254,6 +271,8 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
 - `net.minecraft.client.gui.screens.Screen`
     - `renderBlurredBackground` now takes in the `GuiGraphics`
     - `*TooltipForNextRenderPass` methods are either removed or moved to `GuiGraphics`
+    - `FADE_IN_TIME` - Represents how much time in milliseconds does it take for some element to fade in.
+    - `fadeWidgets` - Sets the alpha of the `AbstractWidget`s added as children to the screen.
 - `net.minecraft.client.gui.screens.inventory`
     - `AbstractContainerScreen`
         - `SLOT_ITEM_BLIT_OFFSET` is removed
@@ -262,6 +281,10 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
         - `renderSnapbackItem` - Renders the swapped item with the held item.
         - `$SnapbackData` - Holds the information about the dragging or swapped item as it moves from the held location to its slot location.
     - `AbstractSignEditScreen#offsetSign` -> `getSignYOffset`, not one-to-one
+    - `BookEditScreen`
+        - `TEXT_*`, `IMAGE_*`, `BACKGROUND_TEXTURE_*` are now public
+    - `BookSignScreen` - A screen for signing a book.
+    - `BookViewScreen$BookAccess#getPage` now returns a `Component`
     - `EffectsInInventory`
         - `renderEffects` is now public
         - `renderTooltip` has been overloaded to a public method
@@ -805,6 +828,340 @@ The scissoring state has been removed from the generic pipeline code, now only a
     - `UniformValue` - An interface that represents a uniform stored within an interface block.
 - `net.minecraft.client.renderer.chunk.SectionRendererDispatcher$RenderSection#setDynamicTransformIndex`, `getDynamicTransformIndex` - Handles the index used to query the correct dynamic transforms for a given section.
 
+## Tag Providers: Appender Rewrite
+
+The `TagAppender` has been rewritten to a degree, changing the basic implementations of `TagsProvider`s.
+
+By default, the `TagsProvider` no longer provides any useful methods for adding content to a `TagBuilder`. The most you can do is construct the builder using `TagsProvider#getOrCreateRawBuilder` and add elements or tags via their `ResourceLocation` using one of the available `add*` methods.
+
+```java
+// We will assume there is some TagKey<Item> EXAMPLE_TAG
+public class ExampleTagsProvider extends TagsProvider<Item> {
+
+    public ExampleTagsProvider(PackOutput output, CompletableFuture<HolderLookup.Provider> registries, CompletableFuture<TagsProvider.TagLookup<Item>> parentProvider) {
+        super(
+            // The output location of the pack
+            output,
+            // The registry key to generate tags for
+            Registries.ITEM,
+            // The registry of registries
+            registries,
+            // Optional: A parent provider to use the generate tags of
+            // Typically obtained from TagsProvider#contentsGetter
+            parentProvider
+        );
+    }
+
+    @Override
+    protected void addTags(HolderLookup.Provider registries) {
+        // Add tags here
+        TagBuilder builder = this.getOrCreateRawBuilder(EXAMPLE_TAG);
+        builder
+            // Add single element
+            .addElement(ResourceLocation.fromNamespaceAndPath("minecraft", "apple"))
+            // Add tag to builder
+            .addTag(ItemTags.WOOL.location());
+    }
+}
+```
+
+But what if we want to reference tags by their `ResourceKey`? Or registry object? This is where the rewritten `TagAppender` comes in. `TagAppender` is an interface with two generics, `E` which represents the type of the entry to add, and `T` which represents the type of the objects within the tag. A `TagAppender` has five common methods: three that add entries (`add`, `addAll`, `addOptional`), and two that add tags  (`addTag`, `addOptionalTag`). A `TagAppender` can be created via `forBuilder`, which accepts `ResourceKey`s for entries.
+
+`KeyTagProvider` provides this for you by adding a `tag` method, creating the appender from a `TagKey`. Generally, datapack registry objects have their tags generated using this provider:
+
+```java
+// We will assume there is some TagKey<Item> EXAMPLE_TAG
+public class ExampleTagsProvider extends KeyTagProvider<Item> {
+
+    public ExampleTagsProvider(PackOutput output, CompletableFuture<HolderLookup.Provider> registries) {
+        super(
+            // The output location of the pack
+            output,
+            // The registry key to generate tags for
+            Registries.ITEM,
+            // The registry of registries
+            registries
+        );
+    }
+
+    @Override
+    protected void addTags(HolderLookup.Provider registries) {
+        // Add tags here
+        TagAppender<ResourceKey<Item>, Item> builder = this.tag(EXAMPLE_TAG);
+        builder
+            // Add single element
+            .add(ResourceKey.create(Registries.ITEM, ResourceLocation.fromNamespaceAndPath("minecraft", "apple")))
+            // Add tag to builder
+            .addTag(ItemTags.WOOL);
+    }
+}
+```
+
+`TagAppender`s can also be mapped to change their entry type using the `map` method. This takes in a function which maps the new entry type to the original entry type. `IntrinsicHolderTagsProvider` provides this for you via a `tag` method, creating the appender from a `TagKey` and mapping it using a key extractor. Generally, built-in registry objects have their tags generated using this provider:
+
+```java
+// We will assume there is some TagKey<Item> EXAMPLE_TAG
+public class ExampleTagsProvider extends IntrinsicHolderTagsProvider<Item> {
+
+    public ExampleTagsProvider(PackOutput output, CompletableFuture<HolderLookup.Provider> registries) {
+        super(
+            // The output location of the pack
+            output,
+            // The registry key to generate tags for
+            Registries.ITEM,
+            // The registry of registries
+            registries,
+            // Maps the registry object to its resource key
+            item -> item.builtInRegistryHolder().key()
+        );
+    }
+
+    @Override
+    protected void addTags(HolderLookup.Provider registries) {
+        // Add tags here
+        TagAppender<Item, Item> builder = this.tag(EXAMPLE_TAG);
+        builder
+            // Add single element
+            .add(Items.APPLE)
+            // Add tag to builder
+            .addTag(ItemTags.WOOL);
+    }
+}
+```
+
+### Copying Tags: Block and Item
+
+Copying tags no longer exists in the traditional sense, where it loops through the elements of an existing tag. Insteadd, the implementation has been narrowed down to a general `BlockItemTagsProvider`. This method provides a `TagAppender<Block, Block>` by taking in both a block and an item tag, and then converting them appropriately within the `Vanilla*TagsProvider`. As such, it is less copying and more mapping blocks to their associated items.
+
+The one drawback is that tags that are used within other tags (calling `addTag`) must have the same name. For example, adding `BlockTags#LOGS` only works because there is a `minecraft:logs` for both block and item tags. Meanwhile, adding `BlockTags#CEILING_HANGING_SIGNS` would fail as the associated item tag is `minecraft:hanging_signs` instead of `minecraft:ceiling_hanging_signs`.
+
+```java
+// We will assume there is some TagKey<Block> BLOCK_EXAMPLE_TAG
+// We will assume there is some TagKey<Item> ITEM_EXAMPLE_TAG
+public class ExampleBlockItemTagsProvider extends BlockItemTagsProvider {
+
+    @Override
+    public void run() {
+        // Add block item tags here
+        // Will add entries to block or item tag depending on the provider
+        TagAppender<Block, Block> builder = this.tag(BLOCK_EXAMPLE_TAG, ITEM_EXAMPLE_TAG);
+        builder
+            // Add single element
+            .add(Blocks.TERRACOTTA)
+            // Add tag to builder
+            // There exists both `minecraft:logs` in block and item tags
+            .addTag(BlockTags.LOGS);
+    }
+}
+
+// For some IntrinsicHolderTagsProvider<Item> or IntrinsicHolderTagsProvider<Block>
+@Override
+protected void addTags(HolderLookup.Provider registries) {
+    // Add tags here
+    new ExampleBlockItemTagsProvider() {
+        // Or <Item, Item> depending on the situation
+        protected TagAppender<Block, Block> tag(TagKey<Block> blockTag, TagKey<Item> itemTag) {
+            // Return a TagAppender
+            // See VanillaItemTagsProvider$BlockToItemConverter for an item example
+            // See VanillaBlockTagsProvider for a block example
+        }
+    }.run();
+}
+```
+
+- `net.minecraft.data.tags`
+    - `BlockItemTagsProvider` - A provider that generates tags for block items, using the block and item tag equivalents as a starting point.
+    - `IntrinsicHolderTagsProvider`
+        - `tag` now returns the raw `TagAppender`
+        - `$IntrinsicTagAppender` class is removed
+    - `ItemTagsProvider` class is removed
+    - `KeyTagProvider` - A provider which appends elements via their `ResourceKey`.
+    - `TagsProvider`
+        - `tag` is removed
+        - `$TagAppender` -> `TagAppender`, not one-to-one
+    - `VanillaItemTagsProvider` now implements `IntrinsicHolderTagsProvider`
+        - `BlockToItemConverter` - A tag appender that adds a block to an item tag.
+
+## Generic Encoding and Decoding: Replacing Direct NBT Access
+
+Direct access to get data out of some NBT has been removed completely from higher level objects like entities and block entities. This means that, generally, you cannot directly touch the `CompoundTag` during the serialization process. Instead, indirect access is provided to nbt tags via `ValueInput` and `ValueOutput`. As their name implies, these read values from and write values to the data object, respectively. The methods available are similar to those on `CompoundTag`s. For `ValueInput`, there's the `get*` methods by providing the associated key, and `get*Or` for a get-or-default if not present. There is also `read` for handling `Codec`s. For `ValueOutput`, there's the `put*` methods by providing the associated key and value, and also a `store` for `Codec`s. List variants exists separately on the input/output access.
+
+As such, most methods that take in a `CompoundTag` now instead take in a `ValueInput` for `read`/`load` or `ValueOutput` for `write`/`save`.
+
+```java
+// For some Entity with an ItemStack stack
+@Override
+protected void readAdditionalSaveData(ValueInput in) {
+    super.readAdditionalSaveData(in);
+    // By default, the input uses a registry ops
+    this.stack = in.read("example_stack", ItemStack.CODEC).orElse(null);
+}
+
+@Override
+protected void addAdditionalSaveData(ValueOutput out) {
+    super.addAdditionalSaveData(out);
+    // By default, the output uses a registry ops
+    in.storeNullable("example_stack", ItemStack.CODEC, this.stack);
+}
+
+// For some BlockEntity with an int value
+@Override
+    protected void loadAdditional(ValueInput in) {
+        super.loadAdditional(in);
+        this.value = in.getIntOr("value", 0);
+    }
+
+    @Override
+    protected void saveAdditional(ValueOutput out) {
+        super.saveAdditional(out);
+        out.putInt("value", this.value);
+    }
+```
+
+### NBT Implementations
+
+To provide indirect access to `CompoundTag`s, there are implementations of `ValueInput` and `ValueOutput` called `TagValueInput` and `TagValueOutput` respectively.
+
+A `TagValueOutput` can be created using either `createWithContext` or `createWithoutContext`. 'With context' means that the output has access to the `HolderLookup$Provider` for registry objects while 'without context' does not. Currently, no location uses `createWithoutContext`. Internally, this creates a new `CompoundTag`. Then, this output is passed around to be populated before finally returning the NBT for writing via `buildResult`.
+
+A `TagValueInput`, on the other hand, can be created via `create`, taking in the `HolderLookup$Provider` and the `CompoundTag` to read from. If the data is stored as a list of objects rather than a single object, you can pass in a `List<CompoundTag>` and get back a `ValueInputList`. Note this does not handle indicies, only providing an iterable or stream associated implementation.
+
+### Problem Reporter
+
+In addition to what's mentioned above, the `create*` methods also take in a `ProblemReporter`, used for collecting all problems encountered when attempting to serialize/deserialize the data. It is up to the implementation to determine whether this report causes a crash or gives a warning. A `ProblemReporter` contains two methods: `report`, which reports a `$Problem`; and `forChild`, which further groups `$Problem`s using a `$PathElement`. Both problems and path elements are simply interface objects that return a string indicating what the problem is or the grouping, respectively.
+
+There are two common `ProblemReporter`s that are used: `$Collector`, which is typically used with data providers, and `$ScopedCollector`, which is used with disk objects (e.g., entities, block entities, chunks, etc.). A `$Collector` typiccally uses either `forEach` to report each problem one by one, `getReport`/`getTreeReport` to return a stringified problems, or `isEmpty` to list if there are any problems. A `$ScopedCollector` does the same, except this is `AutoCloseable`, in case nothing is done with the output. In these scenarios, the reports are written to a logger.
+
+Each collector takes in an initial `$PathElement`. This typically comes from the object itself containing some method called `problemPath`, which implements the interface. The `HolderLookup$Provider` is provided in the same fashion.
+
+```java
+// For some object with HolderLookup.Provider registries
+// There is also a Logger LOGGER
+
+// Let's assume our root path element is implemented like so
+public record ExamplePathElement(String name) implements ProblemReporter.PathElement {
+
+    @Override
+    public String get() {
+        return "Example: " + this.name();
+    }
+}
+
+// For a data provider
+ProblemReporter.Collector problems = new ProblemReporter.Collector(
+    // Can be empty for a non-specified root
+    new ExamplePathElement("data_provider")
+);
+// Pass around the provider
+
+// For a disk-based object
+try (ProblemReporter.ScopedCollector problems = new ProblemReporter.ScopedCollector(new ExamplePathElement("EXAMPLE TEST"), LOGGER)) {
+    TagValueOutput out = TagValueOutput.createWithContext(problems, this.registries);
+    // Pass around the output to write data
+
+    // For the input
+    // The last parameter can be whatever CompoundTag, using the output as an example
+    TagValueInput in = TagValueInput.create(problems, this.registries, out.buildResult());
+    // Pass around the input to read data
+}
+```
+
+- `net.minecraft.server.level.ServerPlayer`
+    - `loadAndSpawnParentVehicle` now takes in a `ValueInput`
+    - `loadAndSpawnEnderPearls` now takes in a `ValueInput`
+    - `loadGameTypes` now takes in a `ValueInput`
+- `net.minecraft.server.players.PlayerList#load` takes in a `ProblemReporter`, returning an optional `ValueInput`
+- `net.minecraft.util.ProblemReporter`
+    - `DISCARDING` - A reporter which discards all reporters.
+    - `forChild` now takes in a `$PathElement`
+    - `report` now takes in a `$Problem`
+    - `$Collector` now has a constructor that takes in the root `$PathElement`
+        - `isEmpty` - Returns whether there are no reports.
+        - `forEach` - Loops through all available problems.
+        - `getReport` now returns a regular `String`
+        - `getTreeReport` - Gets the report and all its children using DFS.
+    - `$ElementReferencePathElement` - A path element that references some `ResourceKey`.
+    - `$FieldPathElement` - A path element that references some string.
+    - `$IndexedFieldPathElement` - A path element that references some string at an index.
+    - `$IndexedPathElement` - A path element that references some index.
+    - `$PathElement` - An interface that defines the grouping or element.
+    - `$Problem` - An interface that defines a problem with an element.
+    - `$RootElementPathElement` - A path element that references some `ResourceKey` as the root.
+    - `$RootFieldPathElement` - A path element that references some string as the root.
+    - `$ScopedCollector` - A collector that logs warnings when problems arise.
+- `net.minecraft.world` 
+    - `ContainerHelper`
+        - `saveAllItems` now takes in a `ValueOutput` instead of a `CompoundTag`, and no longer takes in a `HolderLookup$Provider` while returning nothing
+        - `loadAllItems` now takes in a `ValueInput` instead of a `CompoundTag`, and no longer takes in a `HolderLookup$Provider`
+    - `LockCode#addToTag`, `fromTag` now takes in a `ValueOutput`/`ValueInput` instead of a `CompoundTag`, and no longer takes in a `HolderLookup$Provider`
+    - `RandomziableContainer#tryLoadLootTable`, `trySaveLootTable` now takes in a `ValueOutput`/`ValueInput` instead of a `CompoundTag`
+    - `SimpleContainer`
+        - `fromTag` -> `fromItemList`, not one-to-one
+        - `createTag` -> `storeAsItemList`, not one-to-one
+- `net.minecraft.world.entity`  
+    - `Entity`
+        - `saveAsPassenger` now takes in a `ValueOutput` instead of a `CompoundTag`
+        - `save` now takes in a `ValueOutput` instead of a `CompoundTag`
+        - `saveWithoutId` now takes in a `ValueOutput` instead of a `CompoundTag`, returning nothing
+        - `load` now takes in a `ValueInput` instead of a `CompoundTag`
+        - `readAdditionalSaveData` now takes in a `ValueInput` instead of a `CompoundTag`
+        - `addAdditionalSaveData` now takes in a `ValueOutput` instead of a `CompoundTag`
+        - `problemPath` - Returns the path element to report problems from.
+    - `EntityRenference`
+        - `store` now takes in a `ValueOutput` instead of a `CompoundTag`
+        - `read`, `readWithOldOwnerConversion` now take in a `ValueInput` instead of a `CompoundTag`
+    - `Entity`
+        - `create`, `by` now take in a `ValueInput` instead of a `CompoundTag`
+        - `loadEntityRecursive` now takes in a `ValueInput` instead of a `CompoundTag`
+        - `loadEntitiesRecursive` now takes in a `ValueInput$ValueInputList` instead of a list of nbt tags
+        - `loadStaticEntity` now takes in a `ValueInput` instead of a `CompoundTag`
+    - `Leashable#readLeashData`, `writeLeashData` now take in a `ValueInput`/`ValueOutput` instead of a `CompoundTag`
+    - `NeutralMob#addPersistentAngerSaveData`, `readPersistentAngerSaveData` now take in a `ValueOutput`/`ValueInput` instead of a `CompoundTag`
+- `net.minecraft.world.entity.npc.InventoryCarrier#readInventoryFromTag`, `writeInventoryToTag` now take in a `ValueInput`/`ValueOutput` instead of a `CompoundTag`
+- `net.minecraft.world.entity.player.Inventory`
+    - `save` now takes in a `ValueOutput$TypedOutputList`, returning nothing
+    - `load` now takes in a `ValueOutput$TypedInputList`
+- `net.minecraft.world.entity.variant.VariantUtils`
+    - `writeVariant` now takes in a `ValueOutput` instead of a `CompoundTag`
+    - `readVariant` now takes in a `ValueInput` instead of a `CompoundTag`, and no longer takes in a `RegistryAccess`
+- `net.minecraft.world.entity.vehicle.ContainerEntity#addChestVehicleSaveData`, `readChestVehicleSaveData` now take in a `ValueOutput`/`ValueInput` instead of a `CompoundTag`, and no longer takes in a `HolderLookup$Provider`
+- `net.minecraft.world.inventory.PlayerEnderChestContainer`
+    - `fromTag` -> `fromSlots`, not one-to-one
+    - `createTag` -> `storeAsSlots`, not one-to-one
+- `net.minecraft.world.item`
+    - `BlockItem#setBlockEntityData` now takes in a `TagValueOutput` instead of a `CompoundTag`
+    - `ItemStack#parse`, `save` are removed
+- `net.minecraft.world.level`
+    - `BaseCommandBlock#save`, `load` now take in a `ValueOutput`/`ValueInput` instead of a `CompoundTag`, and no longer takes in a `HolderLookup$Provider`, returning nothing
+    - `BaseSpawner#save`, `load` now take in a `ValueOutput`/`ValueInput` instead of a `CompoundTag`, returning nothing
+- `net.minecraft.world.level.block.SculkSpreader#save`, `load` now take in a `ValueOutput`/`ValueInput` instead of a `CompoundTag`
+- `net.minecraft.world.level.block.entity.BlockEntity`
+    - `load*` methods now take in a `ValueInput` instead of a `CompoundTag`, and no longer takes in a `HolderLookup$Provider`
+    - `save*` methods now take in a `ValueOutput` instead of a `CompoundTag`, and no longer takes in a `HolderLookup$Provider`
+    - `removeComponentsFromTag` now takes in a `ValueOutput` instead of a `CompoundTag`
+    - `parseCustomNameSafe` now takes in a `ValueInput` and key instead of a tag and `HolderLookup$Provider`
+    - `problemPath` - Returns the path element to report problems from.
+- `net.minecraft.world.level.block.entity.trialspawner.TrialSpawner#load`, `store` - Handles writing the spawner data.
+- `net.minecraft.world.level.chunk.ChunkAccess#problemPath` - Returns the path element to report problems from.
+- `net.minecraft.world.level.storage`
+    - `PlayerDataStorage#load` now returns a `ValueInput` instead of a `CompoundTag`, taking in a `ProblemReporter`
+    - `TagValueInput` - A compound tag input.
+    - `TagValueOutput` - A compound tag output.
+    - `ValueInput` - An interface that defines how to read data from some object.
+    - `ValueInputContextHelper` - A class that contains the context used to read object data.
+    - `ValueOutput` - An interface that defines how to write data to some object.
+- `net.minecraft.world.level.storage.loot.ValidationContext`
+    - `forChild`, `enterElement` now takes in a `ProblemReporter$PathElement` instead of a `String`
+    - `reportProblem` now takes in a `ProblemReporter$Problem` instead of a `String`
+    - `$MissingReferenceProblem` - A problem where the referenced object is missing.
+    - `$ParametersNotProvidedProblem` - A problem where the loot context params are missing.
+    - `$RecursiveReferenceProblem` - A problem where the referenced object is referencing itself.
+    - `$ReferenceNotAllowedProblem` - A problem where the referenced object is not allowed to be referenced.
+- `net.minecraft.world.level.storage.loot.entries`
+    - `AlternativesEntry#UNREACHABLE_PROBLEM` - A problem where the altnerative entry can never be executed.
+    - `CompositeEntryBase#NO_CHILDREN_PROBLEM` - A problem where the composite has no entries.
+    - `NestedLootTable#INLINE_LOOT_TABLE_PATH_ELEMENT` - An element which indicates that a table is inlined.
+
 ## Minor Migrations
 
 The following is a list of useful or interesting additions, changes, and removals that do not deserve their own section in the primer.
@@ -898,25 +1255,45 @@ The leash system has been updated to support up to four on enabled entities. Add
 - `net.minecraft.client.renderer.texture.AbstractTexture#setUseMipmaps` - Sets whether the texture should use mipmapping.
 - `net.minecraft.client.resources.model.EquipmentclientInfo$LayerType#HAPPY_GHAST_BODY` - A layer representing the body of a happy ghast.
 - `net.minecraft.client.resources.sounds.RidingHappyGhastSoundInstance` - A tickable sound instance that plays when riding a happy ghast.
-- `net.minecraft.commands.arguments.HexColorArgument` - An integer argument that takes in a hexadecimal color.
+- `net.minecraft.commands.arguments`
+    - `HexColorArgument` - An integer argument that takes in a hexadecimal color.
+    - `ResourceOrIdArgument`
+        - `createGrammar` - Creates the grammar used to parse the argument.
+        - `$InlineResult` - A result that returns a direct holder.
+        - `$ReferenceResult` - A result that returns a reference holder.
+        - `$Result` - An interface that represents the result of some argument parsing.
+- `net.minecraft.data.loot.LootTableProvider$MissingTableProblem` - A record that holds the key of some missing built-in table generator.
 - `net.minecraft.data.recipes.RecipeProvider`
     - `dryGhast` - The recipe for a dried ghast.
     - `harness` - The recipe for a colored harness.
+- `net.minecraft.nbt.NbtUtils`
+    - `addCurrentDataVersion`, `addDataVersion`, adds the data version to some nbt tag.
 - `net.minecraft.network.FriendlyByteBuf#writeEither`, `readEither` - Handles an `Either` with the given stream encoders/decoders.
-- `net.minecraft.network.codec.ByteBufCodecs#RGB_COLOR` - A stream codec that writes the RGB using three bytes.
+- `net.minecraft.network.codec.ByteBufCodecs`
+    - `RGB_COLOR` - A stream codec that writes the RGB using three bytes.
+    - `lenientJson` - Creates a stream codec that parses a json in lenient mode.
 - `net.minecraft.server.level.ServerLevel#updateNeighboursOnBlockSet` - Updates the neighbors of the current position. If the blocks are not the same (not including their properties), then `BlockState#affectNeighborsAfterRemoval` is called.
+- `net.minecraft.stats`
+    - `RecipeBookSettings#MAP_CODEC`
+    - `ServerRecipeBook#pack`, `loadUntrusted`, `$Packed` - Handles encoding and decoding the data of the recipe book.
 - `net.minecraft.util`
-    - `ARGB#setBrightness` - Returns the brightness of some color using a float between 0 and 1.
+    - `ARGB`
+        - `setBrightness` - Returns the brightness of some color using a float between 0 and 1.
+        - `color` - Returns a ARGB color from a float red and integer alpha.
     - `ExtraCodecs`
         - `VECTOR2F`
         - `VECTOR3I`
+    - `LenientJsonParser` - A json parser using lenient rules.
     - `Mth#smallestSquareSide` - Takes the ceiled square root of a number.
+    - `StrictJsonParser` - A json parser using strict rules.
+- `net.minecraft.world.ItemStackWithSlot` - A record which holds a stack along with its slot index.
 - `net.minecraft.world.entity`
     - `Entity`
         - `isInClouds` - Returns whether the entity's Y position is between the cloud height and four units above.
         - `teleportSpectators` - Teleports the spectators currently viewing from the player's perspective.
         - `isFlyingVehicle` - Returns whether the vehicle can fly.
-    - `Mob#isWithinRestriction` - Returns whether the position is within the entity's restriction radius.
+    - `ExperienceOrb#awardWithDirection` - Adds an experience orb that moves via the specified vector.
+    - `Mob#isWithinHome` - Returns whether the position is within the entity's restriction radius.
 - `net.minecraft.world.entity.ai.control.MoveControl#setWait` - Sets the operation to `WAIT`.
 - `net.minecraft.world.entity.ai.goal.TemptGoal`
     - `stopNavigation`, `navigateTowards` - Handles navigation towards the player.
@@ -926,6 +1303,8 @@ The leash system has been updated to support up to four on enabled entities. Add
 - `net.minecraft.world.entity.animal`
     - `HappyGhast` - An entity representing a happy ghast.
     - `HappyGhastAi` - The brain of the happy ghast.
+- `net.minecraft.world.entity.decoration.ArmorStand`
+    - `setArmorStandPose`, `getArmorStandPose`, `$ArmorStandPose` - Handles the pose of the armor stand.
 - `net.minecraft.world.entity.monster.Ghast`
     - `faceMovementDirection` - Rotates the entity to face its current movement direction.
     - `$RandomFloatAroundGoal#getSuitableFlyToPosition` - Gets a position that the ghast should fly to.
@@ -937,16 +1316,25 @@ The leash system has been updated to support up to four on enabled entities. Add
     - `$Hidden` - Does not show any attribute info.
     - `$OverrideText` - Overrides the attribute text with the component provided.
 - `net.minecraft.world.item.equipment.Equippable#harness` - Represents a harness to equip.
-- `net.minecraft.world.level.Level#precipitationAt` - Returns the precipitation at a given position.
+- `net.minecraft.world.level`
+    - `CollisionGetter`
+        - `getPreMoveCollisions` - Returns an iterable of shapes containing the entity and block collisions at the given bounding box and futue movement direction.
+        - `getBlockCollisionsFromContext` - Gets the block shapes from the given collision context.
+    - `Level#precipitationAt` - Returns the precipitation at a given position.
 - `net.minecraft.world.level.block`
     - `BaseRailBlock#rotate` - Rotates the current rail shape in the associated direction.
     - `DriedGhastBlock` - A block that represents a dried ghast.
+- `net.minecraft.world.level.block.entity.trialspawner.TrialSpawner$FullConfig` - Represents the entire configuration of a trial.
 - `net.minecraft.world.level.dimension.DimensionDefaults`
     - `CLOUD_THICKNESS` - The block thickness of the clouds.
     - `OVERWORLD_CLOUD_HEIGHT` - The cloud height level in the overworld.
 - `net.minecraft.world.phys`
-    - `AABB#intersects` - Returns whether the `BlockPos` intersects with this box.
+    - `AABB`
+        - `intersects` - Returns whether the `BlockPos` intersects with this box.
+        - `distanceToSqr` - Returns the squared distance of the bounding boxes from their furthest point.
     - `Vec3#rotateClockwise90` - Rotates the vector 90 degrees clockwise (flip x and z and invert new x value).
+- `net.minecraft.world.phys.shapes.CollisionContext`
+    - `withPosition` - Returns the collision context of an entity with its bottom y position.
 
 ### List of Changes
 
@@ -976,12 +1364,37 @@ The leash system has been updated to support up to four on enabled entities. Add
 - `net.minecraft.client.renderer`
     - `DimensionSpecialEffects` no longer takes in the current cloud level and whether there is a ground
     - `LightTexture#getTarget` -> `getTexture`
+- `net.minecraft.commands.arguments.ResourceOrIdArgument` now takes in an arbitrary codec rather than a `Holder`-wrapped value
+    - `ERROR_INVALID` -> `ERROR_NO_SUCH_ELEMENT`, now public, not one-to-one
+    - `VALUE_PARSER` -> `OPS`, now public, not one-toe
 - `net.minecraft.data.recipes.RecipeProvider#colorBlockWithDye` -> `colorItemWithDye`
+- `net.minecraft.network.FriendlyByteBuf#readJsonWithCodec` -> `readLenientJsonWithCodec`
+- `net.minecraft.network.codec.ByteBufCodecs#fromCodec` now has an overload which takes in some ops and a codec
+- `net.minecraft.network.protocol.login.ClientboundLoginDisconnectPacket` is now a record
+- `net.minecraft.stats.RecipeBookSettings`
+    - `getSettings` is now public
+    - `$TypeSettings` is now public
 - `net.minecraft.world.entity`
     - `AreaEffectCloud#setParticle` -> `setCustomParticle`
-    - `Entity#checkSlowFallDistance` -> `checkFallDistanceAccumulation`
+    - `Entity`
+        - `checkSlowFallDistance` -> `checkFallDistanceAccumulation`
+        - `collidedWithFluid`, `collidedWithShapeMovingFrom` are now public
+    - `ExperienceOrb` now has an overload that takes in two vectors for the position and movement
     - `FlyingMob` is replaced by calling `LivingEntity#travelFlying`
     - `LivingEntity#canBreatheUnderwater` is no longer `final`
+    - `Mob`
+        - `restrictTo` -> `setHomeTo`
+        - `getRestrictCenter` -> `getHomePosition`
+        - `getRestrictRadius` -> `getHomeRadius`
+        - `clearRestriction` -> `clearHome`
+        - `hasRestriction` -> `hasHome`
+- `net.minecraft.world.entity.ai.attributes`
+    - `AttributeInstance`
+        - `save` -> `pack`, `$Packed`; not one-to-one
+        - `load` -> `apply`, not one-to-one
+    - `AttributeMap`
+        - `save` -> `pack`; not one-to-one
+        - `load` -> `apply`, not one-to-one
 - `net.minecraft.world.entity.ai.behavior`
     - `AnimalPanic` now has overloads that take in a radius or a position getter
     - `BabyFollowAdult#create` now returns a `OneShot<LivingEntity>` and can take in a `boolean` of whether to target the eye position
@@ -1003,15 +1416,29 @@ The leash system has been updated to support up to four on enabled entities. Add
         - `$GhastMoveControl` is now public, taking in whether it should be careful when moving and its speed
         - `$RandomFloatAroundGoal` is now `public`, taking in a `Mob` and a block distance
     - `Phantom` now implements `Mob`
+- `net.minecraft.world.entity.player.Abilities`
+    - `addSaveData` -> `pack`, `$Packed`; not one-to-one
+    - `loadSaveData` -> `apply`, not one-to-one
+- `net.minecraft.world.entity.projectile`
+    - `AbstractThrownPotion#onHitAsPostion` now takes in a `HitResult` instead of a nullable `Entity`
+    - `ProjectileUtil#DEFAULT_ENTITY_HIT_RESULT_MARGIN` is now public
 - `net.minecraft.world.item.ItemStack`
     - `forEachModifier` now takes in a `TriConsumer` that provides the modifier display
     - `hurtAndBreak` now has an overload which gets the `EquipmentSlot` from the `InteractionHand`
 - `net.minecraft.world.level.BlockGetter`
     - `forEachBlockIntersectedBetween` now returns a boolean indicating that each block visited in the intersected area can be successfully visited
     - `$BlockStepVisitor#visit` now returns whether the location can be successfully moved to
+- `net.minecraft.world.level.block.entity.BlockEntity#getNameForReporting` is now public
+- `net.minecraft.world.level.block.entity.trialspawner`
+    - `TrialSpawner` now takes in a `$FullConfig`
+        - `getConfig` -> `activeConfig`
+        - `get*Config` -> `*config`
+        - `getData` -> `getStateData`
+    - `TrialSpawnerData` -> `TrialSpawnerStateData`, serialized form as `TrialSpawnerStateData$Packed`, not one-to-one
 - `net.minecraft.world.level.block.sounds.AmbientDesertBlockSoundsPlayer#playAmbientBlockSounds` has been split into `playAmbientSandSounds`, `playAmbientDryGrassSounds`, `playAmbientDeadBushSounds`, `shouldPlayDesertDryVegetationBlockSounds`; not one-to-one
 - `net.minecraft.world.level.dimension.DimensionType` now takes in an optional integer representing the cloud height level
 - `net.minecraft.world.level.storage.DataVersion` is now a record
+- `net.minecraft.world.phys.shapes.CollisionContext#placementContext` now takes in a `Player` instead of an `Entity`
 
 ### List of Removals
 
@@ -1019,6 +1446,18 @@ The leash system has been updated to support up to four on enabled entities. Add
 - `net.minecraft.client.renderer.texture.AbstractTexture`
     - `defaultBlur`
     - `setFilter`
+- `net.minecraft.network.chat.Component$Serializer`, `$SerializerAdapter`
 - `net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket$Action#*_SHIFT_KEY`
+- `net.minecraft.stats`
+    - `RecipeBookSettings#read`, `write`
+    - `ServerRecipeBook#toNbt`, `fromNbt`
+- `net.minecraft.util`
+    - `GsonHelper#fromNullableJson(..., boolean)`, `fromJson(..., boolean)`
+    - `LowerCaseEnumTypeAdapterFactory`
+- `net.minecraft.world.entity.ai.attributes.AttributeInstance#ID_FIELD`, `TYPE_CODEC`
 - `net.minecraft.world.entity.monster.Drowned#waterNavigation`, `groundNavigation`
 - `net.minecraft.world.level.block.TerracottaBlock`
+- `net.minecraft.world.level.block.entity.trialspawner.TrialSpawner`
+    - `*_CONFIG_TAG_NAME`
+    - `codec`
+- `net.minecraft.world.level.dimension.DimensionType#parseLegacy`
