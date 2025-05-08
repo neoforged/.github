@@ -33,7 +33,7 @@
     description: |-
       We operate a 3 strikes policy. Rule violations (listed above) can trigger these actions.
       1. Strike one will result in an in channel warning stating which rule you violated
-      2. Strike two will result in a ten-minute timeout
+      2. Strike two will result in a timeout
       3. Strike three will result in a ban or read-only purgatory
 
       *Note that significant enough violations will lead to one or more of these steps being skipped.*
