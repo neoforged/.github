@@ -45,7 +45,8 @@
       *Note that significant enough violations will lead to one or more of these steps being skipped.*
     color: "#D59C9C"
 - content: |-
-    Have a nice stay, and remember: if you feel like a member broke any of the rules please do not hesitate to contact moderators, either by pinging <@&1103212714219802654> or, by sending a message to an online moderator privately if you feel more comfortable doing it that way.
+    Have a nice stay, and remember: if you feel like a member broke any of the rules please do not hesitate to contact moderators, either by pinging <@&1103212714219802654> or, by sending a message to <@1129791987680288798> if you feel more comfortable doing it that way.
+    You can also report a message to moderators by right-clicking the message and then going to `Apps` > `Report`, which will open a ModMail thread with that message as context.
 
     P.S: here's an invite: <https://discord.neoforged.net>, and a backup one, just in case: <https://discord.gg/UvedJ9m>.
   author:
