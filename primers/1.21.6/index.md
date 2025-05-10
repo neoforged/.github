@@ -54,7 +54,7 @@ The `ScreenRectangle` is simply the area that the element is allowed to draw to,
 
 ##### Texture Hash Code
 
-`TextureSetup` defines `Sampler0`, `Sampler1`, and `Sampler2` for use in the render pipelines, stored via `GuiElementRenderState#textureSetup`. Elements with no textures will be ordered first, followed by `getSortKey` of the record object. Note that, at the moment, this returns the `hashCode` of the `TextureSetup`, which may be non-deterministic as `GpuTexture` does not implement `hashCode`, relying instead on the identity object hash.
+`TextureSetup` defines `Sampler0`, `Sampler1`, and `Sampler2` for use in the render pipelines, stored via `GuiElementRenderState#textureSetup`. Elements with no textures will be ordered first, followed by `getSortKey` of the record object. Note that, at the moment, this returns the `hashCode` of the `TextureSetup`, which may be non-deterministic as `GpuTextureView` does not implement `hashCode`, relying instead on the identity object hash.
 
 ### GuiElementRenderState
 
@@ -230,7 +230,7 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
     - `ExperienceBarRenderer` - Draws the experience bar.
     - `JumpableVehicleBarRenderer` - Draws the jump power bar (e.g. horse jumping).
     - `LocatorBarRenderer` - Draws the bar that points to given waypoints.
-- `net.minecraft.client.gui.font.glyphs.BakedGlyph` now takes in a `GpuTexture`
+- `net.minecraft.client.gui.font.glyphs.BakedGlyph` now takes in a `GpuTextureView`
     - `extractChar` - Extracts a glyph instance submits the element to be rendered.
     - `extractEffect` - Extracts a glyph effect (e.g. drop shadow) submits the element to be rendered.
     - `extractBackground` - Extracts a glyph effect and submits the element to be rendered on the background Z.
@@ -241,7 +241,7 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
     - `transformMaxBounds` - Returns a new rectangle that is moved into a given position by the provided matrix.
 - `net.minecraft.client.gui.render`
     - `GuiRenderer` - A class that renders all submitted elements to the screen.
-    - `TextureSetup` - A record that specifies samplers 0-2 for use in a render pipeline. The first two textures are arbitrary with the third being for the current lightmap texture.
+    - `TextureSetup` - A record that specifies samplers 0-2 for use in a render pipeline. The first two textures views are arbitrary with the third being for the current lightmap texture.
 - `net.minecraft.client.gui.render.pip`
     - `GuiBannerResultRenderer` - A renderer for the banner result preview.
     - `GuiBookModelRenderer` - A renderer for the book model in the enchantment screen.
@@ -269,6 +269,8 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
     - `GuiSkinRenderState` - The state of a player with a given skin.
     - `PictureInPictureRenderState` - An interfaces that defines the basic state necessary to render the picture-in-picture to the screen.
 - `net.minecraft.client.gui.screens.Screen`
+    - `CUBE_MAP` -> `net.minecraft.client.renderer.GameRenderer#cubeMap`
+    - `PANORAMA` -> `net.minecraft.client.renderer.GameRenderer#panorama`
     - `renderBlurredBackground` now takes in the `GuiGraphics`
     - `*TooltipForNextRenderPass` methods are either removed or moved to `GuiGraphics`
     - `FADE_IN_TIME` - Represents how much time in milliseconds does it take for some element to fade in.
@@ -302,7 +304,11 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
         - `ITEM_ACTIVATION_ANIMATION_LENGTH` is removed
         - `setRenderHand` is removed
         - `renderZoomed` is removed
+        - `getPanorama` - Returns the panorama renderer.
+    - `LightTexture#getTexture` -> `getTextureView`, not one-to-one
     - `MapRenderer#WIDTH`, `HEIGHT` are now public
+    - `PanoramaRenderer#registerTextures` - Registers the texture for use by the cube map.
+    - `PostPass$Input#texture` now returns a `GpuTextureView` instead of a `GpuTexture`
     - `RenderPipelines`
         - `GUI_OVERLAY`, `GUI_GHOST_RECIPE_OVERLAY`, `GUI_TEXTURED_OVERLAY` are removed
         - `GUI_TEXTURED_PREMULTIPLIED_ALPHA` - A pipeline that assumes the textures have already had their transparency premultiplied during the composite stage.
@@ -324,7 +330,7 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
     - `COMPASS_*` -> `SPECIAL_*`
 - `net.minecraft.client.renderer.item.ItemStackRenderState`
     - `setAnimated`, `isAnimated` - Returns whether the item is animated (e.g., foil).
-    - `appendModelIdentityElement`, `getModelIdentity` - Returns the identity component being rendered.
+    - `appendModelIdentityElement`, `getModelIdentity`, `clearModelIdentity` - Handles the identity component being rendered.
 - `net.minecraft.client.renderer.texture.TextureAtlasSprite#isAnimated` - Returns whether the sprite has any animation.
 
 ## Waypoints
@@ -682,6 +688,14 @@ try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRen
 }
 ```
 
+### Fog Environments
+
+The fog system has been reworked into an environment/render state-like handler. Each environment mostly handles setting up the fog data and color. Some additional processing is provided for the individual `FogType`s and special mob effects.
+
+All environments are handled through the `FogEnvironment`. A environment is setup via the `setupFog` method, which is repsonsible for mutating the passed in `FogData` to the values associated with that environment. If the fog colors its surroundings, then `providesColor` should return true, with the base color tint applied in `getBaseColor`. Likewise, if the fog darkens its surroundings, then `modifiesDarkness` should return true, with the modified darkness returned via `getModifiedDarkness`. To determine whether an environment should apply, `isApplicable` is checked. If not applicable, then `onNotApplicable` is called.
+
+All environments are registered to `FogRenderer#FOG_ENVIRONMENTS`; however, what environment to use is based on `isApplicable` and the list order. For the color and darkness, the fog environment chosen is the last one in the list where one of the `provides*` methods return true. For the actual fog setup, the fog environment chosen is the first one in the list.
+
 ### Render Pass Scissoring now only OpenGL
 
 The scissoring state has been removed from the generic pipeline code, now only accessible through the OpenGL implementation. Generic region handling has been delegated to `CommandEncoder#clearColorAndDepthTextures`. Note that this does not affect the existing `ScreenRectangle` system that handles the blit facing scissoring.
@@ -728,35 +742,47 @@ The scissoring state has been removed from the generic pipeline code, now only a
     - `GlRenderPass`
         - `uniforms` now is a `HashMap<String, GpuBufferSlice>`
         - `dirtSamplers` is removed
+        - `samplers` map now holds a `GpuTextureView` value
         - `pushedDebugGroups` - Returns the number of groups pushed onto the stack. No debug groups must be open for the render pass to be closed.
         - `isScissorEnabled` - Returns whether the scissoring state is enabled which crops the area that is rendered to the screen.
         - `getScissorX`, `getScissorY`, `getScissorWidth`, `getScissorHeight` - Returns the values representing the scissored rectangle.
         - `$ScissorState` - A class that holds a bounding rectangle to render within.
-    - `GlTexture` now takes in an additional integer for the usage
-    - `Uniform` is now a sealed interface which is implemented as either a buffer object, texel buffer, or a sampler.
+    - `GlTexture` now takes in an additional integer for the usage and depth/layers
+        - `flushModeChanges` now takes in an `int` which represents the texture target
+        - `addViews`, `removeViews` - Manages the views looking at a texture for some mip levels.
+    - `GlTextureView` - A view implementation of a texture for some mip levels.
+    - `Uniform` is now a sealed interface which is implemented as either a buffer object, texel buffer, or a sampler
 - `com.mojang.blaze3d.pipeline`
     - `BlendFunction#PANORAMA` is removed
     - `CompiledRenderPipeline#containsUniform` is removed
     - `RenderPipeline`
         - `$Builder#withUniform` now has an overload that can take in a `TextureFormat`
         - `$UniformDescription` now takes in a nullable `TextureFormat`
+    - `RenderTarget`
+        - `colorTextureView`, `depthTextureView`, `getColorTextureView`, `getDepthTextureView` - A view of the current color and depth textures.
+        - `blitAndBlendToTexture` now takes in a `GpuTextureView` instead of a `GpuTexture`
 - `com.mojang.blaze3d.platform.Lightning` is now `AutoCloseable`
     - `setup*` -> `setupFor`, an instance method that takes in an `$Entry`
     - `updateLevel` - Updates the lighting buffer, taking in whether to use the nether diffused lighting.
-- `com.mojang.blaze3d.shaders.UniformType` now only holds two types: `UNIFORM_BUFFER`, or `TEXEL_BUFFER`, and no longer takes in a count
+- `com.mojang.blaze3d.shaders`
+    - `FogShape` -> `net.minecraft.client.renderer.fog.FogData`, not one-to-one
+    - `UniformType` now only holds two types: `UNIFORM_BUFFER`, or `TEXEL_BUFFER`, and no longer takes in a count
 - `com.mojang.blaze3d.systems`
     - `CommandEncoder`
         - `clearColorAndDepthTextures` now has an overload that takes in four `int`s representing the region to clear the texture information within
         - `writeToBuffer`, `mapBuffer(GpuBuffer, int, int)` now take in a `GpuBufferSlice` instead of a `GpuBuffer`
         - `createFence` - Creates a new sync fence.
-        - `createRenderPass` now takes in a `Supplier<String>`, used for determining the name of the pass to use as a debug group
+        - `createRenderPass` now takes in a `Supplier<String>`, used for determining the name of the pass to use as a debug group, and `GpuTextureView`s instead of `GpuTexture`s
+        - `writeToTexture` now takes in an additional `int` representing the depth or layer to write to
+        - `presentTexture` now takes in a `GpuTextureView` instead of a `GpuTexture`
     - `GpuDevice`
         - `createBuffer` no longer takes in a `BufferUsage`, with `BufferType` replaced by an `int`
         - `getUniformOffsetAlignment` - Returns the uniform buffer offset alignment.
-        - `createTexture` now takes in an additional `int` for the usage, see `GpuTexture` constants
+        - `createTexture` now takes in additionals `int` for the usage and the number of depth/layers, see `GpuTexture` constants
+        - `createTextureView` - Creates a view of a texture for a certain range of mip levels.
     - `RenderPass`
         - `enableScissor` is removed
-        - `bindSampler` can now take in a nullable `GpuTexture`
+        - `bindSampler` can now take in a nullable `GpuTextureView`
         - `setUniform` can either take in a `GpuBuffer` or `GpuBufferSlice` instead of the raw inputs
         - `drawIndexed` now takes the following `int`s: the base vertex, the start index, the number of elements, and the prim count
         - `drawMultipleIndexed` now takes in a collection of strings that defines the list of required uniforms
@@ -774,10 +800,14 @@ The scissoring state has been removed from the generic pipeline code, now only a
         - `setShaderGameTime`, `getShaderGameTime` -> `setGlobalSettingsUniform`, `getGlobalSettingsUniform`; not one-to-one
         - `getDynamicUniforms` - Returns a list of uniforms to write for the shader.
         - `bindDefaultUniforms` - Binds the default uniforms to be used within a `RenderPass`
+        - `outputColorTextureOverride`, `outputDepthTextureOverride` are now `GpuTextureView`s
+        - `setupOverlayColor`, `setShaderTexture`, `getShaderTexture` now operate on `GpuTextureView`s instead of `GpuTexture`s
     - `ScissorState` class is removed
 - `com.mojang.blaze3d.textures`
-    - `GpuTexture` now takes in an int representing the usage flags
+    - `GpuTexture` now takes in an int representing the usage flags and number of depth/layers
         - `usage` - The flags that define how the texture can be used.
+        - `depthOrLayers`, `getDepthOrLayers` - Defines how many layers or depths are available for a given texture. This is meant as a generic count for available texture encodings. Only cubemap support is currently available (meaning the layer count must be a multiple of 6).
+    - `GpuTextureView` - A view of some texture for a range of mip levels.
     - `TextureFormat#RED8I` - An 8-bit signed integer handling the red color channel.
 - `com.mojang.blaze3d.vertex.DefaultVertexFormat#EMPTY` - A vertex format with no elements.
 - `net.minecraft.client.renderer`
@@ -787,11 +817,12 @@ The scissoring state has been removed from the generic pipeline code, now only a
         - `FLAG_INSIDE_FACE`, `FLAG_USE_TOP_COLOR` are now private
         - `RADIUS_BLOCKS` is removed
         - `endFrame` - Ends the current frame being rendered to by constructing a fence.
-    - `CubeMap#render` no longer takes in the float for the partial tick.
+    - `CubeMap` is now `AutoCloseable`
+        - `render` no longer takes in the float for the partial tick.
     - `DynamicUniforms` - A class that writes the uniform interface blocks to the buffer for use in shaders.
     - `DynamicUniformStorage` - A class that holds the uniforms within a slice of a mappable ring buffer.
     - `FogParameters` record is removed, now stored in a general `GpuBufferSlice`
-    - `FogRenderer` now implements `AutoCloseable`
+    - `FogRenderer` now implements `AutoCloseable` -> `.fog.FogRenderer`
         - `endFrame` - Ends the current frame being rendered to by constructing a fence.
         - `getBuffer` - Gets the buffer slice that holds the uniform for the current fog mode.
         - `setupFog` no longer takes in the `FogMode`, returning nothing
@@ -827,6 +858,26 @@ The scissoring state has been removed from the generic pipeline code, now only a
     - `SkyRenderer#renderSunMoonAndStars` no longer takes in the `FogParameters`
     - `UniformValue` - An interface that represents a uniform stored within an interface block.
 - `net.minecraft.client.renderer.chunk.SectionRendererDispatcher$RenderSection#setDynamicTransformIndex`, `getDynamicTransformIndex` - Handles the index used to query the correct dynamic transforms for a given section.
+- `net.minecraft.client.renderer.fog.environment`
+    - `AirBasedFogEnvironment` - An environment whose color is derived from the air of the biome
+    - `AtmosphericFogEnvironment` - The default fog environment if no other special cases match.
+    - `BlindessFogEnvironment` - An environment that activates if the entity has the blindness effect.
+    - `DarknessFogEnvironment` - An environment that activates if the entity has the darkness effect.
+    - `DimensionOrBossFogEnvrionment` - An environment that activates based on if there are any bosses or the dimension special effects.
+    - `FogEnvironment` - An abstract class that determines how the fog should render at a given location for an entity.
+    - `LavaFogEnvironment` - An environment that activates if the entity is within lava.
+    - `MobEffectFogEnvironment` - An environment that activates based on if the entity has a given mob effect.
+    - `PowderedSnowFogEnvironment` - An environment that activates if the entity is within powdered snow.
+    - `WaterFogEnvironment` - An environment that activates if the entity is within water.
+- `net.minecraft.client.renderer.texture`
+    - `AbstractTexture`
+        - `setUseMipmaps` - Sets whether the texture should use mipmapping.
+        - `textureView`, `getTextureView` - Represents the current texture view.
+    - `CubeMapTexture` - A cubemap compatible texture, textures are expected to have suffixes `_0` to `_5`.
+    - `ReloadableTexture#doLoad` is now protected
+- `net.minecraft.world.level.material.FogType`
+    - `DIMENSION_OR_BOSS` - Fog for dimension special effects or bosses.
+    - `ATMOSPHERIC` - Default fog type.
 
 ## Tag Providers: Appender Rewrite
 
@@ -1111,11 +1162,14 @@ try (ProblemReporter.ScopedCollector problems = new ProblemReporter.ScopedCollec
         - `store` now takes in a `ValueOutput` instead of a `CompoundTag`
         - `read`, `readWithOldOwnerConversion` now take in a `ValueInput` instead of a `CompoundTag`
     - `Entity`
+        - `UUID_TAG` -> `TAG_UUID`
         - `create`, `by` now take in a `ValueInput` instead of a `CompoundTag`
         - `loadEntityRecursive` now takes in a `ValueInput` instead of a `CompoundTag`
         - `loadEntitiesRecursive` now takes in a `ValueInput$ValueInputList` instead of a list of nbt tags
         - `loadStaticEntity` now takes in a `ValueInput` instead of a `CompoundTag`
+    - `EntityReference#store` - Writes the reference data to the `ValueOutput`.
     - `Leashable#readLeashData`, `writeLeashData` now take in a `ValueInput`/`ValueOutput` instead of a `CompoundTag`
+    - `LivingEntity#ATTRIBUTES_FIELD` -> `TAG_ATTRIBUTES`
     - `NeutralMob#addPersistentAngerSaveData`, `readPersistentAngerSaveData` now take in a `ValueOutput`/`ValueInput` instead of a `CompoundTag`
 - `net.minecraft.world.entity.npc.InventoryCarrier#readInventoryFromTag`, `writeInventoryToTag` now take in a `ValueInput`/`ValueOutput` instead of a `CompoundTag`
 - `net.minecraft.world.entity.player.Inventory`
@@ -1161,6 +1215,14 @@ try (ProblemReporter.ScopedCollector problems = new ProblemReporter.ScopedCollec
     - `AlternativesEntry#UNREACHABLE_PROBLEM` - A problem where the altnerative entry can never be executed.
     - `CompositeEntryBase#NO_CHILDREN_PROBLEM` - A problem where the composite has no entries.
     - `NestedLootTable#INLINE_LOOT_TABLE_PATH_ELEMENT` - An element which indicates that a table is inlined.
+
+## Server Player Changes
+
+`MinecraftServer` is no longer publicly exposed on the `ServerPlayer`. Additionally, `serverLevel` has been removed, now replaced with overloading `level` to return the `ServerLevel`.
+
+- `net.minecraft.server.level.ServerPlayer`
+    - `server` field is now private
+    - `serverLevel` -> `level`, still returns `ServerLevel`
 
 ## Minor Migrations
 
@@ -1208,6 +1270,15 @@ The leash system has been updated to support up to four on enabled entities. Add
         - `$Wrench` - A record which handles the force and torque applied to the leash.
 - `net.minecraft.world.item.LeadItem#leashableInArea` -> `Leashable#leashableInArea`
 
+### Removal of Mob Effects Atlas
+
+The mob effect atlas has been removed and merged with the gui altas.
+
+- `net.minecraft.client.Minecraft#getMobEffectTextures` is removed
+- `net.minecraft.client.gui.Gui#getMobEffectSprite` - Gets the location of the mob effect sprite.
+- `net.minecraft.client.resources.MobEffectTextureManage` class is removed
+- `AtlasIds#MOB_EFFECTS` is removed
+
 ### Tag Changes
 
 - `minecraft:block`
@@ -1252,7 +1323,6 @@ The leash system has been updated to support up to four on enabled entities. Add
 - `net.minecraft.client.renderer.entity.HappyGhastRenderer` - The renderer for a 'tamed' ghast.
 - `net.minecraft.client.renderer.entity.layers.RopesLayer` - The render layer for the ropes used on a 'tamed' ghast.
 - `net.mienecraft.client.renderer.entity.state.HappyGhastRenderState` - The state of a 'tamed' ghast.
-- `net.minecraft.client.renderer.texture.AbstractTexture#setUseMipmaps` - Sets whether the texture should use mipmapping.
 - `net.minecraft.client.resources.model.EquipmentclientInfo$LayerType#HAPPY_GHAST_BODY` - A layer representing the body of a happy ghast.
 - `net.minecraft.client.resources.sounds.RidingHappyGhastSoundInstance` - A tickable sound instance that plays when riding a happy ghast.
 - `net.minecraft.commands.arguments`
@@ -1266,6 +1336,7 @@ The leash system has been updated to support up to four on enabled entities. Add
 - `net.minecraft.data.recipes.RecipeProvider`
     - `dryGhast` - The recipe for a dried ghast.
     - `harness` - The recipe for a colored harness.
+- `net.minecraft.gametest.framework.GameTestTicker#startTicking` - Starts ticking the runner for the game tests.
 - `net.minecraft.nbt.NbtUtils`
     - `addCurrentDataVersion`, `addDataVersion`, adds the data version to some nbt tag.
 - `net.minecraft.network.FriendlyByteBuf#writeEither`, `readEither` - Handles an `Either` with the given stream encoders/decoders.
@@ -1308,6 +1379,7 @@ The leash system has been updated to support up to four on enabled entities. Add
 - `net.minecraft.world.entity.monster.Ghast`
     - `faceMovementDirection` - Rotates the entity to face its current movement direction.
     - `$RandomFloatAroundGoal#getSuitableFlyToPosition` - Gets a position that the ghast should fly to.
+- `net.minecraft.world.entity.projectile.ProjectileUtil#computeMargin` - Computes the bounding box margin to check for a given entity based on its tick count.
 - `net.minecraft.world.item.component.ItemAttributeModifiers`
     - `forEach` - Applies the consumer to all attributes within the slot group.
     - `$Builder#add` - Adds an attribute to apply for a given slot group with a display.
@@ -1349,25 +1421,38 @@ The leash system has been updated to support up to four on enabled entities. Add
         - `getPackVersion` -> `packVersion`
         - `getBuildTime` -> `buildTime`
         - `isStable` -> `stable`
-- `net.minecraft.client.GameNarrator`
-    - `sayChat` -> `sayChatQueued`
-    - `say` -> `saySystemQueued`
-    - `sayNow` -> `saySystemNow`
+- `net.minecraft.client`
+    - `GameNarrator`
+        - `sayChat` -> `sayChatQueued`
+        - `say` -> `saySystemQueued`
+        - `sayNow` -> `saySystemNow`
+    - `Minecraft#grabPanoramixScreenshot` no longer takes in the window width and height to set
+    - `Screenshot#grab`, `takeScreenshot` now takes in an `int` representing the downscale factor
+- `net.minecraft.client.main.GameConfig$QuickPlayData` now takes in a `$QuickPlayVariant`
+    - `path` -> `logPath`
+    - `singleplayer` -> `variant` with `$QuickPlaySinglePlayerData`
+    - `multiplayer` -> `variant` with `$QuickPlayMultiplayerData`
+    - `realms` -> `variant` with `$QuickPlayRealmsData`
+    - null for `singleplayer`, `multiplayer`, `realms` is represented by `variant` with `$QuickPlayDisabled`
 - `net.minecraft.client.data.models.ItemModelGenerators#generateWolfArmor` -> `generateTwoLayerDyedItem`
 - `net.minecraft.client.gui.components.DebugScreenOverlay#render3dCrosshair` now takes in the current `Camera`
 - `net.minecraft.client.gui.components.debugchart.ProfilerPieChart`
     - `RADIUS` is now public
     - `CHART_Z_OFFSET` -> `PIE_CHART_THICKNESS`, now public
-- `net.minecraft.client.multiplayer.MultiPlayerGameMode#createPlayer` now takes in an `Input` instead of a `boolean`
+- `net.minecraft.client.multiplayer`
+    - `ClientLevel$ClientLevelData#getClearColorScale` -> `voidDarknessOnsetRange`, not one-to-one
+    - `MultiPlayerGameMode#createPlayer` now takes in an `Input` instead of a `boolean`
 - `net.minecraft.client.player.LocalPlayer` now takes in the last sent `Input` instead of a `boolean` for the shift key
     - `getLastSentInput` - Gets the last sent input from the server.
+- `net.minecraft.client.quickplay.QuickPlay#connect` now takes in a `GameConfig$QuickPlayVariant` instead of a `GameConfig$QuickPlayData`
 - `net.minecraft.client.renderer`
     - `DimensionSpecialEffects` no longer takes in the current cloud level and whether there is a ground
     - `LightTexture#getTarget` -> `getTexture`
 - `net.minecraft.commands.arguments.ResourceOrIdArgument` now takes in an arbitrary codec rather than a `Holder`-wrapped value
     - `ERROR_INVALID` -> `ERROR_NO_SUCH_ELEMENT`, now public, not one-to-one
     - `VALUE_PARSER` -> `OPS`, now public, not one-toe
-- `net.minecraft.data.recipes.RecipeProvider#colorBlockWithDye` -> `colorItemWithDye`
+- `net.minecraft.data.recipes.RecipeProvider#colorBlockWithDye` -> `colorItemWithDye`, now takes in the `RecipeCategory`
+- `net.minecraft.gametest.framework.GameTestInfo#prepareTestStructure` is now nullable
 - `net.minecraft.network.FriendlyByteBuf#readJsonWithCodec` -> `readLenientJsonWithCodec`
 - `net.minecraft.network.codec.ByteBufCodecs#fromCodec` now has an overload which takes in some ops and a codec
 - `net.minecraft.network.protocol.login.ClientboundLoginDisconnectPacket` is now a record
@@ -1379,6 +1464,8 @@ The leash system has been updated to support up to four on enabled entities. Add
     - `Entity`
         - `checkSlowFallDistance` -> `checkFallDistanceAccumulation`
         - `collidedWithFluid`, `collidedWithShapeMovingFrom` are now public
+        - `canBeCollidedWith` now takes the entity its colliding with.
+    - `EntityReference` is now final
     - `ExperienceOrb` now has an overload that takes in two vectors for the position and movement
     - `FlyingMob` is replaced by calling `LivingEntity#travelFlying`
     - `LivingEntity#canBreatheUnderwater` is no longer `final`
@@ -1413,7 +1500,7 @@ The leash system has been updated to support up to four on enabled entities. Add
 - `net.minecraft.world.entity.monster`
     - `Ghast` now implements `Mob`
         - `$GhastLookGoal` is now public, taking in a `Mob`
-        - `$GhastMoveControl` is now public, taking in whether it should be careful when moving and its speed
+        - `$GhastMoveControl` is now public, taking in whether it should be careful when moving, its speed, and a supplied boolean of whether the ghast should stop moving
         - `$RandomFloatAroundGoal` is now `public`, taking in a `Mob` and a block distance
     - `Phantom` now implements `Mob`
 - `net.minecraft.world.entity.player.Abilities`
@@ -1421,13 +1508,20 @@ The leash system has been updated to support up to four on enabled entities. Add
     - `loadSaveData` -> `apply`, not one-to-one
 - `net.minecraft.world.entity.projectile`
     - `AbstractThrownPotion#onHitAsPostion` now takes in a `HitResult` instead of a nullable `Entity`
-    - `ProjectileUtil#DEFAULT_ENTITY_HIT_RESULT_MARGIN` is now public
+    - `EyeOfEnder#signalTo` now takes in a `Vec3` instead of a `BlockPos`
+    - `Projectile`
+        - `ownerUUID`. `cachedOwner` -> `owner`, now protected; not one-to-one
+        - `setOwner` now has an overload to take in an `EntityReference`
+    - `ProjectileUtil`
+        - `DEFAULT_ENTITY_HIT_RESULT_MARGIN` is now public
+        - `getEntityHitResult` now takes in a `Projectile` instead of an `Entity`
 - `net.minecraft.world.item.ItemStack`
     - `forEachModifier` now takes in a `TriConsumer` that provides the modifier display
     - `hurtAndBreak` now has an overload which gets the `EquipmentSlot` from the `InteractionHand`
 - `net.minecraft.world.level.BlockGetter`
     - `forEachBlockIntersectedBetween` now returns a boolean indicating that each block visited in the intersected area can be successfully visited
     - `$BlockStepVisitor#visit` now returns whether the location can be successfully moved to
+- `net.minecraft.world.level.block.AbstractCauldronBlock#SHAPE` is now protected
 - `net.minecraft.world.level.block.entity.BlockEntity#getNameForReporting` is now public
 - `net.minecraft.world.level.block.entity.trialspawner`
     - `TrialSpawner` now takes in a `$FullConfig`
@@ -1437,6 +1531,7 @@ The leash system has been updated to support up to four on enabled entities. Add
     - `TrialSpawnerData` -> `TrialSpawnerStateData`, serialized form as `TrialSpawnerStateData$Packed`, not one-to-one
 - `net.minecraft.world.level.block.sounds.AmbientDesertBlockSoundsPlayer#playAmbientBlockSounds` has been split into `playAmbientSandSounds`, `playAmbientDryGrassSounds`, `playAmbientDeadBushSounds`, `shouldPlayDesertDryVegetationBlockSounds`; not one-to-one
 - `net.minecraft.world.level.dimension.DimensionType` now takes in an optional integer representing the cloud height level
+- `net.minecraft.world.level.entity.UUIDLookup#getEntity` can now return null
 - `net.minecraft.world.level.storage.DataVersion` is now a record
 - `net.minecraft.world.phys.shapes.CollisionContext#placementContext` now takes in a `Player` instead of an `Entity`
 
@@ -1456,7 +1551,10 @@ The leash system has been updated to support up to four on enabled entities. Add
     - `LowerCaseEnumTypeAdapterFactory`
 - `net.minecraft.world.entity.ai.attributes.AttributeInstance#ID_FIELD`, `TYPE_CODEC`
 - `net.minecraft.world.entity.monster.Drowned#waterNavigation`, `groundNavigation`
-- `net.minecraft.world.level.block.TerracottaBlock`
+- `net.minecraft.world.entity.projectile.Projectile#findOwner`, `setOwnerThroughUUID`
+- `net.minecraft.world.level.block`
+    - `AbstractCauldronBlock#isEntityInsideContent`
+    - `TerracottaBlock`
 - `net.minecraft.world.level.block.entity.trialspawner.TrialSpawner`
     - `*_CONFIG_TAG_NAME`
     - `codec`
