@@ -60,7 +60,7 @@ The `ScreenRectangle` is simply the area that the element is allowed to draw to,
 
 Now that we understand ordering, what exactly is the `GuiElementRenderState` that we've been using? Well essentially, every object rendered to the screen is represented by a `GuiElementRenderState`, from the player seen in the inventory menu to each individual item. A `GuiElementRenderState` defines four methods. First, there are the common ones used for ordering and how to render to the screen (`pipeline`, `scissorArea`, `textureSetup`, `bounds`). Then there is `buildVertices`, which takes in the `VertexConsumer` to write the vertices to and the z-depth. For GUIs, this typically calls `VertexConsumer#addVertexWith2DPose`.
 
-There are three types of `GuiElementRenderState`s provided by vanilla: `BlitRenderState`, `ColoredRectangleRenderState`, and `GlyphRenderState`. `ColoredRectangleRenderState` and `GlyphRenderState` are simple cases for handling a basic color rectangle and text character, respectively. `BlitRenderState` covers every other case as almost every method eventually writes to a `GpuTexture` which is then consumed by this.
+There are three types of `GuiElementRenderState`s provided by vanilla: `BlitRenderState`, `ColoredRectangleRenderState`, `GlyphEffectRenderState`, and `GlyphRenderState`. `ColoredRectangleRenderState` and `GlyphRenderState`/`GlyphEffectRenderState` are simple cases for handling a basic color rectangle and text character, respectively. `BlitRenderState` covers every other case as almost every method eventually writes to a `GpuTexture` which is then consumed by this.
 
 `GuiElementRenderState`s are added to the `GuiRenderState` via `GuiRenderState#submitGuiElement`. This is called by `GuiGraphics#*line`, `fill`, and `blit*` methods.
 
@@ -74,9 +74,9 @@ Just before the 'render' phase, the `GuiRenderer` effectively turns the `GuiItem
 
 #### GuiTextRenderState
 
-`GuiTextRenderState` is a special case used to render text to the screen. It takes in the `TextRenderState`, the current pose, its XY coordinates, its scissor area, and its rendering bounds. The `TextRenderState` simply defines whether to draw the drop shadow, the default colors, how the text is displayed, light coordinates, the text and its effects as a list of glyphs, the line height, the empty glyph, and the max X.
+`GuiTextRenderState` is a special case used to render text to the screen. It takes in the `Font`, `FormattedCharSequence`, current pose, its XY coordinates, color, background color, whether it has a drop shadow, and its rendering bounds.
 
-Just before the 'render' phase, the `GuiRenderer` turns the `GuiTextRenderState` into a `GuiElementRenderState`, more specifically a `GlyphRenderState`. This performs a similar process as the item render state where the text is written to a `GpuTexture` to be consumed. Any backgrounds are rendered first, followed by the background effects, then the character, then finally the foreground effects.
+Just before the 'render' phase, the `GuiRenderer` turns the `GuiTextRenderState` into a `GuiElementRenderState`, more specifically a `GlyphRenderState` or `GlyphEffectRenderState` depending on what should be rendered via `GuiTextRenderState#ensurePrepared`. This performs a similar process as the item render state where the text is written to a `GpuTexture` to be consumed. Any backgrounds are rendered first, followed by the background effects, then the character, then finally the foreground effects.
 
 `GuiElementRenderState`s are added to the `GuiRenderState` via `GuiRenderState#submitText`. This is called by `GuiGraphics#draw*String` and `render*Tooltip` methods.
 
@@ -175,13 +175,257 @@ gui.contextualInfoBarRenderers.put(
 
 Finally, to get your bar to be called and prioritized, you need to modify `Gui#nextContextualInfoState` to return your enum value, or whatever method is provided by your mod loader.
 
+### Dialogs
+
+To more generally handle screens which provide some basic functionalities -- such as confirmation screens, button selection, or user input, Vanilla has provided a generic dialog system. These dialogs can be constructed in a datapack and delivered on the client by calling `Player#openDialog`. The basic JSON description is documented in  [Minecraft Snapshot 25w20a](https://www.minecraft.net/en-us/article/minecraft-snapshot-25w20a).
+
+For a quick overiview, a basic `Dialog` contains the following components: a title, an optional external title for navigation, whether the screen can be closed by pressing 'esc', and its `DialogBody` contents. Everything else is determined by the dialog itself, but it has functionality for user inputs via `InputControl`s and submissions via `SubmitMethod`s. Buttons are typically added through `ClickAction`s which hold the common button data and an event to execute on click. If the dialog is canceled (e.g., closed), then `onCancel` is run.
+
+`DialogBody`, `InputControl`, `SubmitMethod` are simply generic interfaces that have no defined structure. Implementing them, or any dialog for that matter, requires some registration to the available types on both the client and server.
+
+#### Custom Bodies
+
+A `DialogBody` is simply the contents of a dialog screen. This is generally immutable information that should be displayed at all times. Every dialog holds a list of these `DialogBody`s as every screen has some text to explain what it is for. It only contains one method `mapCodec`, which is used as the registry key and encoder for the body information.
+
+```java
+// Obviously, a body would have actual contents, but this is simply an example implementation
+public record ExampleDialogBody(boolean val1, int val2) implements DialogBody {
+    public static final MapCodec<ExampleDialogBody> BODY_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
+        Codec.BOOL.fieldOf("val1").forGetter(ExampleDialogBody::val1),
+        Codec.INT.fieldOf("val2").forGetter(ExampleDialogBody::val2)
+    ).apply(ExampleDialogBody::new));
+
+    @Override
+    public MapCodec<? extends DialogBody> mapCodec() {
+        return BODY_CODEC;
+    }
+}
+
+// Register the codec to the registry
+Registry.register(BuiltInRegistries.DIALOG_BODY_TYPE, "examplemod:example_body", ExampleDialogBody.BODY_CODEC);
+```
+
+```json5
+// For some dialog
+{
+    // ...
+    "body": [
+        {
+            // Our body
+            "type": "examplemod:example_body",
+            "val1": true,
+            "val2": 0
+        },
+        // ...
+    ]
+}
+```
+
+How does this body actually render then? Well, that is done via a `DialogBodyHandler`. This contains a single method `createControls` that generates the `LayoutElement` to render given the `Screen` and the dialog data. This body handler can be linked to the `MapCodec` via `DialogBodyHandlers#register`.
+
+```java
+public class ExampleDialogBodyHandler implements DialogBodyHandler<ExampleDialogBody> {
+
+    @Override
+    public LayoutElement createControls(Screen screen, ExampleDialogBody body) {
+        // Create the element (widgets, layouts, etc.)
+        return StringWidget(...);
+    }
+}
+
+// Note that `register` is not public, so this needs to be access widened
+DialogBodyHandlers.register(BODY_CODEC, new ExampleDialogBodyHandler());
+```
+
+#### Custom Inputs
+
+An `InputControl` represents some input a user can provide. This is generally made up of components that can accept or provide some string value based on a state. Some dialogs can provide these inputs; however, they are generally subtypes of `InputFormDialog`s for ease of implementation to `$Input`, which takes in some `key` string identifier and maps it to an `InputControl`. It only contains one method `mapCodec`, which is used as the registry key and encoder for the input control.
+
+```java
+public record ExampleInputControl(int value) implements InputControl {
+    public static final MapCodec<ExampleInputControl> INPUT_CODEC = Codec.INT.fieldOf("value").xmap(
+        ExampleInputControl::new, ExampleInputControl::value
+    );
+
+    @Override
+    public MapCodec<? extends InputControl> mapCodec() {
+        return INPUT_CODEC;
+    }
+}
+
+// Register the codec to the registry
+Registry.register(BuiltInRegistries.INPUT_CONTROL_TYPE, "examplemod:example_input", ExampleInputControl.INPUT_CODEC);
+```
+
+```json5
+// For some dialog (assume `minecraft:simple_input_form`)
+{
+    "inputs": [
+        {
+            // Our input
+            "type": "examplemod:example_input",
+            
+            // The identifier for the data of this input
+            "key": "example_input",
+
+            "value": 0
+        },
+        // ...
+    ]
+}
+```
+
+Like above, the input is rendered via a `InputControlHandler`. This contains a single method `addControl`, which provides the `Screen` and input control and creates the `LayoutElement` and its associated value via `$Output`. This input handler can be linked to the `MapCodec` via `InputControlHandlers#register`.
+
+```java
+public class ExampleInputControlHandler implements InputControlHandler<ExampleInputControl> {
+
+    @Override
+    public void addControl(ExampleInputControl control, Screen screen, InputControlHandler.Output output) {
+        EditBox box = new EditBox(...);
+        box.setValue(String.valueOf(control.value()));
+
+        // Add the elements to the output
+        output.accept(
+            // The element to render
+            box,
+            // The value output of the input
+            box::getValue
+        );
+    }
+}
+
+// Note that `register` is not public, so this needs to be access widened
+InputControlHandlers.register(INPUT_CODEC, new ExampleInputControlHandler());
+```
+
+#### Custom Submissions
+
+A `SubmitMethod` represents some action taken, generally when submitting a form. This is made up of a component that sends information somewhere, usually the server. Some dialogs can provide these submissions; however, they are generally subtypes of `InputFormDialog`s for ease of implementation to `$SubmitAction`, which takes in some `id` string identifier, `CommonButtonData` that is clicked, and maps it to a `SubmitMethod`. It only contains one method `mapCodec`, which is used as the registry key and encoder for the submit method.
+
+```java
+public record ExampleSubmitMethod() implements SubmitMethod {
+    public static final MapCodec<ExampleSubmitMethod> SUBMIT_CODEC = MapCodec.unit(new ExampleSubmitMethod());
+
+    @Override
+    public MapCodec<? extends SubmitMethod> mapCodec() {
+        return SUBMIT_CODEC;
+    }
+}
+
+// Register the codec to the registry
+Registry.register(BuiltInRegistries.SUBMIT_METHOD_TYPE, "examplemod:example_submit", ExampleSubmitMethod.SUBMIT_CODEC);
+```
+
+```json5
+// For some dialog (assume `minecraft:simple_input_form`)
+{
+    "action": {
+        // The identifier for this submission button
+        // Provided as the `action` header in a payload
+        "id": "example_submit",
+        
+        // Button data
+        "label": "Example!",
+        "tooltip": "This is an example!",
+        "width": 80,
+
+        // Our submit method
+        "type": "examplemod:example_submit"
+    }
+}
+```
+
+Like above, the method is executed via a `SubmitMethodHandler`. This contains a single method `createCallback`, which returns a `$Callback` to send the user input and submission method. This submit method can be linked to the `MapCodec` via `SubmitMethodHandlers#register`.
+
+```java
+public class ExampleSubmitMethodHandler implements SubmitMethodHandler<ExampleSubmitMethod> {
+
+    @Override
+    public SubmitMethodHandler.Callback createCallback(ExampleSubmitMethod method) {
+        // Handle what to do on submission
+        // Generally sends a packet
+        return (clientListener, payload) -> clientListener.connection.send(...);
+    }
+}
+
+// Note that `register` is not public, so this needs to be access widened
+SubmitMethodHandlers.register(SUBMIT_CODEC, new ExampleSubmitMethodHandler());
+```
+
+#### Custom Dialogs
+
+A `Dialog` is pretty much all of the above components put together as desired. It is up to the user to choose how to implement them. Every `Dialog` must provide its `CommonDialogData`, which defines the basic title, body contents, and functionality. In additional, a `Dialog` may choose to execute a `ClickEvent` on close via `onCancel`.
+
+```java
+// `common` is already implemented by the record
+public record ExampleDialog(CommonDialogData common, boolean val1, int val2) implements Dialog {
+    public static final MapCodec<ExampleSubmitMethod> DIALOG_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
+        CommonDialogData.MAP_CODEC.forGetter(ExampleDialog::common),
+        Codec.BOOL.fieldOf("val1").forGetter(ExampleDialog::val1),
+        Codec.INT.fieldOf("val2").forGetter(ExampleDialog::val2)
+    ).apply(ExampleDialog::new));
+
+    @Override
+    public MapCodec<? extends Dialog> codec() {
+        return DIALOG_CODEC;
+    }
+
+    @Override
+    public Optional<ClickEvent> onCancel() {
+        // You can choose to return something here, or empty if nothing should be done
+        return Optional.empty();
+    }
+}
+
+// Register the codec to the registry
+Registry.register(BuiltInRegistries.DIALOG_TYPE, "examplemod:example_dialog", ExampleDialog.DIALOG_CODEC);
+```
+
+```json5
+// For some dialog in `data/examplemod/dialog/example.json`
+{
+    // Our dialog type
+    "type": "examplemod:example_dialog",
+    
+    // Common button data
+    "title": "Example dialog!",
+    "can_close_with_escape": true,
+
+    // Our custom params
+    "val1": true,
+    "val2": 0
+}
+```
+
+Like the others, a dialog type can only be rendered through a `DialogScreen$Factory`. This interface constructs a `DialogScreen` given the parent `Screen` and the `Dialog` instance. This dialog screen can then be linked to the `MapCodec` via `DialogScreens#register`
+
+ the method is executed via a `SubmitMethodHandler`. This contains a single method `createCallback`, which returns a `$Callback` to send the user input and submission method. This submit method can be linked to the `MapCodec` via `SubmitMethodHandlers#register`.
+
+```java
+public class ExampleDialogScreen extends DialogScreen<ExampleDialog> {
+
+    public ExampleDialogScreen(@Nullable Screen previousScreen, ExampleDialog dialog) {
+        super(previousScreen, dialog);
+    }
+
+    // You can choose to implement the other methods as you wish
+    // See existing dialog screens for an example
+}
+
+// Note that `register` is not public, so this needs to be access widened
+DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
+```
+
 - `com.mojang.blaze3d.vertex.VertexConsumer#addVertexWith2DPose` - Adds a vertex to be rendered in 2d space.
 - `net.minecraft.client.gui`
     - `Font`
         - `drawInBatch` no longer returns anything
-        - `extractTextRenderState` - Creates the render state used to render text to the screen.
+        - `prepareText` - Prepares the text to be rendered to the screen.
         - `ALPHA_CUTOFF` is removed
-        - `$StringRenderOutput` no longer takes in the `MultiBufferSource` and the `Matrix4f` representing the pose
+        - `$GlyphVisitor` - An interface that handles a glyph or effect to be rendered.
+        - `$PreparedText` - An interface that defines how a piece of text should be rendered by visiting each glyph.
+        - `$StringRenderOutput` -> `$PreparedTextBuilder`, no longer takes in the `MultiBufferSource`, `Matrix4f`, `$DisplayMode`, packed light coords, and the inverse depth boolean
     - `Gui`
         - `shouldRenderDebugCrosshair` - Returns true if the debug crosshair should be rendered.
         - `$RenderFunction` - An interface that defines how a certain section or element is rendered on the gui.
@@ -204,17 +448,21 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
 - `net.minecraft.client.gui.components`
     - `AbstractTextAreaWidget` now has an overload which takes in two additional booleans of whether to show the background or decorations
     - `AbstractWidget#getTooltip` is removed
+    - `CycleButton$Builder#displayOnlyValue` now has an overload that takes in the `boolean` to set
     - `EditBox`
         - `setCentered` - Sets whether the text position should be centered.
         - `setTextShadow` - Sets whether the text should have a drop shadow effect.
     - `FocusableTextWidget` can now take in a boolean indicating whether to fill the background
+        - `DEFAULT_PADDING` is now public
     - `ImageWidget#updateResource` - Updates the sprite of the image on the component.
+    - `ItemDisplayWidget` - A widget that displays an `ItemStack`.
     - `LogoRenderer#keepLogoThroughFade` - When true, keeps the logo visible even when the title screen is fading.
     - `MultiLineEditBox` is now package private and should be constructed via `builder`, calling the `$Builder#set*` methods
         - `setLineLimit` - Sets the line limit of the text field.
     - `MultilineTextField#NO_CHARACTER_LIMIT` -> `NO_LIMIT`
         - `setLineLimit` - Sets the maximum number of lines that can be written on the text field.
         - `hasLineLimit` - Returns whether the text field has some line limit.
+    - `ScrollableLayout` - A layout with some defined bounds that can be scrolled through.
     - `SplashRenderer#render` now takes in a float for the R color instead of an int
     - `WidgetTooltipHolder#refreshTooltipForNextRenderPass` now takes in the `GuiGraphics` and the XY position
 - `net.minecraft.client.gui.components.spectator.SpectatorGui#renderTooltip` -> `renderAction`
@@ -225,15 +473,26 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
         - `getTabs` - Returns the list of tabs on the navigation bar.
         - `setTabActiveState` - Sets the active state of the given tab index.
         - `setTabTooltip` - Sets the tooltip information of the given tab index.
+- `net.minecraft.client.gui.components.toasts`
+    - `NowPlayingToast` - A toast that displays the currently playing background music.
+    - `Toast#xPos`, `yPos` - Gets the x and y position in relation to the current toast index.
+    - `ToastManager` now takes in the `Options`
+        - `showNowPlayingToast`, `hideNowPlayingToast`, `createNowPlayingToast`, `removeNowPlayingToast` - Handles the 'Now Playing' music toast.
+        - `$ToastInstance#resetToast` - Resets the toast.
 - `net.minecraft.client.gui.contextualbar`
     - `ContextualBarRenderer` - An interface which defines an object with some background to render.
     - `ExperienceBarRenderer` - Draws the experience bar.
     - `JumpableVehicleBarRenderer` - Draws the jump power bar (e.g. horse jumping).
     - `LocatorBarRenderer` - Draws the bar that points to given waypoints.
+- `net.minecraft.client.gui.font.GlyphRenderTypes` now takes in a `RenderPipeline` for the gui rendering
 - `net.minecraft.client.gui.font.glyphs.BakedGlyph` now takes in a `GpuTextureView`
-    - `extractChar` - Extracts a glyph instance submits the element to be rendered.
     - `extractEffect` - Extracts a glyph effect (e.g. drop shadow) submits the element to be rendered.
     - `extractBackground` - Extracts a glyph effect and submits the element to be rendered on the background Z.
+    - `left`, `top`, `right`, `bottom` - Computes the bounds of the glyph.
+    - `textureView` - Returns the view of the texture making up the glyph.
+    - `guiPipeline` - Returns the pipeline to render the glyph.
+    - `$Effect#left`, `top`, `right`, `bottom` - Computes the bounds of the glyph effect.
+    - `$GlyphInstance#left`, `top`, `right`, `bottom` - Computes the bounds of the glyph instance.
 - `net.minecraft.client.gui.navigation.ScreenRectangle`
     - `transformAxisAligned` now takes in a `Matrix3x2f` instead of a `Matrix4f`
     - `intersects` - Returns whether this rectangle overlaps with another rectangle.
@@ -253,13 +512,13 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
 - `net.minecraft.client.gui.render.state`
     - `BlitRenderState` - An element state for a basic 2d texture blit.
     - `ColoredRectangleRenderState` - An element state for a simple rectangle with a tint.
+    - `GlyphEffectRenderState` - An element state for a glyph effect (e.g., font text drop shadow).
     - `GlyphRenderState` - An element state for a glyph (font text).
     - `GuiElementRenderState` - An interface representing the state of a element to render.
     - `GuiItemRenderState` - A record representing the state of an item to render.
     - `GuiRenderState` - The state of the GUI to render to the screen.
     - `GuiTextRenderState` - A record representing the state of the text and its location to render.
     - `ScreenArea` - An interface which defines the render area of an element. This does not affect scissoring, instead layer orders.
-    - `TextRenderState` - A record representing the state of the text to render.
 - `net.minecraft.client.gui.render.state.pip`
     - `GuiBannerResultRenderState` - The state of the banner result preview.
     - `GuiBookModelRenderState` - The state of the book model in the enchantment screen.
@@ -268,13 +527,39 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
     - `GuiSignRenderState` - The state of the sign background in the edit screen.
     - `GuiSkinRenderState` - The state of a player with a given skin.
     - `PictureInPictureRenderState` - An interfaces that defines the basic state necessary to render the picture-in-picture to the screen.
-- `net.minecraft.client.gui.screens.Screen`
-    - `CUBE_MAP` -> `net.minecraft.client.renderer.GameRenderer#cubeMap`
-    - `PANORAMA` -> `net.minecraft.client.renderer.GameRenderer#panorama`
-    - `renderBlurredBackground` now takes in the `GuiGraphics`
-    - `*TooltipForNextRenderPass` methods are either removed or moved to `GuiGraphics`
-    - `FADE_IN_TIME` - Represents how much time in milliseconds does it take for some element to fade in.
-    - `fadeWidgets` - Sets the alpha of the `AbstractWidget`s added as children to the screen.
+- `net.minecraft.client.gui.screens`
+    - `PauseScreen#rendersNowPlayingToast` - Returns whether the 'Now Playing' toast should be rendered.
+    - `Screen`
+        - `CUBE_MAP` -> `net.minecraft.client.renderer.GameRenderer#cubeMap`
+        - `PANORAMA` -> `net.minecraft.client.renderer.GameRenderer#panorama`
+        - `renderBlurredBackground` now takes in the `GuiGraphics`
+        - `*TooltipForNextRenderPass` methods are either removed or moved to `GuiGraphics`
+        - `FADE_IN_TIME` - Represents how much time in milliseconds does it take for some element to fade in.
+        - `fadeWidgets` - Sets the alpha of the `AbstractWidget`s added as children to the screen.
+        - `handleClickEvent` - Handles the event to play when the component is clicked.
+        - `defaultHandleClickEVent` - The default logic to execut when the component is clicked.
+        - `clickUrlAction` - The logic to perform when a URL is clicked (has the Open URL style).
+        - `clickCommandAction` - The logic to perform when a command should be executed (has the \* Command style).
+- `net.minecraft.client.gui.screeens.dialog`
+    - `ButtonListDialogScreen` - A dialog screeen that contains some list of buttons.
+    - `DialogListDialogScreen` - A button list of `DialogListDialog`s.
+    - `DialogScreen` - A screen for some dialog modal.
+    - `DialogScreens` - A factory registry of dialog modals to their associated screen.
+    - `InputFormControlSet` - A handler for input dialogs.
+    - `MultiActionInputFormDialogScreen` - A dialog screen for a `MultiActionInputFormDialog`.
+    - `MultiButtonDialogScreen` - A button list of `MultiActionDialog`s.
+    - `ServerLinksDialogScreen` - A button list of `ServerLinksDialog`s.
+    - `SimpleDialogScreen` - A dialog screen for some simple dialog.
+    - `SimpleInputFormDialogScreen` - A dialog screen for a `SimpleInputFormDialog`.
+- `net.minecraft.client.gui.screens.dialog.body`
+    - `DialogBodyHandler` - A list of body elements describing the contents between the title and actions/inputs.
+    - `DialogBodyHandlers` - A registry of `DialogBody`s to their `DialogBodyHandler`s.
+- `net.minecraft.client.gui.screens.dialog.input`
+    - `InputControlHandler` - A user input handler.
+    - `InputControlHandlers`- A registry of `InputControl`s to their `InputControlHandler`s.
+- `net.minecraft.client.gui.screens.dialog.submit`
+    - `SubmitMethodHandler` - A handler to collect and send the user inputs to the server.
+    - `SubmitMethodHandlers` - A registry of `SubmitMethod`s to their `SubmitMethodHandler`s.
 - `net.minecraft.client.gui.screens.inventory`
     - `AbstractContainerScreen`
         - `SLOT_ITEM_BLIT_OFFSET` is removed
@@ -295,9 +580,12 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
 - `net.minecraft.client.gui.screens.inventory.tooltip`
     - `ClientTooltipComponent#renderText` no longer takes in the pose and buffer, instead the `GuiGraphics` to submit the text for rendering
     - `TooltipRenderUtil#renderTooltipBackground` no longer takes in a Z offset
+- `net.minecraft.client.gui.screens.multiplayer.ServerLinksScreen` class is removed, replaced by dialog modal
 - `net.minecraft.client.gui.screens.social`
     - `PlayerEntry#refreshHasDraftReport` - Sets whether the current context as a report for this player.
     - `SocialInteractionsPlayerList#refreshHasDraftReport` - Refreshes whether the current context as a report for all players.
+- `net.minecraft.client.gui.screens.worldselection.ExperimentsScreen$ScrollArea` class is removed, replaced by the `ScrollableLayout`
+- `net.minecraft.client.multiplayer.ClientCommonPacketListenerImpl#showDialog` - Shows the current dialog, creating the screen dynamically.
 - `net.minecraft.client.player.LocalPlayer#experienceDisplayStartTick` - Represents the start tick of when the experience display should be prioritized.
 - `net.minecraft.client.renderer`
     - `GameRenderer` no longer takes in a `ResourceManager`
@@ -332,6 +620,60 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
     - `setAnimated`, `isAnimated` - Returns whether the item is animated (e.g., foil).
     - `appendModelIdentityElement`, `getModelIdentity`, `clearModelIdentity` - Handles the identity component being rendered.
 - `net.minecraft.client.renderer.texture.TextureAtlasSprite#isAnimated` - Returns whether the sprite has any animation.
+- `net.minecraft.commands.arguments.ResourceOrIdArgument#dialog`, `getDialog`, `$DialogArgument` - Handles command arguments for dialog screens.
+- `net.minecraft.core.registries`
+    - `BuiltInRegistries#DIALOG_TYPE`, `SUBMIT_METHOD_TYPE`, `INPUT_CONTROL_TYPE`, `DIALOG_BODY_TYPE`
+    - `Registries#DIALOG_TYPE`, `SUBMIT_METHOD_TYPE`, `INPUT_CONTROL_TYPE`, `DIALOG_BODY_TYPE`, `DIALOG`
+- `net.minecraft.data.tags.DialogTagsProvider` - A tags provider for dialogs.
+- `net.minecraft.network.chat`
+    - `ClientEvent`
+        - `$Action#SHOW_DIALOG`, `CUSTOM`
+        - `$Custom` - An event that contains some payload to send to the server, currently does nothing.
+        - `$ShowDialog` - An event that shows the specified dialog.
+    - `CommonComponents`
+        - `GUI_RETURN_TO_MENU` - The component that displays the 'Return to Menu' text.
+        - `disconnectButtonLabel` - Returns the component based on whether the server is local.
+- `net.minecraft.network.protocol.common`
+    - `ClientboundClearDialogPacket` - Closes the current dialog screen.
+    - `ClientboundShowDialogPacket` - Opens a new dialog screen.
+- `net.minecraft.server.dialog`
+    - `ButtonListDialog` - A dialog modal that has some number of colums to click buttons of.
+    - `ClickAction` - A button that can perform some `ClickEvent` on click.
+    - `CommonButtonData` - The data that is associated with every button within a dialog modal.
+    - `CommonDialogData` - The data that is associated with every dialog modal.
+    - `ConfirmationDialog` - A dialog modal wheter you can either click yes or no.
+    - `Dialog` - The base interface that defines some dialog modal.
+    - `DialogListDialog` - A scrollable list of buttons that lead to other dialogs.
+    - `Dialogs` - A datapack bootstrap registering `Dialog`s.
+    - `DialogTypes` - A registry of map codecs to encode some dialog model.
+    - `InputFormDialog` - A dialog that takes in some input from the user.
+    - `MultiActionDialog` - A scrollable list of actions arrange in columns.
+    - `MultiActionInputFormDialog` - A screen that accepts user inputs with multiple submit actions.
+    - `NoticeDialog` - A simple screen with one action in the footer.
+    - `ServerLinksDialog` - A scrollable list of links received from the server, arrange in columns.
+    - `SimpleDialog` - A dialog that defines the main actions that can be taken.
+    - `SimpleInputFormDialog` - A screen that accepts user inputs with one submit action.
+- `net.minecraft.server.dialog.body`
+    - `DialogBody` - A body element describing the content between the title and actions/inputs.
+    - `DialogBodyTypes` - A registry of map codecs to encode some body.
+    - `ItemBody` - An item with an optional description.
+    - `PlainMessage` - A multiline label.
+- `net.minecraft.server.dialog.input`
+    - `BooleanInput` - A plain checkbox with a label.
+    - `InputControl` - A control mechanism to accept user input.
+    - `InputControlTypes` - A registry of map codecs to encode some input control.
+    - `NumberRangeInput` - A slider for picking a numeric value from some range.
+    - `SingleOptionInput` - A button that cycles between a set of options.
+    - `TextInput` - Simple text input.
+- `net.minecraft.server.dialog.submit`
+    - `CommandTemplate` - Builds a command and requests the server to run it.
+    - `CustomForm` - Builds a custom server click action from all input values and requests the server to run it.
+    - `CustomSubmitMethod` - A method that sends a payload to the server to handle, currently does nothing.
+    - `CustomTemplate` - Builds a custom server click action to send to the server.
+    - `ParsedTemplate` - A template that encodes some string similar to how function macros work.
+    - `SubmitMethod` - A method that typically provides some callback to run when a button is clicked.
+    - `SubmitMethodTypes` - A registry of map codecs to encode some submit method.
+- `net.minecraft.world.entity.player.Player#openDialog` - Opens the specified dialog screen.
 
 ## Waypoints
 
@@ -835,7 +1177,7 @@ The scissoring state has been removed from the generic pipeline code, now only a
     - `GlobalSettingsUniform` - An object fod handling the uniform holding the current game settings.
     - `LevelRenderer`
         - `endFrame` - Ends the current frame being rendered to by constructing a fence.
-        - `getFogRenderer` - Returns the fog renderer.
+        - `renderLevel` now takes in a `GpuBufferSlice`, the fog vector, and whether the current position is foggy instead of the `GameRenderer`
     - `MappableRingBuffer` - An object that contains three buffers that are written to as required, then rotates to the next buffer to use on end. These are synced using fences.
     - `PanoramaRenderer#render` now takes in a boolean for whether to change the spin up the spin rather than two floats.
     - `PerspectiveProjectionMatrixBuffer` - An object that holds the projection matrix uniform.
@@ -1279,12 +1621,38 @@ The mob effect atlas has been removed and merged with the gui altas.
 - `net.minecraft.client.resources.MobEffectTextureManage` class is removed
 - `AtlasIds#MOB_EFFECTS` is removed
 
+### Permission Sources
+
+The permission checks for commands have been abstracted into its own `PermissionSource` interface. This provides the previously provided `hasPermission` method, in addition to a new method `allowsSelectors`, which returns whether the source has the necessary permission to select other entities (defaults to level 2 perms). You can incoporate the permission check into your commands by calling `Commands#hasPermission` with the desired level in `ArgumentBuilder#requires`.
+
+- `net.minecraft.client.multiplayer`
+    - `ClientPacketListener#getCommands` now returns a `ClientSuggestionProvider` generic
+    - `ClientSuggestionListener` now implements `PermissionSource`, taking in a boolean of whether it allows restricted commands
+        - `allowRestrictedCommands` - Returns whether restricted commands can be suggested.
+- `net.minecraft.commands`
+    - `Commands#hasPermission` - Returns a permission check for the given level.
+    - `CommandSourceStack` now implements `PermissionSource`
+    - `ExecutionCommandSource` now implements `PermissionSource`
+    - `PermissionSource` - Returns the source of the permission to run a command.
+    - `SharedSuggestionProvider`
+        - `suggestResgitryElements` now takes in a `HolderLookup` instead of a `Registry`
+        - `listSuggestions` - Lists the suggestion for some registry elements.
+        - `hasPermission` is removed
+- `net.minecraft.commands.synchronization.SuggestionProviders`
+    - `AVAILABLE_SOUNDS`, `SUMMONABLE_ENTITIES` now take in a `SharedSuggestionProvider` for their generic
+    - `cast` - Casts the suggestion provider to the correct type.
+    - `safelySwap` is removed
+    - `$Wrapper` -> `$RegisteredSuggestion`
+- `net.minecraft.world.entity.Entity#getCommandSenderWorld` is removed
+
 ### Tag Changes
 
 - `minecraft:block`
     - `plays_ambient_desert_block_sounds` is split into `triggers_ambient_desert_sand_block_sounds`, `triggers_ambient_desert_dry_vegetation_block_sounds`
     - `happy_ghast_avoids`
     - `triggers_ambient_dried_ghast_block_sounds`
+- `minecraft:dialog`
+    - `pause_screen_additions`
 - `minecraft:entity_type`
     - `can_equip_harness`
     - `followable_friendly_mobs`
@@ -1308,8 +1676,12 @@ The mob effect atlas has been removed and merged with the gui altas.
 - `net.minecraft.advancements.critereon.ItemUsedOnLocationTrigger$TriggerInstance#placedBlockWithProperties` - Creates a trigger where a block was placed with the specified property.
 - `net.minecraft.client`
     - `GameNarrator#saySystemChatQueued` - Narrates a component if either system or chat message narration is enabled.
-    - `Options#cloudRange` - Returns the maximum distance clouds can render at.
+    - `Options`
+        - `cloudRange` - Returns the maximum distance clouds can render at.
+        - `musicFrequency` - Returns how frequency the background music handled by the `MusicManager` should play.
+        - `showNowPlayingToast` - Returns whether the 'Now Playing' toast is shown.
     - `NarratorStatus#shouldNarrateSystemOrChat` - Returns whether the current narration status is anything but `OFF`.
+- `net.minecraft.client.color.ColorLerper` - A utility class for lerping between color types based on some partial tick.
 - `net.minecraft.client.data.models.BlockModelGenerators#createDriedGhastBlock` - Creates the dired ghast block model definition.
 - `net.minecraft.client.data.models.model`
     - `ModelTemplates#DRIED_GHAST` - A template that uses the `minecraft:block/dried_ghast` parent.
@@ -1325,6 +1697,10 @@ The mob effect atlas has been removed and merged with the gui altas.
 - `net.mienecraft.client.renderer.entity.state.HappyGhastRenderState` - The state of a 'tamed' ghast.
 - `net.minecraft.client.resources.model.EquipmentclientInfo$LayerType#HAPPY_GHAST_BODY` - A layer representing the body of a happy ghast.
 - `net.minecraft.client.resources.sounds.RidingHappyGhastSoundInstance` - A tickable sound instance that plays when riding a happy ghast.
+- `net.minecraft.client.sounds.MusicManager`
+    - `getCurrentMusicTranslationKey` - Returns the translation key of the currently playing music.
+    - `setMinutesBetweenSongs` - Sets the frequency between the background tracks.
+    - `$MusicFrequency` - The frequency of the background tracks being played.
 - `net.minecraft.commands.arguments`
     - `HexColorArgument` - An integer argument that takes in a hexadecimal color.
     - `ResourceOrIdArgument`
@@ -1343,6 +1719,10 @@ The mob effect atlas has been removed and merged with the gui altas.
 - `net.minecraft.network.codec.ByteBufCodecs`
     - `RGB_COLOR` - A stream codec that writes the RGB using three bytes.
     - `lenientJson` - Creates a stream codec that parses a json in lenient mode.
+- `net.minecraft.network.protocol.game`
+    - `ServerboundChangeGameModePacket` - Changes the current gamemode.
+    - `ServerboundCustomClickActionPacket` - Executes a custom action on the server, currently does nothing.
+- `net.minecraft.server.MinecraftServer#handleCustomClickAction` - Handles a custom action sent from a click event.
 - `net.minecraft.server.level.ServerLevel#updateNeighboursOnBlockSet` - Updates the neighbors of the current position. If the blocks are not the same (not including their properties), then `BlockState#affectNeighborsAfterRemoval` is called.
 - `net.minecraft.stats`
     - `RecipeBookSettings#MAP_CODEC`
@@ -1357,14 +1737,19 @@ The mob effect atlas has been removed and merged with the gui altas.
     - `LenientJsonParser` - A json parser using lenient rules.
     - `Mth#smallestSquareSide` - Takes the ceiled square root of a number.
     - `StrictJsonParser` - A json parser using strict rules.
-- `net.minecraft.world.ItemStackWithSlot` - A record which holds a stack along with its slot index.
+- `net.minecraft.world`
+    - `Difficulty#STREAM_CODEC`
+    - `ItemStackWithSlot` - A record which holds a stack along with its slot index.
 - `net.minecraft.world.entity`
     - `Entity`
         - `isInClouds` - Returns whether the entity's Y position is between the cloud height and four units above.
         - `teleportSpectators` - Teleports the spectators currently viewing from the player's perspective.
         - `isFlyingVehicle` - Returns whether the vehicle can fly.
+    - `EntityAttachments#getAverage` - Returns the average location of all attachment points.
     - `ExperienceOrb#awardWithDirection` - Adds an experience orb that moves via the specified vector.
-    - `Mob#isWithinHome` - Returns whether the position is within the entity's restriction radius.
+    - `Mob` 
+        - `isWithinHome` - Returns whether the position is within the entity's restriction radius.
+        - `canShearEquipment` - Returns whether the current player can shear the equipment off of this mob.
 - `net.minecraft.world.entity.ai.control.MoveControl#setWait` - Sets the operation to `WAIT`.
 - `net.minecraft.world.entity.ai.goal.TemptGoal`
     - `stopNavigation`, `navigateTowards` - Handles navigation towards the player.
@@ -1380,18 +1765,23 @@ The mob effect atlas has been removed and merged with the gui altas.
     - `faceMovementDirection` - Rotates the entity to face its current movement direction.
     - `$RandomFloatAroundGoal#getSuitableFlyToPosition` - Gets a position that the ghast should fly to.
 - `net.minecraft.world.entity.projectile.ProjectileUtil#computeMargin` - Computes the bounding box margin to check for a given entity based on its tick count.
-- `net.minecraft.world.item.component.ItemAttributeModifiers`
-    - `forEach` - Applies the consumer to all attributes within the slot group.
-    - `$Builder#add` - Adds an attribute to apply for a given slot group with a display.
-    - `$Display` - Defines how an attribute modifier should be displayed within its tooltip.
-    - `$Default` - Shows the default attribute display.
-    - `$Hidden` - Does not show any attribute info.
-    - `$OverrideText` - Overrides the attribute text with the component provided.
+- `net.minecraft.world.item.component`
+    - `ItemAttributeModifiers`
+        - `forEach` - Applies the consumer to all attributes within the slot group.
+        - `$Builder#add` - Adds an attribute to apply for a given slot group with a display.
+        - `$Display` - Defines how an attribute modifier should be displayed within its tooltip.
+        - `$Default` - Shows the default attribute display.
+        - `$Hidden` - Does not show any attribute info.
+        - `$OverrideText` - Overrides the attribute text with the component provided.
+    - `Equippable$Builder`
+        - `setCanBeSheared` - Sets whether the equipment can be sheared off the entity.
+        - `setShearingSound` - Sets the sound to play when a piece of equipment is sheared off an entity.
 - `net.minecraft.world.item.equipment.Equippable#harness` - Represents a harness to equip.
 - `net.minecraft.world.level`
     - `CollisionGetter`
         - `getPreMoveCollisions` - Returns an iterable of shapes containing the entity and block collisions at the given bounding box and futue movement direction.
         - `getBlockCollisionsFromContext` - Gets the block shapes from the given collision context.
+    - `GameType#STREAM_CODEC`
     - `Level#precipitationAt` - Returns the precipitation at a given position.
 - `net.minecraft.world.level.block`
     - `BaseRailBlock#rotate` - Rotates the current rail shape in the associated direction.
@@ -1400,6 +1790,7 @@ The mob effect atlas has been removed and merged with the gui altas.
 - `net.minecraft.world.level.dimension.DimensionDefaults`
     - `CLOUD_THICKNESS` - The block thickness of the clouds.
     - `OVERWORLD_CLOUD_HEIGHT` - The cloud height level in the overworld.
+- `net.minecraft.world.level.levelgen.flat.FlatLayerInfo#heightLimited` - Returns a new layer info whether the current height is limited to the specified value, as long as that value is not within the maximum range already.
 - `net.minecraft.world.phys`
     - `AABB`
         - `intersects` - Returns whether the `BlockPos` intersects with this box.
@@ -1448,14 +1839,36 @@ The mob effect atlas has been removed and merged with the gui altas.
 - `net.minecraft.client.renderer`
     - `DimensionSpecialEffects` no longer takes in the current cloud level and whether there is a ground
     - `LightTexture#getTarget` -> `getTexture`
-- `net.minecraft.commands.arguments.ResourceOrIdArgument` now takes in an arbitrary codec rather than a `Holder`-wrapped value
-    - `ERROR_INVALID` -> `ERROR_NO_SUCH_ELEMENT`, now public, not one-to-one
-    - `VALUE_PARSER` -> `OPS`, now public, not one-toe
+- `net.minecraft.client.resources`
+    - `AbstractSoundInstance#sound` is now `Nullable`
+    - `SoundInstance#getSound` is now `Nullable`
+- `net.minecraft.client.sounds`
+    - `SoundEngine#pause` -> `pauseAllExcept`, not one-to-one
+    - `SoundManager#pause` -> `pauseAllExcept`, not one-to-one
+- `net.minecraft.commands.arguments`
+    - `ResourceOrIdArgument` now takes in an arbitrary codec rather than a `Holder`-wrapped value
+        - `ERROR_INVALID` -> `ERROR_NO_SUCH_ELEMENT`, now public, not one-to-one
+        - `VALUE_PARSER` -> `OPS`, now public, not one-toe
+    - `ResourceSelectorArgument#getSelectedResources` no longer takes in the `ResourceKey`
+- `net.minecraft.commands.functions.StringTemplate`
+    - `fromString` no longer takes in the line number
+    - `isValidVariableName` is now public
 - `net.minecraft.data.recipes.RecipeProvider#colorBlockWithDye` -> `colorItemWithDye`, now takes in the `RecipeCategory`
 - `net.minecraft.gametest.framework.GameTestInfo#prepareTestStructure` is now nullable
 - `net.minecraft.network.FriendlyByteBuf#readJsonWithCodec` -> `readLenientJsonWithCodec`
-- `net.minecraft.network.codec.ByteBufCodecs#fromCodec` now has an overload which takes in some ops and a codec
+- `net.minecraft.network.codec`
+    - `ByteBufCodecs#fromCodec` now has an overload that takes in some ops and a codec
+    - `StreamCodec#composite` now has an overload that takes in ten parameters
 - `net.minecraft.network.protocol.login.ClientboundLoginDisconnectPacket` is now a record
+- `net.minecraft.network.protocol.game`
+    - `ClientboundChangeDifficultyPacket` is now a record
+    - `ClientboundCommandsPacket` now takes in a `$NodeInspector`
+        - `getRoot` is now generic, taking in a `$NodeBuilder`
+        - `$NodeBuilder` - A builder for a given command.
+        - `$NodeInspector` - An agent that checks the information of a given command node.
+    - `ServerboundChangeDifficultyPacket` is now a record
+- `net.minecraft.server.ReloadableServerRegistries$Holder#lookup` returns a `HolderLookup$Provider`
+- `net.minecraft.sounds.Music` is now a record
 - `net.minecraft.stats.RecipeBookSettings`
     - `getSettings` is now public
     - `$TypeSettings` is now public
@@ -1464,7 +1877,8 @@ The mob effect atlas has been removed and merged with the gui altas.
     - `Entity`
         - `checkSlowFallDistance` -> `checkFallDistanceAccumulation`
         - `collidedWithFluid`, `collidedWithShapeMovingFrom` are now public
-        - `canBeCollidedWith` now takes the entity its colliding with.
+        - `canBeCollidedWith` now takes the entity its colliding with
+        - `spawnAtLocation` now has an overload that takes in a `Vec3` for the offset position
     - `EntityReference` is now final
     - `ExperienceOrb` now has an overload that takes in two vectors for the position and movement
     - `FlyingMob` is replaced by calling `LivingEntity#travelFlying`
@@ -1496,11 +1910,14 @@ The mob effect atlas has been removed and merged with the gui altas.
 - `net.minecraft.world.entity.ai.sensing.AdultSensor` now looks for a `LivingEntity`
     - `setNearestVisibleAdult` is now `protected`
 - `net.minecraft.world.entity.animal.Fox#isJumping` -> `LivingEntity#isJumping`
-- `net.minecraft.world.entity.animal.horse.AbstractHorse#isJumping` -> `LivingEntity#isJumping`
+- `net.minecraft.world.entity.animal.horse.AbstractHorse`
+    - `isJumping` -> `LivingEntity#isJumping`
+    - `setStanding` now takes in an `int` instead of a `boolean` for the stand counter
+        - the `false` logic is moved to `clearStanding`
 - `net.minecraft.world.entity.monster`
     - `Ghast` now implements `Mob`
         - `$GhastLookGoal` is now public, taking in a `Mob`
-        - `$GhastMoveControl` is now public, taking in whether it should be careful when moving, its speed, and a supplied boolean of whether the ghast should stop moving
+        - `$GhastMoveControl` is now public, taking in whether it should be careful when moving and a supplied boolean of whether the ghast should stop moving
         - `$RandomFloatAroundGoal` is now `public`, taking in a `Mob` and a block distance
     - `Phantom` now implements `Mob`
 - `net.minecraft.world.entity.player.Abilities`
@@ -1518,11 +1935,14 @@ The mob effect atlas has been removed and merged with the gui altas.
 - `net.minecraft.world.item.ItemStack`
     - `forEachModifier` now takes in a `TriConsumer` that provides the modifier display
     - `hurtAndBreak` now has an overload which gets the `EquipmentSlot` from the `InteractionHand`
+- `net.minecraft.world.item.equipment.Equippable` now takes in whether the equipment can be sheared off an entity and the sound to play when doing so
 - `net.minecraft.world.level.BlockGetter`
     - `forEachBlockIntersectedBetween` now returns a boolean indicating that each block visited in the intersected area can be successfully visited
     - `$BlockStepVisitor#visit` now returns whether the location can be successfully moved to
 - `net.minecraft.world.level.block.AbstractCauldronBlock#SHAPE` is now protected
-- `net.minecraft.world.level.block.entity.BlockEntity#getNameForReporting` is now public
+- `net.minecraft.world.level.block.entity`
+    - `BlockEntity#getNameForReporting` is now public
+    - `SignBlockEntity#executeClickCommandsIfPresent` now takes in a `ServerLevel` instead of the `Level`, parameters are reordered
 - `net.minecraft.world.level.block.entity.trialspawner`
     - `TrialSpawner` now takes in a `$FullConfig`
         - `getConfig` -> `activeConfig`
@@ -1543,6 +1963,7 @@ The mob effect atlas has been removed and merged with the gui altas.
     - `setFilter`
 - `net.minecraft.network.chat.Component$Serializer`, `$SerializerAdapter`
 - `net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket$Action#*_SHIFT_KEY`
+- `net.minecraft.server.ReloadableServerRegistries$Holder#getKeys`
 - `net.minecraft.stats`
     - `RecipeBookSettings#read`, `write`
     - `ServerRecipeBook#toNbt`, `fromNbt`
@@ -1550,6 +1971,8 @@ The mob effect atlas has been removed and merged with the gui altas.
     - `GsonHelper#fromNullableJson(..., boolean)`, `fromJson(..., boolean)`
     - `LowerCaseEnumTypeAdapterFactory`
 - `net.minecraft.world.entity.ai.attributes.AttributeInstance#ID_FIELD`, `TYPE_CODEC`
+- `net.minecraft.world.entity.animal.horse.AbstractHorse#setIsJumping`
+- `net.minecraft.world.entity.animal.sheep.Sheep#getColor`
 - `net.minecraft.world.entity.monster.Drowned#waterNavigation`, `groundNavigation`
 - `net.minecraft.world.entity.projectile.Projectile#findOwner`, `setOwnerThroughUUID`
 - `net.minecraft.world.level.block`
