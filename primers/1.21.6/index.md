@@ -62,7 +62,7 @@ Now that we understand ordering, what exactly is the `GuiElementRenderState` tha
 
 There are three types of `GuiElementRenderState`s provided by vanilla: `BlitRenderState`, `ColoredRectangleRenderState`, `GlyphEffectRenderState`, and `GlyphRenderState`. `ColoredRectangleRenderState` and `GlyphRenderState`/`GlyphEffectRenderState` are simple cases for handling a basic color rectangle and text character, respectively. `BlitRenderState` covers every other case as almost every method eventually writes to a `GpuTexture` which is then consumed by this.
 
-`GuiElementRenderState`s are added to the `GuiRenderState` via `GuiRenderState#submitGuiElement`. This is called by `GuiGraphics#*line`, `fill`, and `blit*` methods.
+`GuiElementRenderState`s are added to the `GuiRenderState` via `GuiRenderState$Node#submitGuiElement`. The `GuiRenderState` makes `submitBlitToCurrentLayer` and `submitGlyphToCurrentLayer` available to add textures and glyphs. For example, these are called by `GuiGraphics#*line`, `fill`, and `blit*` methods.
 
 #### GuiItemRenderState
 
@@ -344,8 +344,7 @@ public class ExampleSubmitMethodHandler implements SubmitMethodHandler<ExampleSu
     @Override
     public SubmitMethodHandler.Callback createCallback(ExampleSubmitMethod method) {
         // Handle what to do on submission
-        // Generally sends a packet
-        return (clientListener, payload) -> clientListener.connection.send(...);
+        return (connectionAccess, payload, dialogScreen) -> connectionAccess.sendCustomAction(...);
     }
 }
 
@@ -398,15 +397,13 @@ Registry.register(BuiltInRegistries.DIALOG_TYPE, "examplemod:example_dialog", Ex
 }
 ```
 
-Like the others, a dialog type can only be rendered through a `DialogScreen$Factory`. This interface constructs a `DialogScreen` given the parent `Screen` and the `Dialog` instance. This dialog screen can then be linked to the `MapCodec` via `DialogScreens#register`
-
- the method is executed via a `SubmitMethodHandler`. This contains a single method `createCallback`, which returns a `$Callback` to send the user input and submission method. This submit method can be linked to the `MapCodec` via `SubmitMethodHandlers#register`.
+Like the others, a dialog type can only be rendered through a `DialogScreen$Factory`. This interface constructs a `DialogScreen` given the parent `Screen`, `Dialog` instance, and `DialogConnectionAccess` used to communicate to the server. This dialog screen can then be linked to the `MapCodec` via `DialogScreens#register`.
 
 ```java
 public class ExampleDialogScreen extends DialogScreen<ExampleDialog> {
 
-    public ExampleDialogScreen(@Nullable Screen previousScreen, ExampleDialog dialog) {
-        super(previousScreen, dialog);
+    public ExampleDialogScreen(@Nullable Screen previousScreen, ExampleDialog dialog, DialogConnectionAccess connectionAccess) {
+        super(previousScreen, dialog, connectionAccess);
     }
 
     // You can choose to implement the other methods as you wish
@@ -467,6 +464,7 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
     - `WidgetTooltipHolder#refreshTooltipForNextRenderPass` now takes in the `GuiGraphics` and the XY position
 - `net.minecraft.client.gui.components.spectator.SpectatorGui#renderTooltip` -> `renderAction`
 - `net.minecraft.client.gui.components.tabs`
+    - `LoadingTab` - A tab that indicates information is currently being loaded.
     - `Tab#getTabExtraNarration` - Returns the hint narration of the tab.
     - `TabManager` can now take in two `Consumer`s on what to do when a tab is selected or deselected
     - `TabNavigationBar`
@@ -475,7 +473,9 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
         - `setTabTooltip` - Sets the tooltip information of the given tab index.
 - `net.minecraft.client.gui.components.toasts`
     - `NowPlayingToast` - A toast that displays the currently playing background music.
-    - `Toast#xPos`, `yPos` - Gets the x and y position in relation to the current toast index.
+    - `Toast`
+        - `xPos`, `yPos` - Gets the x and y position in relation to the current toast index.
+        - `onFinishedRendering` - A method called once the toast has finished rendered on screen.
     - `ToastManager` now takes in the `Options`
         - `showNowPlayingToast`, `hideNowPlayingToast`, `createNowPlayingToast`, `removeNowPlayingToast` - Handles the 'Now Playing' music toast.
         - `$ToastInstance#resetToast` - Resets the toast.
@@ -491,6 +491,7 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
     - `left`, `top`, `right`, `bottom` - Computes the bounds of the glyph.
     - `textureView` - Returns the view of the texture making up the glyph.
     - `guiPipeline` - Returns the pipeline to render the glyph.
+    - `renderChar`, `renderEffect` now takes in an additional boolean that sets the Z offset to `0` when true and `0.001` when false
     - `$Effect#left`, `top`, `right`, `bottom` - Computes the bounds of the glyph effect.
     - `$GlyphInstance#left`, `top`, `right`, `bottom` - Computes the bounds of the glyph instance.
 - `net.minecraft.client.gui.navigation.ScreenRectangle`
@@ -537,11 +538,12 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
         - `FADE_IN_TIME` - Represents how much time in milliseconds does it take for some element to fade in.
         - `fadeWidgets` - Sets the alpha of the `AbstractWidget`s added as children to the screen.
         - `handleClickEvent` - Handles the event to play when the component is clicked.
-        - `defaultHandleClickEVent` - The default logic to execut when the component is clicked.
+        - `defaultHandleClickEvent` - The default logic to execute when the component is clicked.
         - `clickUrlAction` - The logic to perform when a URL is clicked (has the Open URL style).
         - `clickCommandAction` - The logic to perform when a command should be executed (has the \* Command style).
 - `net.minecraft.client.gui.screeens.dialog`
     - `ButtonListDialogScreen` - A dialog screeen that contains some list of buttons.
+    - `DialogConnectionAccess` - A client side interface that processes general interaction information from the dialog.
     - `DialogListDialogScreen` - A button list of `DialogListDialog`s.
     - `DialogScreen` - A screen for some dialog modal.
     - `DialogScreens` - A factory registry of dialog modals to their associated screen.
@@ -585,7 +587,11 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
     - `PlayerEntry#refreshHasDraftReport` - Sets whether the current context as a report for this player.
     - `SocialInteractionsPlayerList#refreshHasDraftReport` - Refreshes whether the current context as a report for all players.
 - `net.minecraft.client.gui.screens.worldselection.ExperimentsScreen$ScrollArea` class is removed, replaced by the `ScrollableLayout`
-- `net.minecraft.client.multiplayer.ClientCommonPacketListenerImpl#showDialog` - Shows the current dialog, creating the screen dynamically.
+- `net.minecraft.client.multiplayer.ClientCommonPacketListenerImpl`
+    - `showDialog` - Shows the current dialog, creating the screen dynamically.
+    - `serverLinks` - Returns the entries of server links the client can access.
+    - `createDialogAccess` - Creates the dialog handler on the client used for communication.
+    - `clearDialog` - Closes the current dialog screen.
 - `net.minecraft.client.player.LocalPlayer#experienceDisplayStartTick` - Represents the start tick of when the experience display should be prioritized.
 - `net.minecraft.client.renderer`
     - `GameRenderer` no longer takes in a `ResourceManager`
@@ -636,6 +642,7 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
 - `net.minecraft.network.protocol.common`
     - `ClientboundClearDialogPacket` - Closes the current dialog screen.
     - `ClientboundShowDialogPacket` - Opens a new dialog screen.
+    - `ServerboundCustomClickActionPacket` - Sends a custom action to the server.
 - `net.minecraft.server.dialog`
     - `ButtonListDialog` - A dialog modal that has some number of colums to click buttons of.
     - `ClickAction` - A button that can perform some `ClickEvent` on click.
@@ -1626,7 +1633,9 @@ The mob effect atlas has been removed and merged with the gui altas.
 The permission checks for commands have been abstracted into its own `PermissionSource` interface. This provides the previously provided `hasPermission` method, in addition to a new method `allowsSelectors`, which returns whether the source has the necessary permission to select other entities (defaults to level 2 perms). You can incoporate the permission check into your commands by calling `Commands#hasPermission` with the desired level in `ArgumentBuilder#requires`.
 
 - `net.minecraft.client.multiplayer`
-    - `ClientPacketListener#getCommands` now returns a `ClientSuggestionProvider` generic
+    - `ClientPacketListener`
+        - `getCommands` now returns a `ClientSuggestionProvider` generic
+        - `sendUnattendedCommand` now takes in a `Screen` instead of a `boolean`
     - `ClientSuggestionListener` now implements `PermissionSource`, taking in a boolean of whether it allows restricted commands
         - `allowRestrictedCommands` - Returns whether restricted commands can be suggested.
 - `net.minecraft.commands`
@@ -1644,6 +1653,84 @@ The permission checks for commands have been abstracted into its own `Permission
     - `safelySwap` is removed
     - `$Wrapper` -> `$RegisteredSuggestion`
 - `net.minecraft.world.entity.Entity#getCommandSenderWorld` is removed
+
+### Animation Baking
+
+Animations are now baked into `KeyframeAnimation`. Each `KeyframeAnimation` is made up of entries that apply the keyframes to a given `ModelPart`. To create an animation, the definition should be baked via `AnimationDefinition#bake` in the model constructor, then calling `#apply` or `#applyWalk` as required during `EntityModel#setupAnim`.
+
+```java
+// For some entity model
+// Assume some AnimationDefinition EXAMPLE_DEFN
+// Assume our ExampleEntityState has some AnimationState exampleAnimState
+public class ExampleModel extends EntityModel<ExampleEntityState> {
+
+    private final KeyframeAnimation exampleAnim;
+
+    public ExampleModel(ModelPart root) {
+        // We pass in whatever 'root' that can apply all animations
+        this.exampleAnim = EXAMPLE_DEFN.bake(root);
+    }
+
+    @Override
+    public void setupAnim(ExampleEntityState state) {
+        super.setupAnim(state);
+        this.exampleAnim.apply(state.exampleAnimState, state.ageInTicks);
+    }
+}
+```
+
+- `net.minecraft.client.animation`
+    - `AnimationDefinition#bake` - Bakes a defined animation to be used on a `Model`.
+    - `KeyframeAnimation` - A baked animation used to move `ModelPart`s on a given `Model`.
+    - `KeyframeAnimations#animate` -> `KeyframeAnimation$Entry#apply`
+- `net.minecraft.client.model.Model`
+    - `getAnyDescendantWithName` is removed
+    - `animate` -> `KeyframeAnimation#apply`
+    - `animateWalk` - `KeyframeAnimation#applyWalk`
+    - `applyStatic` -> `KeyframeAnimation#applyStatic`
+- `net.minecraft.client.model.geom.ModelPart`
+    - `getAllParts` now returns a `List`
+    - `createPartLookup` - Creates a lookup of part names to their `ModelPart`, any duplicate names are ignored.
+
+### ChunkSectionLayers
+
+`RenderType`s used for defining how a block or fluid should render are now replaced with `ChunkSectionLayer`s. These functionally do the same thing as the `RenderType`; however, they only specify the `RenderPipeline` to use along with the buffer information. This also means that certain `RenderType`s are removed, like `TRANSLUCENT`, as they were only used for the block chunk rendering.
+
+This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify the `ChunkSectionLayer` instead of the associated `RenderType`.
+
+- `net.minecraft.client.renderer`
+    - `ItemBlockRenderTypes`
+        - `getChunkRenderType` now returns a `ChunkSectionLayer`
+        - `getRenderLayer(FluidState)` now returns a `ChunkSectionLayer`
+    - `RenderType`
+        - `translucent` is removed
+        - `getRenderTarget`, `getRenderPipeline` is removed
+        - `chunkBufferLayers` is removed
+- `net.minecraft.client.renderer.chunk`
+    - `ChunkSectionLayer` - An enum that defines how an individual chunk layer (e.g., solid blocks, translucent blocks) is rendered.
+    - `RenderChunk` -> `SectionCopy`
+    - `RenderChunkRegion` -> `RenderSectionRegion`
+    - `RenderRegionCache#createRegion` now takes in a `long` instead of a `SectionPos`
+    - `SectionCompiler$Results`
+        - `globalBlockEntities` -> - `net.minecraft.client.multiplayer.ClientLevel#getGloballyRenderedBlockEntities`
+        - `renderedLayers` now takes in a `ChunkSectionLayer` for the key
+    - `SectionMesh` - An interface that defines the mesh of a given section within a chunk
+    - `SectionRenderDispatcher`
+        - `getBatchToCount` -> `getCompileQueueSize`
+        - `setCamera`, `getCameraPosition` are removed
+        - `blockUntilClear` is removed
+        - `clearBatchQueue` -> `clearCompileQueue`, now public
+        - `$CompiledSection` -> `CompiledSectionMesh`
+        - `$RenderSection`
+            - `getBuffers` is removed
+            - `uploadSectionLayer(RenderType, MeshData)` -> `upload(Map, CompiledSectionMesh)`, not one-to-one
+            - `uploadSectionIndexBuffer` now takes in a `CompiledSectionMesh` and a `ChunkSectionLayer` instead of a `RenderType`
+            - `getDistToPlayerSqr` is removed
+            - `getCompiled` -> `getSectionMesh`, not one-to-one
+            - `rebuildSectionAsync` no longer takes in the `SectionRenderDispatcher`
+        - `$SectionBuffers` -> `SectionBuffers`
+        - `$TranslucencyPointOfView` -> `TranslucencyPointOfView`
+- `net.minecraft.world.level.chunk.ChunkAccess#isSectionEmpty` is removed
 
 ### Tag Changes
 
@@ -1680,6 +1767,7 @@ The permission checks for commands have been abstracted into its own `Permission
         - `cloudRange` - Returns the maximum distance clouds can render at.
         - `musicFrequency` - Returns how frequency the background music handled by the `MusicManager` should play.
         - `showNowPlayingToast` - Returns whether the 'Now Playing' toast is shown.
+        - `getFinalSoundSourceVolume` - Computes the volume for the given sound source, with non-master sources being scaled by the master source.
     - `NarratorStatus#shouldNarrateSystemOrChat` - Returns whether the current narration status is anything but `OFF`.
 - `net.minecraft.client.color.ColorLerper` - A utility class for lerping between color types based on some partial tick.
 - `net.minecraft.client.data.models.BlockModelGenerators#createDriedGhastBlock` - Creates the dired ghast block model definition.
@@ -1697,10 +1785,13 @@ The permission checks for commands have been abstracted into its own `Permission
 - `net.mienecraft.client.renderer.entity.state.HappyGhastRenderState` - The state of a 'tamed' ghast.
 - `net.minecraft.client.resources.model.EquipmentclientInfo$LayerType#HAPPY_GHAST_BODY` - A layer representing the body of a happy ghast.
 - `net.minecraft.client.resources.sounds.RidingHappyGhastSoundInstance` - A tickable sound instance that plays when riding a happy ghast.
-- `net.minecraft.client.sounds.MusicManager`
-    - `getCurrentMusicTranslationKey` - Returns the translation key of the currently playing music.
-    - `setMinutesBetweenSongs` - Sets the frequency between the background tracks.
-    - `$MusicFrequency` - The frequency of the background tracks being played.
+- `net.minecraft.client.sounds`
+    - `MusicManager`
+        - `getCurrentMusicTranslationKey` - Returns the translation key of the currently playing music.
+        - `setMinutesBetweenSongs` - Sets the frequency between the background tracks.
+        - `showNowPlayingToastIfNeeded` - Shows the now playing toast if it needs to be seen.
+        - `$MusicFrequency` - The frequency of the background tracks being played.
+    - `SoundEngine$PlayResult` - The starting state of the sound trying to be played.
 - `net.minecraft.commands.arguments`
     - `HexColorArgument` - An integer argument that takes in a hexadecimal color.
     - `ResourceOrIdArgument`
@@ -1742,11 +1833,15 @@ The permission checks for commands have been abstracted into its own `Permission
     - `ItemStackWithSlot` - A record which holds a stack along with its slot index.
 - `net.minecraft.world.entity`
     - `Entity`
+        - `MAX_MOVEMENTS_HANDELED_PER_TICK` - The maximum number of movements that can be applied to an entity in a given tick.
         - `isInClouds` - Returns whether the entity's Y position is between the cloud height and four units above.
         - `teleportSpectators` - Teleports the spectators currently viewing from the player's perspective.
         - `isFlyingVehicle` - Returns whether the vehicle can fly.
+        - `clearMovementThisTick` - Clears all movement the entity will make this tick.
     - `EntityAttachments#getAverage` - Returns the average location of all attachment points.
-    - `ExperienceOrb#awardWithDirection` - Adds an experience orb that moves via the specified vector.
+    - `ExperienceOrb`
+        - `awardWithDirection` - Adds an experience orb that moves via the specified vector.
+        - `unstuckIfPossible` - Attempts to find and move the orb to a free position.
     - `Mob` 
         - `isWithinHome` - Returns whether the position is within the entity's restriction radius.
         - `canShearEquipment` - Returns whether the current player can shear the equipment off of this mob.
@@ -1782,7 +1877,9 @@ The permission checks for commands have been abstracted into its own `Permission
         - `getPreMoveCollisions` - Returns an iterable of shapes containing the entity and block collisions at the given bounding box and futue movement direction.
         - `getBlockCollisionsFromContext` - Gets the block shapes from the given collision context.
     - `GameType#STREAM_CODEC`
-    - `Level#precipitationAt` - Returns the precipitation at a given position.
+    - `Level`
+        - `precipitationAt` - Returns the precipitation at a given position.
+        - `onBlockEntityAdded` - Logic to run when a block entity is added to the level.
 - `net.minecraft.world.level.block`
     - `BaseRailBlock#rotate` - Rotates the current rail shape in the associated direction.
     - `DriedGhastBlock` - A block that represents a dried ghast.
@@ -1839,12 +1936,20 @@ The permission checks for commands have been abstracted into its own `Permission
 - `net.minecraft.client.renderer`
     - `DimensionSpecialEffects` no longer takes in the current cloud level and whether there is a ground
     - `LightTexture#getTarget` -> `getTexture`
+- `net.minecraft.client.renderer.blockentity.BlockEntityRenderer#shouldRenderOffscreen` no longer takes in the `BlockEntity`
 - `net.minecraft.client.resources`
     - `AbstractSoundInstance#sound` is now `Nullable`
     - `SoundInstance#getSound` is now `Nullable`
 - `net.minecraft.client.sounds`
-    - `SoundEngine#pause` -> `pauseAllExcept`, not one-to-one
-    - `SoundManager#pause` -> `pauseAllExcept`, not one-to-one
+    - `SimpleSoundInstance#forMusic` now also takes in the `float` volume
+    - `SoundEngine` now takes in the `MusicManager`
+        - `pause` -> `pauseAllExcept`, not one-to-one
+        - `updateCategoryVolume` no longer takes in the gain
+        - `play` now returns a `$PlayResult`
+    - `SoundManager` now takes in the `MusicManager`
+        - `pause` -> `pauseAllExcept`, not one-to-one
+        - `play` now returns a `SoundEngine$PlayResult`
+        - `updateSourceVolume` no longer takes in the gain
 - `net.minecraft.commands.arguments`
     - `ResourceOrIdArgument` now takes in an arbitrary codec rather than a `Holder`-wrapped value
         - `ERROR_INVALID` -> `ERROR_NO_SUCH_ELEMENT`, now public, not one-to-one
@@ -1909,6 +2014,7 @@ The permission checks for commands have been abstracted into its own `Permission
     - `FlyingPathNavigation`, `GroundPathNavigation#setCanOpenDoors` -> `PathNavigation#setCanOpenDoors`
 - `net.minecraft.world.entity.ai.sensing.AdultSensor` now looks for a `LivingEntity`
     - `setNearestVisibleAdult` is now `protected`
+- `net.minecraft.world.entity.animal.*Variants#selectVariantToSpawn` -> `entity.variant.VariantUtils#selectVariantToSpawn`, not one-to-one
 - `net.minecraft.world.entity.animal.Fox#isJumping` -> `LivingEntity#isJumping`
 - `net.minecraft.world.entity.animal.horse.AbstractHorse`
     - `isJumping` -> `LivingEntity#isJumping`
@@ -1957,7 +2063,10 @@ The permission checks for commands have been abstracted into its own `Permission
 
 ### List of Removals
 
-- `net.minecraft.client.renderer.DimensionSpecialEffects#getCloudHeight`, `hasGround`
+- `com.mojang.blaze3d.audio.Listener#setGain`, `getGain`
+- `net.minecraft.client.renderer`
+    - `DimensionSpecialEffects#getCloudHeight`, `hasGround`
+    - `LevelRenderer#updateGlobalBlockEntities`
 - `net.minecraft.client.renderer.texture.AbstractTexture`
     - `defaultBlur`
     - `setFilter`
