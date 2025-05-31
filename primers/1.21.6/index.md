@@ -6,6 +6,10 @@ This primer is licensed under the [Creative Commons Attribution 4.0 Internationa
 
 If there's any incorrect or missing information, please file an issue on this repository or ping @ChampionAsh5357 in the Neoforged Discord server.
 
+Thank you to:
+
+- @Soaryn for some `ItemStack` best practices
+
 ## Pack Changes
 
 There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.6&tab=changelog).
@@ -66,7 +70,7 @@ There are three types of `GuiElementRenderState`s provided by vanilla: `BlitRend
 
 #### GuiItemRenderState
 
-`GuiItemRenderState` is a special case used to render an item to the screen. It takes in the stringified name of the item, the current pose, its XY coordinates, its scissor area, and its rendering bounds. The `ItemStackRenderState` it holds is what defines how the item is rendered.
+`GuiItemRenderState` is a special case used to render an item to the screen. It takes in the stringified name of the item, the current pose, its XY coordinates, and its scissor area. The `ItemStackRenderState` it holds is what defines how the item is rendered. The rendering bounds are computed based on the item model bounding box when `ClientItem$Properties#oversizedInGui` is true; otherwise, using a 16x16 square when false.
 
 Just before the 'render' phase, the `GuiRenderer` effectively turns the `GuiItemRenderState` into a `GuiElementRenderState`, more specifically a `BlitRenderState`. This is done by constructing an item atlas `GpuTexture` which the item is drawn to, and then that texture is submitted as a `BlitRenderState`. All `GuiItemRenderState`s use `RenderPipelines#GUI_TEXTURED_PREMULTIPLIED_ALPHA`.
 
@@ -84,7 +88,7 @@ Just before the 'render' phase, the `GuiRenderer` turns the `GuiTextRenderState`
 
 Picture-in-Picture is a special case used to render arbitrary objects to a `GpuTexture` to be passed into a `BlitRenderState`. A Picture-in-Picture is made up of two components the `PictureInPictureRenderState`, and the `PictureInPictureRenderer`.
 
-`PictureInPictureRenderState` is an interface which can store some data used to render the object to the texture. By default, it must supply the minimum and maximum XY coordinates, the texture scale, its scissor area, and its rendering bounds. Any other data can be added by the implementor.
+`PictureInPictureRenderState` is an interface which can store some data used to render the object to the texture. By default, it must supply the minimum and maximum XY coordinates, the texture scale, its scissor area, and its rendering bounds. You can also choose to specify the transformation matrix via `pose`. Any other data can be added by the implementor.
 
 ```java
 public record ExamplePIPRenderState(boolean data, int x0, int x1, int y0, int y1, float scale, @Nullable ScreenRectangle scissorArea, @Nullable ScreenRectangle bounds)
@@ -111,6 +115,21 @@ public class ExamplePIPRenderer extends PictureInPictureRenderer<ExamplePIPRende
     protected void renderToTexture(ExamplePIPRenderState renderState, PoseStack pose) {
         // Render whatever you want here
         // You can make use of the buffer source via `this.bufferSource`
+    }
+
+    @Override
+    protected void blitTexture(ExamplePIPRenderState renderState, GuiRenderState guiState) {
+        // You can override this if you want to change how your layer is submitted to the render state
+        // By default, this uses the `BlitRenderState`
+
+        // Remove this if you want to handle submission yourself
+        super.blitTexture(renderState, guiState);
+    }
+
+    @Override
+    protected boolean textureIsReadyToBlit(ExamplePIPRenderState renderState) {
+        // When true, this will skip setting up the textures and projection matrices and use whatever is currently available
+        return false;
     }
 
     @Override
@@ -179,9 +198,9 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
 
 To more generally handle screens which provide some basic functionalities -- such as confirmation screens, button selection, or user input, Vanilla has provided a generic dialog system. These dialogs can be constructed in a datapack and delivered on the client by calling `Player#openDialog`. The basic JSON description is documented in  [Minecraft Snapshot 25w20a](https://www.minecraft.net/en-us/article/minecraft-snapshot-25w20a).
 
-For a quick overiview, a basic `Dialog` contains the following components: a title, an optional external title for navigation, whether the screen can be closed by pressing 'esc', and its `DialogBody` contents. Everything else is determined by the dialog itself, but it has functionality for user inputs via `InputControl`s and submissions via `SubmitMethod`s. Buttons are typically added through `ClickAction`s which hold the common button data and an event to execute on click. If the dialog is canceled (e.g., closed), then `onCancel` is run.
+For a quick overiview, a basic `Dialog` contains the following components: a title, an optional external title for navigation, whether the screen can be closed by pressing 'esc', and its `DialogBody` contents. Everything else is determined by the dialog itself, but it has functionality for user inputs via `InputControl`s. Buttons are typically added through `ClickAction`s which hold the common button data and an event to execute on click. If the dialog is canceled (e.g., closed), then `onCancel` is run.
 
-`DialogBody`, `InputControl`, `SubmitMethod` are simply generic interfaces that have no defined structure. Implementing them, or any dialog for that matter, requires some registration to the available types on both the client and server.
+`DialogBody` and `InputControl` are simply generic interfaces that have no defined structure. Implementing them, or any dialog for that matter, requires some registration to the available types on both the client and server.
 
 #### Custom Bodies
 
@@ -221,15 +240,15 @@ Registry.register(BuiltInRegistries.DIALOG_BODY_TYPE, "examplemod:example_body",
 }
 ```
 
-How does this body actually render then? Well, that is done via a `DialogBodyHandler`. This contains a single method `createControls` that generates the `LayoutElement` to render given the `Screen` and the dialog data. This body handler can be linked to the `MapCodec` via `DialogBodyHandlers#register`.
+How does this body actually render then? Well, that is done via a `DialogBodyHandler`. This contains a single method `createControls` that generates the `LayoutElement` to render given the `DialogScreen` and the dialog data. This body handler can be linked to the `MapCodec` via `DialogBodyHandlers#register`.
 
 ```java
 public class ExampleDialogBodyHandler implements DialogBodyHandler<ExampleDialogBody> {
 
     @Override
-    public LayoutElement createControls(Screen screen, ExampleDialogBody body) {
+    public LayoutElement createControls(DialogScreen<?> screen, ExampleDialogBody body) {
         // Create the element (widgets, layouts, etc.)
-        return StringWidget(...);
+        return new StringWidget(...);
     }
 }
 
@@ -239,7 +258,7 @@ DialogBodyHandlers.register(BODY_CODEC, new ExampleDialogBodyHandler());
 
 #### Custom Inputs
 
-An `InputControl` represents some input a user can provide. This is generally made up of components that can accept or provide some string value based on a state. Some dialogs can provide these inputs; however, they are generally subtypes of `InputFormDialog`s for ease of implementation to `$Input`, which takes in some `key` string identifier and maps it to an `InputControl`. It only contains one method `mapCodec`, which is used as the registry key and encoder for the input control.
+An `InputControl` represents some input a user can provide, whether that would be some text or a button submission click. This is generally made up of components that can accept or provide some string value or tag based on a state. All dialogs can provide these inputs; through the `DialogControlSet`. It only contains one method `mapCodec`, which is used as the registry key and encoder for the input control.
 
 ```java
 public record ExampleInputControl(int value) implements InputControl {
@@ -275,7 +294,7 @@ Registry.register(BuiltInRegistries.INPUT_CONTROL_TYPE, "examplemod:example_inpu
 }
 ```
 
-Like above, the input is rendered via a `InputControlHandler`. This contains a single method `addControl`, which provides the `Screen` and input control and creates the `LayoutElement` and its associated value via `$Output`. This input handler can be linked to the `MapCodec` via `InputControlHandlers#register`.
+Like above, the input is rendered via a `InputControlHandler`. This contains a single method `addControl`, which provides the `Screen` and input control and creates the `LayoutElement` and its associated `Action$ValueGetter` via `$Output`. This input handler can be linked to the `MapCodec` via `InputControlHandlers#register`.
 
 ```java
 public class ExampleInputControlHandler implements InputControlHandler<ExampleInputControl> {
@@ -290,7 +309,7 @@ public class ExampleInputControlHandler implements InputControlHandler<ExampleIn
             // The element to render
             box,
             // The value output of the input
-            box::getValue
+            Action.ValueGetter.of(box::getValue)
         );
     }
 }
@@ -299,67 +318,68 @@ public class ExampleInputControlHandler implements InputControlHandler<ExampleIn
 InputControlHandlers.register(INPUT_CODEC, new ExampleInputControlHandler());
 ```
 
-#### Custom Submissions
+### Custom Actions
 
-A `SubmitMethod` represents some action taken, generally when submitting a form. This is made up of a component that sends information somewhere, usually the server. Some dialogs can provide these submissions; however, they are generally subtypes of `InputFormDialog`s for ease of implementation to `$SubmitAction`, which takes in some `id` string identifier, `CommonButtonData` that is clicked, and maps it to a `SubmitMethod`. It only contains one method `mapCodec`, which is used as the registry key and encoder for the submit method.
+As shown above, an input can provide some value to pass to an `Action`. The former is known as a `$ValueGetter`, which essentially gets a stringified or tagged input to use. The latter, meanwhile, ends up creating the `ClickEvent` that is sent to the server. These are typically created through `ActionButton`s which defines some common button data along with the `Action` to perform.
+
+A custom action contains two methods: one which returns the `MapCodec` (`codec`) to use during encoding, while the other creates the `ClickEvent` based on the map of input strings to their `$ValueGetter`s.
 
 ```java
-public record ExampleSubmitMethod() implements SubmitMethod {
-    public static final MapCodec<ExampleSubmitMethod> SUBMIT_CODEC = MapCodec.unit(new ExampleSubmitMethod());
+public record ExampleAction() implements Action {
+    public static final MapCodec<ExampleAction> ACTION_CODEC = MapCodec.unit(new ExampleAction());
 
     @Override
-    public MapCodec<? extends SubmitMethod> mapCodec() {
-        return SUBMIT_CODEC;
+    public MapCodec<? extends Action> codec() {
+        return ACTION_CODEC;
+    }
+
+    @Override
+    public Optional<ClickEvent> createAction(Map<String, Action.ValueGetter> keysToGetters) {
+        // Handle how you want to map the key input map to some click event
+        return Optional.empty();
     }
 }
 
 // Register the codec to the registry
-Registry.register(BuiltInRegistries.SUBMIT_METHOD_TYPE, "examplemod:example_submit", ExampleSubmitMethod.SUBMIT_CODEC);
+Registry.register(BuiltInRegistries.DIALOG_ACTION_TYPE, "examplemod:example_action", ExampleAction.ACTION_CODEC);
 ```
 
 ```json5
-// For some dialog (assume `minecraft:simple_input_form`)
+// For some dialog (assume `minecraft:notice`)
 {
     "action": {
-        // The identifier for this submission button
-        // Provided as the `action` header in a payload
-        "id": "example_submit",
-        
         // Button data
         "label": "Example!",
         "tooltip": "This is an example!",
         "width": 80,
 
-        // Our submit method
-        "type": "examplemod:example_submit"
+        // The action to perform
+        "action": {
+            // Out action type
+            "type": "examplemod:example_action"
+        }
     }
 }
 ```
 
-Like above, the method is executed via a `SubmitMethodHandler`. This contains a single method `createCallback`, which returns a `$Callback` to send the user input and submission method. This submit method can be linked to the `MapCodec` via `SubmitMethodHandlers#register`.
+Depending on how you implement your `Dialog` below, the action button will automatically be added to the screen, or you will need to add it in one of the methods via `DialogControlSet#createActionButton`:
 
 ```java
-public class ExampleSubmitMethodHandler implements SubmitMethodHandler<ExampleSubmitMethod> {
-
-    @Override
-    public SubmitMethodHandler.Callback createCallback(ExampleSubmitMethod method) {
-        // Handle what to do on submission
-        return (connectionAccess, payload, dialogScreen) -> connectionAccess.sendCustomAction(...);
-    }
+// For some DialogScreen implementation, we will assume some `SimpleDialog`
+@Override
+protected void updateHeaderAndFooter(HeaderAndFooterLayout layout, DialogControlSet controls, SimpleDialog dialog, DialogConnectionAccess access) {
+    dialog.mainActions().forEach(actionButton -> layout.addToFooter(controls.createActionButton(actionButton).build()));
 }
-
-// Note that `register` is not public, so this needs to be access widened
-SubmitMethodHandlers.register(SUBMIT_CODEC, new ExampleSubmitMethodHandler());
 ```
 
 #### Custom Dialogs
 
-A `Dialog` is pretty much all of the above components put together as desired. It is up to the user to choose how to implement them. Every `Dialog` must provide its `CommonDialogData`, which defines the basic title, body contents, and functionality. In additional, a `Dialog` may choose to execute a `ClickEvent` on close via `onCancel`.
+A `Dialog` is pretty much all of the above components put together as desired. It is up to the user to choose how to implement them. Every `Dialog` must provide its `CommonDialogData`, which defines the basic title, body contents, and functionality. In additional, a `Dialog` may choose to execute an `Action` on close via `onCancel`.
 
 ```java
 // `common` is already implemented by the record
 public record ExampleDialog(CommonDialogData common, boolean val1, int val2) implements Dialog {
-    public static final MapCodec<ExampleSubmitMethod> DIALOG_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
+    public static final MapCodec<ExampleDialog> DIALOG_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
         CommonDialogData.MAP_CODEC.forGetter(ExampleDialog::common),
         Codec.BOOL.fieldOf("val1").forGetter(ExampleDialog::val1),
         Codec.INT.fieldOf("val2").forGetter(ExampleDialog::val2)
@@ -371,7 +391,7 @@ public record ExampleDialog(CommonDialogData common, boolean val1, int val2) imp
     }
 
     @Override
-    public Optional<ClickEvent> onCancel() {
+    public Optional<Action> onCancel() {
         // You can choose to return something here, or empty if nothing should be done
         return Optional.empty();
     }
@@ -390,6 +410,7 @@ Registry.register(BuiltInRegistries.DIALOG_TYPE, "examplemod:example_dialog", Ex
     // Common button data
     "title": "Example dialog!",
     "can_close_with_escape": true,
+    "after_action": "wait_for_response",
 
     // Our custom params
     "val1": true,
@@ -408,6 +429,16 @@ public class ExampleDialogScreen extends DialogScreen<ExampleDialog> {
 
     // You can choose to implement the other methods as you wish
     // See existing dialog screens for an example
+
+    @Override
+    protected void populateBodyElements(LinearLayout layout, DialogControlSet controls, ExampleDialog dialog, DialogConnectionAccess access) {
+        // Add elements and actions to the body of the screen (usually the center)
+    }
+
+    @Override
+    protected void updateHeaderAndFooter(HeaderAndFooterLayout layout, DialogControlSet controls, ExampleDialog dialog, DialogConnectionAccess access) {
+        // Add elements and actions to the header and footter of the screen (top and bottom)
+    }
 }
 
 // Note that `register` is not public, so this needs to be access widened
@@ -419,6 +450,7 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
     - `Font`
         - `drawInBatch` no longer returns anything
         - `prepareText` - Prepares the text to be rendered to the screen.
+        - `splitIgnoringLanguage` - Splits the text in the order provided without being processed by the language handler.
         - `ALPHA_CUTOFF` is removed
         - `$GlyphVisitor` - An interface that handles a glyph or effect to be rendered.
         - `$PreparedText` - An interface that defines how a piece of text should be rendered by visiting each glyph.
@@ -456,9 +488,13 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
     - `LogoRenderer#keepLogoThroughFade` - When true, keeps the logo visible even when the title screen is fading.
     - `MultiLineEditBox` is now package private and should be constructed via `builder`, calling the `$Builder#set*` methods
         - `setLineLimit` - Sets the line limit of the text field.
+    - `MultiLineLabel`
+        - `getStyleAtCentered` - Computes the component style for centered text.
+        - `getStyleAtLeftAligned` - Computes the component style for left aligned text.
     - `MultilineTextField#NO_CHARACTER_LIMIT` -> `NO_LIMIT`
         - `setLineLimit` - Sets the maximum number of lines that can be written on the text field.
         - `hasLineLimit` - Returns whether the text field has some line limit.
+    - `MultiLineTextWidget#configureStyleHandling` - Sets whether something is displayed when hovering over components and what to do on click.
     - `ScrollableLayout` - A layout with some defined bounds that can be scrolled through.
     - `SplashRenderer#render` now takes in a float for the R color instead of an int
     - `WidgetTooltipHolder#refreshTooltipForNextRenderPass` now takes in the `GuiGraphics` and the XY position
@@ -509,6 +545,7 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
     - `GuiProfilerChartRenderer` - A renderer for the profiler chart.
     - `GuiSignRenderer` - A renderer for the sign background in the edit screen.
     - `GuiSkinRenderer` - A renderer for a player with a given skin.
+    - `OversizedItemRenderer` - A rendered for when an item model should be rendered larger than its item slot.
     - `PictureInPictureRenderer` - An abstract class meant for rendering dynamic elements that are not standard 2d elements, items, or text.
 - `net.minecraft.client.gui.render.state`
     - `BlitRenderState` - An element state for a basic 2d texture blit.
@@ -527,9 +564,18 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
     - `GuiProfilerChartRenderState` - The state of the profiler chart.
     - `GuiSignRenderState` - The state of the sign background in the edit screen.
     - `GuiSkinRenderState` - The state of a player with a given skin.
+    - `OversizedItemRenderState` - The state of an item model that can be rendered at an arbitrary size.
     - `PictureInPictureRenderState` - An interfaces that defines the basic state necessary to render the picture-in-picture to the screen.
 - `net.minecraft.client.gui.screens`
-    - `PauseScreen#rendersNowPlayingToast` - Returns whether the 'Now Playing' toast should be rendered.
+    - `ConfirmScreen`
+        - `layout` - Defines a vertical list of elements spaced by eight units.
+        - `yesButton`, `noButton` -> `yesButtonComponent`, `noButtonComponent`
+            - `yesButton`, `noButton` now represent the actual buttons
+        - `addAdditionalText` - Adds any additional text before the buttons in the layout.
+        - `addButtons` - Adds the buttons in the layout.
+    - `PauseScreen`
+        - `rendersNowPlayingToast` - Returns whether the 'Now Playing' toast should be rendered.
+        - `onDisconnect` -> `disconnectFromWorld`, now public and static; not one-to-one
     - `Screen`
         - `CUBE_MAP` -> `net.minecraft.client.renderer.GameRenderer#cubeMap`
         - `PANORAMA` -> `net.minecraft.client.renderer.GameRenderer#panorama`
@@ -544,24 +590,20 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
 - `net.minecraft.client.gui.screeens.dialog`
     - `ButtonListDialogScreen` - A dialog screeen that contains some list of buttons.
     - `DialogConnectionAccess` - A client side interface that processes general interaction information from the dialog.
+    - `DialogControlSet` - An input handler for a dialog screen.
     - `DialogListDialogScreen` - A button list of `DialogListDialog`s.
     - `DialogScreen` - A screen for some dialog modal.
     - `DialogScreens` - A factory registry of dialog modals to their associated screen.
-    - `InputFormControlSet` - A handler for input dialogs.
-    - `MultiActionInputFormDialogScreen` - A dialog screen for a `MultiActionInputFormDialog`.
     - `MultiButtonDialogScreen` - A button list of `MultiActionDialog`s.
     - `ServerLinksDialogScreen` - A button list of `ServerLinksDialog`s.
     - `SimpleDialogScreen` - A dialog screen for some simple dialog.
-    - `SimpleInputFormDialogScreen` - A dialog screen for a `SimpleInputFormDialog`.
+    - `WaitingForResponseScreen` - A screen that handles the downtime between client/server communication of dialog submissions.
 - `net.minecraft.client.gui.screens.dialog.body`
     - `DialogBodyHandler` - A list of body elements describing the contents between the title and actions/inputs.
     - `DialogBodyHandlers` - A registry of `DialogBody`s to their `DialogBodyHandler`s.
 - `net.minecraft.client.gui.screens.dialog.input`
     - `InputControlHandler` - A user input handler.
     - `InputControlHandlers`- A registry of `InputControl`s to their `InputControlHandler`s.
-- `net.minecraft.client.gui.screens.dialog.submit`
-    - `SubmitMethodHandler` - A handler to collect and send the user inputs to the server.
-    - `SubmitMethodHandlers` - A registry of `SubmitMethod`s to their `SubmitMethodHandler`s.
 - `net.minecraft.client.gui.screens.inventory`
     - `AbstractContainerScreen`
         - `SLOT_ITEM_BLIT_OFFSET` is removed
@@ -573,7 +615,9 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
     - `BookEditScreen`
         - `TEXT_*`, `IMAGE_*`, `BACKGROUND_TEXTURE_*` are now public
     - `BookSignScreen` - A screen for signing a book.
-    - `BookViewScreen$BookAccess#getPage` now returns a `Component`
+    - `BookViewScreen`
+        - `closeScreen` -> `closeContainerOnServer`, not one-to-one
+        - `$BookAccess#getPage` now returns a `Component`
     - `EffectsInInventory`
         - `renderEffects` is now public
         - `renderTooltip` has been overloaded to a public method
@@ -587,6 +631,7 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
     - `PlayerEntry#refreshHasDraftReport` - Sets whether the current context as a report for this player.
     - `SocialInteractionsPlayerList#refreshHasDraftReport` - Refreshes whether the current context as a report for all players.
 - `net.minecraft.client.gui.screens.worldselection.ExperimentsScreen$ScrollArea` class is removed, replaced by the `ScrollableLayout`
+- `net.minecraft.client.model.geom.ModelPart#getExtentsForGui` - Gets the set of vectors representing the part transformed into their approriate space.
 - `net.minecraft.client.multiplayer.ClientCommonPacketListenerImpl`
     - `showDialog` - Shows the current dialog, creating the screen dynamically.
     - `serverLinks` - Returns the entries of server links the client can access.
@@ -619,22 +664,40 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
         - The constructor takes in the current `Minecraft` instance and a `MultiBufferSource`
         - `renderScreenEffect` is now an instance method, taking in whether the entity is sleeping and the partial tick
         - `resetItemActivation`, `displayItemActivation` - Handles when an item is automatically activated (e.g., totem).
+- `net.minecraft.client.renderer.blockentity`
+    - `*Renderer#getExtents` - Adds the transformed vectors representing all models to a set.
+    - `HangingSignRenderer`
+        - `MODEL_RENDER_SCALE` is now public
+        - `translateBase` is now public
+    - `SignRenderer`
+        - `RENDER_SCALE` is now public
+        - `applyInHandTransforms` - Transforms the stack to properly represent the held sign's position.
+    - `SkullBlockRenderer#getRenderType(SkullBlock$Type, ResolvableProfile, ResourceLocation)` -> `getSkullRenderType`, `getPlayerSkinRenderType`; not one-to-one
 - `net.minecraft.client.renderer.entity.ItemRenderer`
     - `GUI_SLOT_CENTER_X`, `GUI_SLOT_CENTER_Y`, `ITEM_DECORATION_BLIT_OFFSET` are removed
     - `COMPASS_*` -> `SPECIAL_*`
-- `net.minecraft.client.renderer.item.ItemStackRenderState`
-    - `setAnimated`, `isAnimated` - Returns whether the item is animated (e.g., foil).
-    - `appendModelIdentityElement`, `getModelIdentity`, `clearModelIdentity` - Handles the identity component being rendered.
+- `net.minecraft.client.renderer.item`
+    - `ClientItem$Properties#oversizedInGui` - When true, allows an item to render outside the 16x16 box in a GUI; otherwise, clips the size to the box.
+    - `ItemStackRenderState`
+        - `setAnimated`, `isAnimated` - Returns whether the item is animated (e.g., foil).
+        - `appendModelIdentityElement`, `getModelIdentity`, `clearModelIdentity` - Handles the identity component being rendered.
+        - `getModelBoundingBox` - Computes the bounding box of the model.
+        - `setOversizedInGui`, `isOversizedInGui` - Handles when the item can be oversized in the GUI based on its property.
+- `net.minecraft.client.renderer.special`
+    - `PlayerHeadSpecialRenderer` - Renders an player head based on its render info.
+    - `SkullSpecialRenderer` now implements `NoDataSpecialModelRenderer`, no longer taking in the model or texture override, instead just the `RenderType` to use
+    - `SpecialModelRenderer#getExtents` - Adds the transformed vectors representing all models used by this renderer to a set.
 - `net.minecraft.client.renderer.texture.TextureAtlasSprite#isAnimated` - Returns whether the sprite has any animation.
 - `net.minecraft.commands.arguments.ResourceOrIdArgument#dialog`, `getDialog`, `$DialogArgument` - Handles command arguments for dialog screens.
 - `net.minecraft.core.registries`
-    - `BuiltInRegistries#DIALOG_TYPE`, `SUBMIT_METHOD_TYPE`, `INPUT_CONTROL_TYPE`, `DIALOG_BODY_TYPE`
-    - `Registries#DIALOG_TYPE`, `SUBMIT_METHOD_TYPE`, `INPUT_CONTROL_TYPE`, `DIALOG_BODY_TYPE`, `DIALOG`
+    - `BuiltInRegistries#DIALOG_TYPE`, `DIALOG_ACTION_TYPE`, `INPUT_CONTROL_TYPE`, `DIALOG_BODY_TYPE`
+    - `Registries#DIALOG_TYPE`, `DIALOG_ACTION_TYPE`, `INPUT_CONTROL_TYPE`, `DIALOG_BODY_TYPE`, `DIALOG`
 - `net.minecraft.data.tags.DialogTagsProvider` - A tags provider for dialogs.
 - `net.minecraft.network.chat`
     - `ClientEvent`
         - `$Action#SHOW_DIALOG`, `CUSTOM`
-        - `$Custom` - An event that contains some payload to send to the server, currently does nothing.
+            - `valueCodec` - Returns the map codec used to encode this action.
+        - `$Custom` - An event that contains some nbt payload to send to the server, currently does nothing.
         - `$ShowDialog` - An event that shows the specified dialog.
     - `CommonComponents`
         - `GUI_RETURN_TO_MENU` - The component that displays the 'Return to Menu' text.
@@ -644,22 +707,28 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
     - `ClientboundShowDialogPacket` - Opens a new dialog screen.
     - `ServerboundCustomClickActionPacket` - Sends a custom action to the server.
 - `net.minecraft.server.dialog`
+    - `ActionButton` - A button that can perform some `Action` on click.
     - `ButtonListDialog` - A dialog modal that has some number of colums to click buttons of.
-    - `ClickAction` - A button that can perform some `ClickEvent` on click.
     - `CommonButtonData` - The data that is associated with every button within a dialog modal.
     - `CommonDialogData` - The data that is associated with every dialog modal.
     - `ConfirmationDialog` - A dialog modal wheter you can either click yes or no.
     - `Dialog` - The base interface that defines some dialog modal.
+    - `DialogAction` - The action to perform typically after some action button is clicked.
     - `DialogListDialog` - A scrollable list of buttons that lead to other dialogs.
     - `Dialogs` - A datapack bootstrap registering `Dialog`s.
     - `DialogTypes` - A registry of map codecs to encode some dialog model.
-    - `InputFormDialog` - A dialog that takes in some input from the user.
+    - `Input` - A handler that maps some key to an `InputControl`.
     - `MultiActionDialog` - A scrollable list of actions arrange in columns.
-    - `MultiActionInputFormDialog` - A screen that accepts user inputs with multiple submit actions.
     - `NoticeDialog` - A simple screen with one action in the footer.
     - `ServerLinksDialog` - A scrollable list of links received from the server, arrange in columns.
     - `SimpleDialog` - A dialog that defines the main actions that can be taken.
-    - `SimpleInputFormDialog` - A screen that accepts user inputs with one submit action.
+- `net.minecraft.server.dialog.action`
+    - `Action` - A general operation to perform on some input, usually a button click.
+    - `ActionTypes` - A registry of map codecs to encode some action.
+    - `CustomTemplate` - Builds a command and requests the server to run it.
+    - `CustomAll` - Builds a custom server click action from all inputs and requests the server to run it.
+    - `ParsedTemplate` - A template that encodes some string similar to how function macros work.
+    - `StaticAction` - An action that fires a `ClickEvent` on activation.
 - `net.minecraft.server.dialog.body`
     - `DialogBody` - A body element describing the content between the title and actions/inputs.
     - `DialogBodyTypes` - A registry of map codecs to encode some body.
@@ -672,14 +741,6 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
     - `NumberRangeInput` - A slider for picking a numeric value from some range.
     - `SingleOptionInput` - A button that cycles between a set of options.
     - `TextInput` - Simple text input.
-- `net.minecraft.server.dialog.submit`
-    - `CommandTemplate` - Builds a command and requests the server to run it.
-    - `CustomForm` - Builds a custom server click action from all input values and requests the server to run it.
-    - `CustomSubmitMethod` - A method that sends a payload to the server to handle, currently does nothing.
-    - `CustomTemplate` - Builds a custom server click action to send to the server.
-    - `ParsedTemplate` - A template that encodes some string similar to how function macros work.
-    - `SubmitMethod` - A method that typically provides some callback to run when a button is clicked.
-    - `SubmitMethodTypes` - A registry of map codecs to encode some submit method.
 - `net.minecraft.world.entity.player.Player#openDialog` - Opens the specified dialog screen.
 
 ## Waypoints
@@ -1076,7 +1137,7 @@ The scissoring state has been removed from the generic pipeline code, now only a
         - `persistentBuffer` - Holds a reference to an immutable section of some buffer.
         - `$ReadView` -> `$GlMappedView`
     - `GlCommandEncoder`
-        - `executeDrawMultiple` now takes in a collection of strings that defines the list of required uniforms
+        - `executeDrawMultiple` now takes in a collection of strings that defines the list of required uniforms and a generic indicating the object of the draw call
         - `executeDraw` now takes in two `int`, the number of instances of the specified range of indices to be rendered and the base vertex
     - `GlConst#toGl` for `BufferType` and `BufferUsage` -> `bufferUsageToGlFlag`, `bufferUsageToGlEnum`
     - `GlDebugLabel#pushDebugGroup`, `popDebugGroup` - Profiler commands for grouping similar calls.
@@ -1095,7 +1156,6 @@ The scissoring state has been removed from the generic pipeline code, now only a
         - `pushedDebugGroups` - Returns the number of groups pushed onto the stack. No debug groups must be open for the render pass to be closed.
         - `isScissorEnabled` - Returns whether the scissoring state is enabled which crops the area that is rendered to the screen.
         - `getScissorX`, `getScissorY`, `getScissorWidth`, `getScissorHeight` - Returns the values representing the scissored rectangle.
-        - `$ScissorState` - A class that holds a bounding rectangle to render within.
     - `GlTexture` now takes in an additional integer for the usage and depth/layers
         - `flushModeChanges` now takes in an `int` which represents the texture target
         - `addViews`, `removeViews` - Manages the views looking at a texture for some mip levels.
@@ -1134,11 +1194,14 @@ The scissoring state has been removed from the generic pipeline code, now only a
         - `bindSampler` can now take in a nullable `GpuTextureView`
         - `setUniform` can either take in a `GpuBuffer` or `GpuBufferSlice` instead of the raw inputs
         - `drawIndexed` now takes the following `int`s: the base vertex, the start index, the number of elements, and the prim count
-        - `drawMultipleIndexed` now takes in a collection of strings that defines the list of required uniforms
+        - `drawMultipleIndexed` now takes in a collection of strings that defines the list of required uniforms and a generic indicating the object of the draw call
         - `pushDebugGroup`, `popDebugGroup` - Profiler commands for grouping similar calls.
         - `$UniformUploader#upload` now takes in a `GpuBufferSlice` instead of an array of `float`s
+        - `$Draw` now has a generic that passed in to upload any uniforms to the buffer
     - `RenderSystem`
-        - `SCISSOR_STATE`, `enableScissor`, `disableScissor` are removed
+        - `SCISSOR_STATE` -> `scissorStateForRenderTypeDraws`, now private
+            - Accessible through `getScissorStateForRenderTypeDraws`
+        - `enableScissor`, `disableScissor` -> `enableScissorForRenderTypeDraws`, `disableScissorForRenderTypeDraws`, not one to one
         - `PROJECTION_MATRIX_UBO_SIZE` - Returns the size of the projection matrix uniform
         - `setShaderFog`, `getShaderFog` now deals with a `GpuBufferSlice`
         - `setShaderGlintAlpha`, `getShaderGlintAlpha` is removed
@@ -1151,7 +1214,6 @@ The scissoring state has been removed from the generic pipeline code, now only a
         - `bindDefaultUniforms` - Binds the default uniforms to be used within a `RenderPass`
         - `outputColorTextureOverride`, `outputDepthTextureOverride` are now `GpuTextureView`s
         - `setupOverlayColor`, `setShaderTexture`, `getShaderTexture` now operate on `GpuTextureView`s instead of `GpuTexture`s
-    - `ScissorState` class is removed
 - `com.mojang.blaze3d.textures`
     - `GpuTexture` now takes in an int representing the usage flags and number of depth/layers
         - `usage` - The flags that define how the texture can be used.
@@ -1394,7 +1456,7 @@ As such, most methods that take in a `CompoundTag` now instead take in a `ValueI
 protected void readAdditionalSaveData(ValueInput in) {
     super.readAdditionalSaveData(in);
     // By default, the input uses a registry ops
-    this.stack = in.read("example_stack", ItemStack.CODEC).orElse(null);
+    this.stack = in.read("example_stack", ItemStack.CODEC).orElse(ItemStack.EMPTY);
 }
 
 @Override
@@ -1708,6 +1770,8 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
         - `chunkBufferLayers` is removed
 - `net.minecraft.client.renderer.chunk`
     - `ChunkSectionLayer` - An enum that defines how an individual chunk layer (e.g., solid blocks, translucent blocks) is rendered.
+    - `ChunkSectionLayerGroup` - An enum that groups the layers for rendering.
+    - `ChunkSectionsToRender` - A record that contains the draws of a given chunk, allowing them to be rendered per layer group.
     - `RenderChunk` -> `SectionCopy`
     - `RenderChunkRegion` -> `RenderSectionRegion`
     - `RenderRegionCache#createRegion` now takes in a `long` instead of a `SectionPos`
@@ -1728,6 +1792,7 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
             - `getDistToPlayerSqr` is removed
             - `getCompiled` -> `getSectionMesh`, not one-to-one
             - `rebuildSectionAsync` no longer takes in the `SectionRenderDispatcher`
+            - `setDynamicTransformIndex`, `getDynamicTransformIndex` are removed
         - `$SectionBuffers` -> `SectionBuffers`
         - `$TranslucencyPointOfView` -> `TranslucencyPointOfView`
 - `net.minecraft.world.level.chunk.ChunkAccess#isSectionEmpty` is removed
@@ -1740,6 +1805,7 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
     - `triggers_ambient_dried_ghast_block_sounds`
 - `minecraft:dialog`
     - `pause_screen_additions`
+    - `quick_actions`
 - `minecraft:entity_type`
     - `can_equip_harness`
     - `followable_friendly_mobs`
@@ -1759,11 +1825,15 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
     - `outputColorTextureOverride` - Holds a texture containing the override color used instead of whatever is specified in the `RenderType` target.
     - `outputDepthTextureOverride` - Holds a texture containing the override depth used instead of whatever is specified in the `RenderType` target.
 - `com.mojang.blaze3d.textures.GpuTexture#setUseMipmaps` - Sets whether the texture should use mipmaps at different distances.
-- `net.minecraft.WorldVersion$Simple` - A simple implementation of the current world version.
+- `net.minecraft`
+    - `FileUtil#isPathPartPortable` - Returns whether the provided string does not match any of the windows reserved filenames.
+    - `WorldVersion$Simple` - A simple implementation of the current world version.
 - `net.minecraft.advancements.critereon.ItemUsedOnLocationTrigger$TriggerInstance#placedBlockWithProperties` - Creates a trigger where a block was placed with the specified property.
 - `net.minecraft.client`
     - `GameNarrator#saySystemChatQueued` - Narrates a component if either system or chat message narration is enabled.
+    - `Minecraft#disconnectWithSavingScreen` - Disconnects the current client instance and shows the 'Saving Level' screen.
     - `Options`
+        - `keyQuickActions` - A key mapping for showing the quick actions dialog.
         - `cloudRange` - Returns the maximum distance clouds can render at.
         - `musicFrequency` - Returns how frequency the background music handled by the `MusicManager` should play.
         - `showNowPlayingToast` - Returns whether the 'Now Playing' toast is shown.
@@ -1779,7 +1849,10 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
     - `GhastModel#animateTentacles` - Animates the tentacles of a ghast.
     - `HappyGhastHarnessModel` - A model representing the a ghast harness.
     - `HappyGhastModel` - A model representing a 'tamed' ghast.
-    - `QuadrupedModel#createBodyMesh` now takes in two booleans for handling if the left and right hind leg textures are mirrored, respectively. 
+    - `QuadrupedModel#createBodyMesh` now takes in two booleans for handling if the left and right hind leg textures are mirrored, respectively.
+- `net.minecraft.client.multiplayer.ClientLevel`
+    - `DEFAULT_QUIT_MESSAGE` - The component holding the quit game text.
+    - `disconnect(Copmonent)` - Disconnects from the current level instance, showing the associated component.
 - `net.minecraft.client.renderer.entity.HappyGhastRenderer` - The renderer for a 'tamed' ghast.
 - `net.minecraft.client.renderer.entity.layers.RopesLayer` - The render layer for the ropes used on a 'tamed' ghast.
 - `net.mienecraft.client.renderer.entity.state.HappyGhastRenderState` - The state of a 'tamed' ghast.
@@ -1810,11 +1883,14 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
 - `net.minecraft.network.codec.ByteBufCodecs`
     - `RGB_COLOR` - A stream codec that writes the RGB using three bytes.
     - `lenientJson` - Creates a stream codec that parses a json in lenient mode.
+    - `optionalTagCodec` - Creates a stream codec that parses an `Optional`-wrapped `Tag` using the supplied `NbtAccounter`.
 - `net.minecraft.network.protocol.game`
     - `ServerboundChangeGameModePacket` - Changes the current gamemode.
     - `ServerboundCustomClickActionPacket` - Executes a custom action on the server, currently does nothing.
 - `net.minecraft.server.MinecraftServer#handleCustomClickAction` - Handles a custom action sent from a click event.
-- `net.minecraft.server.level.ServerLevel#updateNeighboursOnBlockSet` - Updates the neighbors of the current position. If the blocks are not the same (not including their properties), then `BlockState#affectNeighborsAfterRemoval` is called.
+- `net.minecraft.server.level.ServerLevel`
+    - `updateNeighboursOnBlockSet` - Updates the neighbors of the current position. If the blocks are not the same (not including their properties), then `BlockState#affectNeighborsAfterRemoval` is called.
+    - `waitForChunkAndEntities` - Adds a task that causes the server to wait until entities are loaded in the provided chunk range.
 - `net.minecraft.stats`
     - `RecipeBookSettings#MAP_CODEC`
     - `ServerRecipeBook#pack`, `loadUntrusted`, `$Packed` - Handles encoding and decoding the data of the recipe book.
@@ -1825,6 +1901,7 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
     - `ExtraCodecs`
         - `VECTOR2F`
         - `VECTOR3I`
+        - `NBT`
     - `LenientJsonParser` - A json parser using lenient rules.
     - `Mth#smallestSquareSide` - Takes the ceiled square root of a number.
     - `StrictJsonParser` - A json parser using strict rules.
@@ -1859,6 +1936,7 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
 - `net.minecraft.world.entity.monster.Ghast`
     - `faceMovementDirection` - Rotates the entity to face its current movement direction.
     - `$RandomFloatAroundGoal#getSuitableFlyToPosition` - Gets a position that the ghast should fly to.
+- `net.minecraft.world.entity.player.Inventory#SLOT_BODY_ARMOR`, `SLOT_SADDLE` - The indicies for the corresponding slot.
 - `net.minecraft.world.entity.projectile.ProjectileUtil#computeMargin` - Computes the bounding box margin to check for a given entity based on its tick count.
 - `net.minecraft.world.item.component`
     - `ItemAttributeModifiers`
@@ -1871,6 +1949,7 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
     - `Equippable$Builder`
         - `setCanBeSheared` - Sets whether the equipment can be sheared off the entity.
         - `setShearingSound` - Sets the sound to play when a piece of equipment is sheared off an entity.
+    - `ResolvableProfile#pollResolve` - Returns the profile of the stored id or name.
 - `net.minecraft.world.item.equipment.Equippable#harness` - Represents a harness to equip.
 - `net.minecraft.world.level`
     - `CollisionGetter`
@@ -1914,7 +1993,9 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
         - `sayChat` -> `sayChatQueued`
         - `say` -> `saySystemQueued`
         - `sayNow` -> `saySystemNow`
-    - `Minecraft#grabPanoramixScreenshot` no longer takes in the window width and height to set
+    - `Minecraft`
+        - `grabPanoramixScreenshot` no longer takes in the window width and height to set
+        - `disconnect()` -> `disconnectWithProgressScreen`
     - `Screenshot#grab`, `takeScreenshot` now takes in an `int` representing the downscale factor
 - `net.minecraft.client.main.GameConfig$QuickPlayData` now takes in a `$QuickPlayVariant`
     - `path` -> `logPath`
@@ -1960,7 +2041,11 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
     - `isValidVariableName` is now public
 - `net.minecraft.data.recipes.RecipeProvider#colorBlockWithDye` -> `colorItemWithDye`, now takes in the `RecipeCategory`
 - `net.minecraft.gametest.framework.GameTestInfo#prepareTestStructure` is now nullable
-- `net.minecraft.network.FriendlyByteBuf#readJsonWithCodec` -> `readLenientJsonWithCodec`
+- `net.minecraft.network`
+    - `Connection#send` now takes in a `ChannelFutureListener` instead of a `PacketSendListener`
+    - `FriendlyByteBuf#readJsonWithCodec` -> `readLenientJsonWithCodec`
+    - `PacketSendListener` is now a class whose methods return `ChannelFutureListener`s instead of `PacketSendListener`s
+        - `onSuccess`, `onFailure` are removed
 - `net.minecraft.network.codec`
     - `ByteBufCodecs#fromCodec` now has an overload that takes in some ops and a codec
     - `StreamCodec#composite` now has an overload that takes in ten parameters
@@ -1973,6 +2058,7 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
         - `$NodeInspector` - An agent that checks the information of a given command node.
     - `ServerboundChangeDifficultyPacket` is now a record
 - `net.minecraft.server.ReloadableServerRegistries$Holder#lookup` returns a `HolderLookup$Provider`
+- `net.minecraft.server.network.ServerCommonPacketListenerImpl#send` now takes in a `ChannelFutureListener` instead of a `PacketSendListener`
 - `net.minecraft.sounds.Music` is now a record
 - `net.minecraft.stats.RecipeBookSettings`
     - `getSettings` is now public
@@ -1984,6 +2070,7 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
         - `collidedWithFluid`, `collidedWithShapeMovingFrom` are now public
         - `canBeCollidedWith` now takes the entity its colliding with
         - `spawnAtLocation` now has an overload that takes in a `Vec3` for the offset position
+        - `removeLatestMovementRecordingBatch` -> `removeLatestMovementRecording`
     - `EntityReference` is now final
     - `ExperienceOrb` now has an overload that takes in two vectors for the position and movement
     - `FlyingMob` is replaced by calling `LivingEntity#travelFlying`
@@ -2026,9 +2113,11 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
         - `$GhastMoveControl` is now public, taking in whether it should be careful when moving and a supplied boolean of whether the ghast should stop moving
         - `$RandomFloatAroundGoal` is now `public`, taking in a `Mob` and a block distance
     - `Phantom` now implements `Mob`
-- `net.minecraft.world.entity.player.Abilities`
-    - `addSaveData` -> `pack`, `$Packed`; not one-to-one
-    - `loadSaveData` -> `apply`, not one-to-one
+- `net.minecraft.world.entity.player`
+    - `Abilities`
+        - `addSaveData` -> `pack`, `$Packed`; not one-to-one
+        - `loadSaveData` -> `apply`, not one-to-one
+    - `Player` no longer takes in the `BlockPos` and y rotation
 - `net.minecraft.world.entity.projectile`
     - `AbstractThrownPotion#onHitAsPostion` now takes in a `HitResult` instead of a nullable `Entity`
     - `EyeOfEnder#signalTo` now takes in a `Vec3` instead of a `BlockPos`
@@ -2049,6 +2138,7 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
 - `net.minecraft.world.level.block.entity`
     - `BlockEntity#getNameForReporting` is now public
     - `SignBlockEntity#executeClickCommandsIfPresent` now takes in a `ServerLevel` instead of the `Level`, parameters are reordered
+    - `StructureBlockEntity#saveStructure` now takes in a list of blocks to ignore
 - `net.minecraft.world.level.block.entity.trialspawner`
     - `TrialSpawner` now takes in a `$FullConfig`
         - `getConfig` -> `activeConfig`
@@ -2057,13 +2147,17 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
     - `TrialSpawnerData` -> `TrialSpawnerStateData`, serialized form as `TrialSpawnerStateData$Packed`, not one-to-one
 - `net.minecraft.world.level.block.sounds.AmbientDesertBlockSoundsPlayer#playAmbientBlockSounds` has been split into `playAmbientSandSounds`, `playAmbientDryGrassSounds`, `playAmbientDeadBushSounds`, `shouldPlayDesertDryVegetationBlockSounds`; not one-to-one
 - `net.minecraft.world.level.dimension.DimensionType` now takes in an optional integer representing the cloud height level
-- `net.minecraft.world.level.entity.UUIDLookup#getEntity` can now return null
+- `net.minecraft.world.level.entity`
+    - `PersistentEntitySectionManager#processPendingLoads` is now public
+    - `UUIDLookup#getEntity` can now return null
+- `net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate#fillFromWorld` now takes in a list of blocks to ignore rather than a single `Block`
 - `net.minecraft.world.level.storage.DataVersion` is now a record
 - `net.minecraft.world.phys.shapes.CollisionContext#placementContext` now takes in a `Player` instead of an `Entity`
 
 ### List of Removals
 
 - `com.mojang.blaze3d.audio.Listener#setGain`, `getGain`
+- `net.minecraft.client.Minecraft#disconnect(Screen)`
 - `net.minecraft.client.renderer`
     - `DimensionSpecialEffects#getCloudHeight`, `hasGround`
     - `LevelRenderer#updateGlobalBlockEntities`
@@ -2073,6 +2167,7 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
 - `net.minecraft.network.chat.Component$Serializer`, `$SerializerAdapter`
 - `net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket$Action#*_SHIFT_KEY`
 - `net.minecraft.server.ReloadableServerRegistries$Holder#getKeys`
+- `net.minecraft.server.players.PlayerList#getPlayerForLogin`
 - `net.minecraft.stats`
     - `RecipeBookSettings#read`, `write`
     - `ServerRecipeBook#toNbt`, `fromNbt`
@@ -2084,6 +2179,7 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
 - `net.minecraft.world.entity.animal.sheep.Sheep#getColor`
 - `net.minecraft.world.entity.monster.Drowned#waterNavigation`, `groundNavigation`
 - `net.minecraft.world.entity.projectile.Projectile#findOwner`, `setOwnerThroughUUID`
+- `net.minecraft.world.level.Level#disconnect()`
 - `net.minecraft.world.level.block`
     - `AbstractCauldronBlock#isEntityInsideContent`
     - `TerracottaBlock`
