@@ -1220,7 +1220,10 @@ The scissoring state has been removed from the generic pipeline code, now only a
         - `depthOrLayers`, `getDepthOrLayers` - Defines how many layers or depths are available for a given texture. This is meant as a generic count for available texture encodings. Only cubemap support is currently available (meaning the layer count must be a multiple of 6).
     - `GpuTextureView` - A view of some texture for a range of mip levels.
     - `TextureFormat#RED8I` - An 8-bit signed integer handling the red color channel.
-- `com.mojang.blaze3d.vertex.DefaultVertexFormat#EMPTY` - A vertex format with no elements.
+- `com.mojang.blaze3d.vertex`
+    - `ByteBufferBuilder` now takes in a long for the maximum capacity
+        - `exactlySized` - Returns a buffer that is its maximum capacity. This should be called over the public constructor.
+    - `DefaultVertexFormat#EMPTY` - A vertex format with no elements.
 - `net.minecraft.client.renderer`
     - `CachedOrthoProjectionMatrixBuffer` - An object that caches the orthographic projection matrix, rebuilding if the width or height of the screen changes.
     - `CachedPerspectiveProjectionMatrixBuffer` - An object that caches the perspective projection matrix, rebuilding if the width, height, or field of view changes.
@@ -1527,7 +1530,7 @@ try (ProblemReporter.ScopedCollector problems = new ProblemReporter.ScopedCollec
     // Pass around the input to read data
 }
 ```
-
+- `net.minecraft.nbt.StringTag#escapeWithoutQuotes` - Creates a string that escapes control characters, quotations, apostrophes, and backslashes.
 - `net.minecraft.server.level.ServerPlayer`
     - `loadAndSpawnParentVehicle` now takes in a `ValueInput`
     - `loadAndSpawnEnderPearls` now takes in a `ValueInput`
@@ -1795,6 +1798,10 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
             - `setDynamicTransformIndex`, `getDynamicTransformIndex` are removed
         - `$SectionBuffers` -> `SectionBuffers`
         - `$TranslucencyPointOfView` -> `TranslucencyPointOfView`
+- `net.minecraft.server.level.ChunkMap#getUpdatingChunkIfPresent` is now public
+- `net.minecraft.world.level.TicketStorage`
+    - `purgeStaleTickets` now takes in the `ChunkMap`
+    - `removeTicketIf` now takes in a `BiPredicate` instead of a `Predicate`, taking in the chunk position and the ticket
 - `net.minecraft.world.level.chunk.ChunkAccess#isSectionEmpty` is removed
 
 ### Tag Changes
