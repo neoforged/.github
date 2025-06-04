@@ -1835,7 +1835,9 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
 - `net.minecraft`
     - `FileUtil#isPathPartPortable` - Returns whether the provided string does not match any of the windows reserved filenames.
     - `WorldVersion$Simple` - A simple implementation of the current world version.
-- `net.minecraft.advancements.critereon.ItemUsedOnLocationTrigger$TriggerInstance#placedBlockWithProperties` - Creates a trigger where a block was placed with the specified property.
+- `net.minecraft.advancements.critereon`
+    - `ItemUsedOnLocationTrigger$TriggerInstance#placedBlockWithProperties` - Creates a trigger where a block was placed with the specified property.
+    - `PlayerInteractTrigger$TriggerInstance#equipmentSheared` - Creates a criterion trigger that actus upon a player taking off an item on some entity.
 - `net.minecraft.client`
     - `GameNarrator#saySystemChatQueued` - Narrates a component if either system or chat message narration is enabled.
     - `Minecraft#disconnectWithSavingScreen` - Disconnects the current client instance and shows the 'Saving Level' screen.
@@ -1898,6 +1900,7 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
 - `net.minecraft.server.level.ServerLevel`
     - `updateNeighboursOnBlockSet` - Updates the neighbors of the current position. If the blocks are not the same (not including their properties), then `BlockState#affectNeighborsAfterRemoval` is called.
     - `waitForChunkAndEntities` - Adds a task that causes the server to wait until entities are loaded in the provided chunk range.
+- `net.minecraft.sources.SoundSource#UI` - Sounds that come from some user interface.
 - `net.minecraft.stats`
     - `RecipeBookSettings#MAP_CODEC`
     - `ServerRecipeBook#pack`, `loadUntrusted`, `$Packed` - Handles encoding and decoding the data of the recipe book.
