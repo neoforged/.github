@@ -2035,12 +2035,10 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
     - `SimpleSoundInstance#forMusic` now also takes in the `float` volume
     - `SoundEngine` now takes in the `MusicManager`
         - `pause` -> `pauseAllExcept`, not one-to-one
-        - `updateCategoryVolume` no longer takes in the gain
         - `play` now returns a `$PlayResult`
     - `SoundManager` now takes in the `MusicManager`
         - `pause` -> `pauseAllExcept`, not one-to-one
         - `play` now returns a `SoundEngine$PlayResult`
-        - `updateSourceVolume` no longer takes in the gain
 - `net.minecraft.commands.arguments`
     - `ResourceOrIdArgument` now takes in an arbitrary codec rather than a `Holder`-wrapped value
         - `ERROR_INVALID` -> `ERROR_NO_SUCH_ELEMENT`, now public, not one-to-one
@@ -2166,7 +2164,6 @@ This also means that adding to `ItemBlockRenderTypes#TYPE_BY_BLOCK` must specify
 
 ### List of Removals
 
-- `com.mojang.blaze3d.audio.Listener#setGain`, `getGain`
 - `net.minecraft.client.Minecraft#disconnect(Screen)`
 - `net.minecraft.client.renderer`
     - `DimensionSpecialEffects#getCloudHeight`, `hasGround`
