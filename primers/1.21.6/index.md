@@ -488,12 +488,14 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
     - `LogoRenderer#keepLogoThroughFade` - When true, keeps the logo visible even when the title screen is fading.
     - `MultiLineEditBox` is now package private and should be constructed via `builder`, calling the `$Builder#set*` methods
         - `setLineLimit` - Sets the line limit of the text field.
+        - `setValue` now has an overload that takes in the `boolean` to determine whether it should force pass the max line limit
     - `MultiLineLabel`
         - `getStyleAtCentered` - Computes the component style for centered text.
         - `getStyleAtLeftAligned` - Computes the component style for left aligned text.
     - `MultilineTextField#NO_CHARACTER_LIMIT` -> `NO_LIMIT`
         - `setLineLimit` - Sets the maximum number of lines that can be written on the text field.
         - `hasLineLimit` - Returns whether the text field has some line limit.
+        - `setValue` now has an overload that takes in the `boolean` to determine whether it should force pass the max line limit
     - `MultiLineTextWidget#configureStyleHandling` - Sets whether something is displayed when hovering over components and what to do on click.
     - `ScrollableLayout` - A layout with some defined bounds that can be scrolled through.
     - `SplashRenderer#render` now takes in a float for the R color instead of an int
