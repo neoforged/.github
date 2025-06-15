@@ -9,6 +9,7 @@ If there's any incorrect or missing information, please file an issue on this re
 Thank you to:
 
 - @Soaryn for some `ItemStack` best practices
+- @earthcomputer for color changes when drawing strings
 
 ## Pack Changes
 
@@ -157,6 +158,10 @@ renderer.pictureInPictureRenderers.put(
 ```
 
 `PictureInPictureRenderState`s are added to the `GuiRenderState` via `GuiRenderState#submitPicturesInPictureState`. This is called by `GuiGraphics#submit*RenderState` methods.
+
+### Logic Changes
+
+`GuiGraphics#drawString` now joins the rest of the `GuiGraphics` methods by allowing the `int` color argument to accept an alpha channel (upper eight bits). This means that any color string without an alpha specified will not be rendered. Previous behavior can be replicated by ORing your `int` color with `0xFF000000` or by passing your color into `ARGB#opaque`.  
 
 ### Contextual Bars
 
