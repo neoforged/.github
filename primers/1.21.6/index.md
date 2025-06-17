@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 Thank you to:
 
-- @Soaryn for some `ItemStack` best practices
+- @Soaryn for some `ItemStack` best practices and typo fixes
 - @earthcomputer for color changes when drawing strings
 
 ## Pack Changes
@@ -41,7 +41,7 @@ The first method of sorting handles the z-depth an object is rendered at.
 
 First let's start with the linear tree. As the name implies, it is basically a doubly-linked `GuiRenderState$Node` list. Each node contains its own list of elements to render. Navigating the node list is handled using `GuiRenderState#up` or `down`, where each either gets the next node, or creates a new one if it doesn't exist. Nodes within a given tree are rendered from bottom to top, meaning that `down` will render any elements submitted before the current node, while `up` will render any elements submitted after the current node.
 
-Determinining what node an object is added to is computed automatically when submitting an element using its `ScreenArea`. The `ScreenArea` defines the `bounds` of your element to be rendered. Essentially, a node will be added in the `up` direction if the bounds of the element intersect with any other element on the current node.
+Determining what node an object is added to is computed automatically when submitting an element using its `ScreenArea`. The `ScreenArea` defines the `bounds` of your element to be rendered. Essentially, a node will be added in the `up` direction if the bounds of the element intersect with any other element on the current node.
 
 Then there are strata. A stratum is essentially a linear tree. Strata are rendered in the order they are created, which means calling `nextStratum` will render all elements after the previous stratum. This can be used if you want to group elements into a specific layer. Note: you cannot navigate to a prior stratum.
 
@@ -203,7 +203,7 @@ Finally, to get your bar to be called and prioritized, you need to modify `Gui#n
 
 To more generally handle screens which provide some basic functionalities -- such as confirmation screens, button selection, or user input, Vanilla has provided a generic dialog system. These dialogs can be constructed in a datapack and delivered on the client by calling `Player#openDialog`. The basic JSON description is documented in  [Minecraft Snapshot 25w20a](https://www.minecraft.net/en-us/article/minecraft-snapshot-25w20a).
 
-For a quick overiview, a basic `Dialog` contains the following components: a title, an optional external title for navigation, whether the screen can be closed by pressing 'esc', and its `DialogBody` contents. Everything else is determined by the dialog itself, but it has functionality for user inputs via `InputControl`s. Buttons are typically added through `ClickAction`s which hold the common button data and an event to execute on click. If the dialog is canceled (e.g., closed), then `onCancel` is run.
+For a quick overview, a basic `Dialog` contains the following components: a title, an optional external title for navigation, whether the screen can be closed by pressing 'esc', and its `DialogBody` contents. Everything else is determined by the dialog itself, but it has functionality for user inputs via `InputControl`s. Buttons are typically added through `ClickAction`s which hold the common button data and an event to execute on click. If the dialog is canceled (e.g., closed), then `onCancel` is run.
 
 `DialogBody` and `InputControl` are simply generic interfaces that have no defined structure. Implementing them, or any dialog for that matter, requires some registration to the available types on both the client and server.
 
@@ -442,7 +442,7 @@ public class ExampleDialogScreen extends DialogScreen<ExampleDialog> {
 
     @Override
     protected void updateHeaderAndFooter(HeaderAndFooterLayout layout, DialogControlSet controls, ExampleDialog dialog, DialogConnectionAccess access) {
-        // Add elements and actions to the header and footter of the screen (top and bottom)
+        // Add elements and actions to the header and footer of the screen (top and bottom)
     }
 }
 
@@ -472,7 +472,7 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
         - `drawString`, `drawStringWithBackdrop` no longer returns anything
         - `draw*String` methods must now pass in an ARGB value, where A cannot be 0.
         - `renderItem(ItemStack, int, int, int, int)` is removed
-        - `drawSpecial` is removed, relaced by individual `submit*RenderState` depending on the special case
+        - `drawSpecial` is removed, replaced by individual `submit*RenderState` depending on the special case
         - `blurBeforeThisStratum` - Notifies the render state that a blur effect should render between this strata and all previously rendered ones. This can only be applied between once per frame.
         - `render*Tooltip` -> `set*TooltipForNextFrame`, does not directly add to the render state, instead waiting for `renderDeferredTooltip` to be called when not present or overridden
         - `renderDeferredTooltip` - Adds the tooltip information to be rendered on a new stratum.
@@ -594,8 +594,8 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
         - `defaultHandleClickEvent` - The default logic to execute when the component is clicked.
         - `clickUrlAction` - The logic to perform when a URL is clicked (has the Open URL style).
         - `clickCommandAction` - The logic to perform when a command should be executed (has the \* Command style).
-- `net.minecraft.client.gui.screeens.dialog`
-    - `ButtonListDialogScreen` - A dialog screeen that contains some list of buttons.
+- `net.minecraft.client.gui.screens.dialog`
+    - `ButtonListDialogScreen` - A dialog screen that contains some list of buttons.
     - `DialogConnectionAccess` - A client side interface that processes general interaction information from the dialog.
     - `DialogControlSet` - An input handler for a dialog screen.
     - `DialogListDialogScreen` - A button list of `DialogListDialog`s.
@@ -638,7 +638,7 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
     - `PlayerEntry#refreshHasDraftReport` - Sets whether the current context as a report for this player.
     - `SocialInteractionsPlayerList#refreshHasDraftReport` - Refreshes whether the current context as a report for all players.
 - `net.minecraft.client.gui.screens.worldselection.ExperimentsScreen$ScrollArea` class is removed, replaced by the `ScrollableLayout`
-- `net.minecraft.client.model.geom.ModelPart#getExtentsForGui` - Gets the set of vectors representing the part transformed into their approriate space.
+- `net.minecraft.client.model.geom.ModelPart#getExtentsForGui` - Gets the set of vectors representing the part transformed into their appropriate space.
 - `net.minecraft.client.multiplayer.ClientCommonPacketListenerImpl`
     - `showDialog` - Shows the current dialog, creating the screen dynamically.
     - `serverLinks` - Returns the entries of server links the client can access.
@@ -660,7 +660,7 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
         - `GUI_TEXTURED_PREMULTIPLIED_ALPHA` - A pipeline that assumes the textures have already had their transparency premultiplied during the composite stage.
     - `RenderStateShard`
         - `$Builder#add` no longer takes in whether the shard should be blurred
-        - `$TextureStateShard` no longer takes in a `TrisState` to set the blur mode
+        - `$TextureStateShard` no longer takes in a `TriState` to set the blur mode
     - `RenderType`
         - `debugLine` is removed
         - `gui`, `guiOverlay`, `guiTexturedOverlay`, `guiOpaqueTexturedBackground`, `guiNauseaOverlay`, `guiTextHighlight`, `guiGhostRecipeOverlay`, `guiTextured` are removed
@@ -715,10 +715,10 @@ DialogScreens.register(DIALOG_CODEC, ExampleDialogScreen::new);
     - `ServerboundCustomClickActionPacket` - Sends a custom action to the server.
 - `net.minecraft.server.dialog`
     - `ActionButton` - A button that can perform some `Action` on click.
-    - `ButtonListDialog` - A dialog modal that has some number of colums to click buttons of.
+    - `ButtonListDialog` - A dialog modal that has some number of columns to click buttons of.
     - `CommonButtonData` - The data that is associated with every button within a dialog modal.
     - `CommonDialogData` - The data that is associated with every dialog modal.
-    - `ConfirmationDialog` - A dialog modal wheter you can either click yes or no.
+    - `ConfirmationDialog` - A dialog modal whether you can either click yes or no.
     - `Dialog` - The base interface that defines some dialog modal.
     - `DialogAction` - The action to perform typically after some action button is clicked.
     - `DialogListDialog` - A scrollable list of buttons that lead to other dialogs.
@@ -1109,7 +1109,7 @@ try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRen
 
 The fog system has been reworked into an environment/render state-like handler. Each environment mostly handles setting up the fog data and color. Some additional processing is provided for the individual `FogType`s and special mob effects.
 
-All environments are handled through the `FogEnvironment`. A environment is setup via the `setupFog` method, which is repsonsible for mutating the passed in `FogData` to the values associated with that environment. If the fog colors its surroundings, then `providesColor` should return true, with the base color tint applied in `getBaseColor`. Likewise, if the fog darkens its surroundings, then `modifiesDarkness` should return true, with the modified darkness returned via `getModifiedDarkness`. To determine whether an environment should apply, `isApplicable` is checked. If not applicable, then `onNotApplicable` is called.
+All environments are handled through the `FogEnvironment`. A environment is setup via the `setupFog` method, which is responsible for mutating the passed in `FogData` to the values associated with that environment. If the fog colors its surroundings, then `providesColor` should return true, with the base color tint applied in `getBaseColor`. Likewise, if the fog darkens its surroundings, then `modifiesDarkness` should return true, with the modified darkness returned via `getModifiedDarkness`. To determine whether an environment should apply, `isApplicable` is checked. If not applicable, then `onNotApplicable` is called.
 
 All environments are registered to `FogRenderer#FOG_ENVIRONMENTS`; however, what environment to use is based on `isApplicable` and the list order. For the color and darkness, the fog environment chosen is the last one in the list where one of the `provides*` methods return true. For the actual fog setup, the fog environment chosen is the first one in the list.
 
@@ -1403,7 +1403,7 @@ public class ExampleTagsProvider extends IntrinsicHolderTagsProvider<Item> {
 
 ### Copying Tags: Block and Item
 
-Copying tags no longer exists in the traditional sense, where it loops through the elements of an existing tag. Insteadd, the implementation has been narrowed down to a general `BlockItemTagsProvider`. This method provides a `TagAppender<Block, Block>` by taking in both a block and an item tag, and then converting them appropriately within the `Vanilla*TagsProvider`. As such, it is less copying and more mapping blocks to their associated items.
+Copying tags no longer exists in the traditional sense, where it loops through the elements of an existing tag. Instead, the implementation has been narrowed down to a general `BlockItemTagsProvider`. This method provides a `TagAppender<Block, Block>` by taking in both a block and an item tag, and then converting them appropriately within the `Vanilla*TagsProvider`. As such, it is less copying and more mapping blocks to their associated items.
 
 The one drawback is that tags that are used within other tags (calling `addTag`) must have the same name. For example, adding `BlockTags#LOGS` only works because there is a `minecraft:logs` for both block and item tags. Meanwhile, adding `BlockTags#CEILING_HANGING_SIGNS` would fail as the associated item tag is `minecraft:hanging_signs` instead of `minecraft:ceiling_hanging_signs`.
 
