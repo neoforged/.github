@@ -1,6 +1,6 @@
 # Minecraft 1.20.4 -> 1.20.5 Mod Migration Primer
 
-This is a high level, non-exhaustive overview on how to migrate your mod from 1.20.4 to 1.20.5. This does not look at any specific mod loader, just the changes to the vanilla classes.
+This is a high level, non-exhaustive overview on how to migrate your mod from 1.20.4 to 1.20.5. This does not look at any specific mod loader, just the changes to the vanilla classes. All provided names use the official mojang mappings.
 
 This primer is licensed under the [Creative Commons Attribution 4.0 International](http://creativecommons.org/licenses/by/4.0/), so feel free to use it as a reference and leave a link so that other readers can consume the primer.
 
@@ -349,7 +349,7 @@ Some methods in data providers now take in a `HolderLookup$Provider` to get any 
 Many references to `ResourceLocation`s now take in an associated `ResourceKey` instead with the generic tied to the registry object in question.
 
 - `net.minecraft.data.loot.BlockLootSubProvider` now takes in a `Map<ResourceKey<LootTable>, LootTable.Builder>` instead of a `Map<ResourceLocation, LootTable.Builder>`
-- `net.minecraft.data.loot.LootTableProvider(PackOutput, Set<ResourceLocation>, List<LootTableProvider.SubProviderEntry>)` -> `LootTableProvider(PackOutput, Set<ResourceKey<LootTable>>, List<LootTableProvider.SubProviderEntry>, CompletableFuture<HolderLookup.Provider>)
+- `net.minecraft.data.loot.LootTableProvider(PackOutput, Set<ResourceLocation>, List<LootTableProvider.SubProviderEntry>)` -> `LootTableProvider(PackOutput, Set<ResourceKey<LootTable>>, List<LootTableProvider.SubProviderEntry>, CompletableFuture<HolderLookup.Provider>)`
 - `net.minecraft.data.loot.LootTableSubProvider#generate(BiConsumer<ResourceLocation, LootTable.Builder>)` -> `generate(HolderLookup.Provider, BiConsumer<ResourceKey<LootTable>, LootTable.Builder>)`
 
 ### Static methods in FriendlyByteBuf
