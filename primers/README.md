@@ -22,6 +22,7 @@ The primers were written by [@ChampionAsh5357](https://github.com/ChampionAsh535
 * [1.21.5 -> 1.21.6](./1.21.6/index.md)
 * [1.21.6 -> 1.21.7](./1.21.7/index.md)
 * [1.21.7 -> 1.21.8](./1.21.8/index.md)
+* [1.21.8 -> 1.21.9](./1.21.9/index.md)
 
 ## License
 
