@@ -181,7 +181,7 @@ Method                 | Parameters
 `submitText`           | A pose stack, the XY offset, the text sequence, whether to add a drop shadow, the font display mode, light coordinates, color, and background color
 `submitFlame`          | A pose stack, render state of the entity, and a rotation quaternion
 `submitLeash`          | A pose stack and the leash state
-`submitModel`          | A pose stack, entity model, render state, render type, light coordinates, overlay coordinates, tint color, texture, outline color, and a priority (e.g., 0 for base model, 1 for armor model)
+`submitModel`          | A pose stack, entity model, render state, render type, light coordinates, overlay coordinates, tint color, texture, outline color, and an order (e.g., 0 for base model, 1 for armor model)
 `submitBlock`          | A pose stack, block state, light coordinates, and overlay coordinates
 `submitFallingBlock`   | A pose stack and the falling render state
 `submitBlockModel`     | A pose stack, the render type, block state model, RGB floats, light coordinates, and overlay coordinates
@@ -190,7 +190,7 @@ Method                 | Parameters
 
 The render phase is handled through the `FeatureRenderDispatcher`, which renders the elements using feature renderers. What are feature renderers? Quite literally an arbitrary method that loops through the node contents its going to push to the buffer. Currently, the features push their vertices in the following order: entity shadows, entity models, entity on fire animations, entity name tags, arbitrary floating text, hitboxes, leashes, items, blocks, and finally custom render pipelines. All submissions are then cleared for next use.
 
-Most of the feature dispatchers are simply run a loop except for two: `EntityModelFeatureRenderer` for entity models, and `CustomFeatureRenderer` for custom geometry. First, both entity models and custom geometry group elements by their `RenderType` to upload all the vertex data for the feature objects in one pass per `RenderType`. Additionally, entity models has a priority integer that is used to have certain models render on top of another rather than in the same pass. The most common use case is when the base model is rendered on `0` while armor is rendered on layer `1` and on depending on trim and color layers. When to use priority depends on whether you believe the element is rendered on top of or is part of another model (e.g., sheep and its wool are both on `0` while the enderman eyes are on `1`).
+Most of the feature dispatchers are simply run a loop except for two: `EntityModelFeatureRenderer` for entity models, and `CustomFeatureRenderer` for custom geometry. First, both entity models and custom geometry group elements by their `RenderType` to upload all the vertex data for the feature objects in one pass per `RenderType`. Additionally, entity models has an `order` integer that is used to have certain models render on top of another rather than in the same pass. The most common use case is when the base model is rendered on `0` while armor is rendered on layer `1` and on depending on trim and color layers. When to use `order` depends on whether you believe the element is rendered on top of or is part of another model (e.g., sheep and its wool are both on `0` while the enderman eyes are on `1`).
 
 ### Entity Models
 
@@ -474,27 +474,32 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
         - `NAMETAG_SCALE` is now public
         - `render(S, PoseStack, MultiBufferSource, int)` -> `submit(S, PoseStack, SubmitNodeCollector)`
         - `renderNameTag` ->` submitNameTag`
+        - `finalizeRenderState` - Extracts the information of the render state as a last step after `extractRenderState`, such as shadows.
     - `EntityRendererProvider$Context`
         - `getModelManager` is removed
         - `getMaterials` - Returns a mapper of material to atlas sprite.
     - `ItemEntityRenderer`
         - `renderMultipleFromCount` -> `submitMultipleFromCount`
-    - `ItemRenderer#getArmorFoilBuffer` -> `getFoilRenderTypes`, not one-to-one
+    - `ItemRenderer`
+        - `getArmorFoilBuffer` -> `getFoilRenderTypes`, not one-to-one
+        - `renderStatic(ItemStack, ItemDisplayContext, int, int, PoseStack, MultiBufferSource, Level, Vec3, Direction, int)` is removed
+        - `renderUpwardsFrom` - Renders an item after translating the item upwards the minimum y of the model bounding box.
     - `PiglinRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
     - `TntMinecartRenderer#renderWhiteSolidBlock` -> `submitWhiteSolidBlock`
     - `ZombieRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
     - `ZombifiedPiglinPiglinRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
 - `net.minecraft.client.renderer.entity.layers`
     - `BreezeWindLayer` now takes in the `EntityModelSet` instead of the `EntityRendererProvider$Context`
-    - `EquipmentLayerRenderer#renderLayers` now takes in the render state, `SubmitNodeCollector`, and outline color instead of a `MultiBufferSource`
+    - `EquipmentLayerRenderer#renderLayers` now takes in the render state, `SubmitNodeCollector`, outline color, and an initial order instead of a `MultiBufferSource`
     - `HumanoidArmorLayer` now takes in `ArmorModelSet`s instead of models
         - `setPartVisibility` is removed
     - `ItemInHandLayer#renderArmWithItem` -> `submitArmWithItem`
     - `LivingEntityEmissiveLayer` now takes in a function for the texture instead of a `ResourceLocation` and a model instead of the `$DrawSelector`
         - `$DrawSelector` is removed
     - `RenderLayer`
-        - `renderColoredCutoutModel`, `coloredCutoutModelCopyLayerRender` now takes in a `Model` instead of an `EntityModel`, a `SubmitNodeCollector` instead of a `MultiBufferSource`, and an integer representing the priority layer for rendering
+        - `renderColoredCutoutModel`, `coloredCutoutModelCopyLayerRender` now takes in a `Model` instead of an `EntityModel`, a `SubmitNodeCollector` instead of a `MultiBufferSource`, and an integer representing the order layer for rendering
         - `render` -> `submit`, taking in a `SubmitNodeCollector` instead of a `MultiBufferSource`
+    - `SimpleEquipmentLayer` now takes in an order integer
     - `StuckInBodyLayer` now has an additional generic for the render state, also taking in the render state in the constructor
     - `VillagerProfessionLayer` now takes in two models
 - `net.minecraft.client.renderer.entity.state`
@@ -506,6 +511,7 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
         - `shadowPieces`, `$ShadowPiece` - Represents the relative coordinates of the shadow(s) the entity is casting.
     - `LivingEntityRenderState#appearsGlowing` -> `EntityRenderState#appearsGlowing`, now a method
     - `PaintingRenderState#lightCoords` -> `lightCoordsPerBlock`
+    - `PlayerRenderState#useItemRemainingTicks`, `swinging` are removed
     - `WitherSkullRenderState#xRot`, `yRot` -> `modeState`, not one-to-one
 - `net.minecraft.client.renderer.feature`
     - `BlockFeatureRenderer` - Renders the submitted blocks, block models, or falling blocks.
@@ -635,7 +641,7 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
 ```
 
 - `net.minecraft.client.Minecraft`
-        - `getTextureAtlas` -> `AtlasManager#getAtlas`, not one-to-one
+        - `getTextureAtlas` -> `AtlasManager#getAtlasOrThrow`, not one-to-one
         - `getPaintingTextures`, `getMapDecorationTextures`, `getGuiSprites` -> `getAtlasManager`, not one-to-one
 - `net.minecraft.client.gui.GuiSpriteManager` is removed
 - `net.minecraft.client.particle.ParticleEngine` no longer takes in the `TextureManager`
@@ -652,7 +658,9 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
     - `PaintingTextureManager` class is removed
     - `TextureAtlasHolder` class is removed
 - `net.minecraft.client.resources.model`
+    - `AtlasIds` -> `net.minecraft.data.AtlasIds`
     - `AtlasSet` -> `AtlasManager`, not one-to-one
+        - `forEach` - Iterates through each of the atlas sheets.
     - `ModelManager` now takes in a `AtlasManager` instead of the `TextureManager` and the max mipmap levels integer
         - `getAtlas` -> `MaterialSet#get`
         - `updateMaxMipLevel` -> `AtlasManager#updateMaxMipLevel`
@@ -839,6 +847,9 @@ public static final TicketType EXAMPLE = new TicketType(
     - `copper`
     - `copper_golem_statues`
     - `incorrect_for_copper_tool`
+    - `chains`
+    - `lanterns`
+    - `bars`
 - `minecraft:item`
     - `wooden_shelves`
     - `copper_chests`
@@ -847,10 +858,15 @@ public static final TicketType EXAMPLE = new TicketType(
     - `copper_golem_statues`
     - `copper_tool_materials`
     - `repairs_copper_armor`
+    - `chains`
+    - `lanterns`
+    - `bars`
 
 ### List of Additions
 
-- `com.minecraft.SharedConstants#RESOURCE_PACK_FORMAT_MINOR`, `DATA_PACK_FORMAT_MINOR` - The minor component of the pack version.
+- `com.minecraft.SharedConstants`
+    - `RESOURCE_PACK_FORMAT_MINOR`, `DATA_PACK_FORMAT_MINOR` - The minor component of the pack version.
+    - `DEBUG_SHUFFLE_MODELS` - A flag that likely shuffles the model loading order.
 - `net.minecraft.client`
     - `KeyMapping#shouldSetOnIngameFocus` - Returns whether the key is mapped to some value on the keyboard.
     - `Minecraft#isOfflineDevelopedMode` - Returns whether the game is in offline developer mode.
@@ -869,9 +885,18 @@ public static final TicketType EXAMPLE = new TicketType(
     - `createCopperGolemStatues` - Creates all copper golem statues.
     - `createCopperGolemStatue` - Creates a copper golem statue for the provided block, copper block, and weathered state.
     - `createCopperChests` - Creates all copper chests.
-- `net.minecraft.client.data.models.model.ModelTemplate`
-    - `SHELF_*` - Model templates for construct a shelf into a multipart.
-    - `LIGHTNING_ROD` - Model template for a lightning rod.
+    - `createCopperLantern` - Creates a lantern and hanging lantern.
+    - `createCopperChain` - Creates a chain.
+    - `createCopperChainItem` - Creates a chain item model.
+- `net.minecraft.client.data.models.model`
+    - `ModelTemplate`
+        - `SHELF_*` - Model templates for constructing a shelf into a multipart.
+        - `LIGHTNING_ROD` - Model template for a lightning rod.
+        - `CHAIN` - Model template for a chain.
+        - `BARS_*` - Model templates for constructing a bars-like block.
+    - `TexturedModel#CHAIN` - A model provider for a chain.
+    - `TextureMapping#bars` - A texture mapping for a bars-like block.
+    - `TextureSlot#BARS` - A reference to the `#bars` texture.
 - `net.minecraft.client.gui`
     - `Font$Provider` - A simple manager for providing the glyph source based on its location, along with the empty glyph.
     - `GlyphSource` - An interface that holds the baked glyphs based on its codepoint.
@@ -880,6 +905,7 @@ public static final TicketType EXAMPLE = new TicketType(
 - `net.minecraft.client.gui.components.MultilineTextField#selectWordAtCursor` - Selects the word whether the cursor is currently located.
 - `net.minecraft.client.gui.components.events.GuiEventListener#shouldTakeFocusAfterInteraction` - When true, sets the element as focused when clicked.
 - `net.minecraft.client.gui.font`
+    - `AtlasGlyphProvider` - A glyph provider based off a texture atlas.
     - `FontSet`
         - `source` - Returns the glyph source depending given whether only non-fishy glyphs should be seen.
         - `$GlyphSource` - A source that can get the glyphs to bake.
@@ -892,14 +918,23 @@ public static final TicketType EXAMPLE = new TicketType(
     - `Screen`
         - `panoramaShouldSpin` - Returns whether the rendered panorama should spin its camera.
         - `setNarrationSuppressTime` - Sets until when the narration should be suppressed for.
+        - `isInGameUi` - Returns whether the screen is opened while playing the game, not the pause menu.
 - `net.minecraft.client.gui.screens.options.OptionsScreen#CONTROLS` is now public
 - `net.minecraft.client.main.GameConfig$GameData#offlineDeveloperMode` - Whether the game is offline and is ran for development.
+- `net.minecraft.core`
+    - `BlockPos#betweenCornersInDirection` - An iterable that iterates through the provided bounds in the direction provided by the vector.
+    - `Direction#axisStepOrder` - Returns a list of directions that the given vector should be checked in.
 - `net.minecraft.data.loot.packs`
     - `VanillaBlockInteractLoot` - A sub provider for vanilla block loot from entity interaction.
     - `VanillaChargedCreeperExplosionLoot` - A sub provider for vanilla entity loot from charged creeper explosions.
     - `VanillaEntityInteractLoot` - A sub provider for vanilla entity loot from entity interaction.
 - `net.minecraft.data.recipes.RecipeProvider#shelf` - Constructs a shelf recipe from one item.
 - `net.minecraft.gametest.framework.GameTestHelper#getTestDirection` - Gets the direction that the test is facing.
+- `net.minecraft.network`
+    - `FriendlyByteBuf#readLpVec3`, `writeLpVec3` - Handles syncing a compressed `Vec3`.
+    - `LpVec3` - A vec3 network handler that compresses and decompresses a vector into at most two bytes and two integers.
+- `net.minecraft.network.chat.FontDescription` - An identifier that describes a font, typically as a location or sprite.
+- `net.minecraft.network.chat.contents.ObjectContents` - An arbitrary piece of content that can be written as part of a component, like a sprite.
 - `net.minecraft.network.syncher.EntityDataSerializers`
     - `WEATHERING_COPPER_STATE` - The weather state of the copper on the golem.
     - `COPPER_GOLEM_STATE` - The logic state of the copper golem.
@@ -931,7 +966,13 @@ public static final TicketType EXAMPLE = new TicketType(
     - `EntityType`
         - `STREAM_CODEC` - The stream codec for an entity type.
         - `$Builder#notInPeaceful` - Sets the entity to not spawn in peaceful mode.
+    - `InsideBlockEffectType#CLEAR_FREEZE` - A in-block effect that clears the frozen ticks.
     - `LivingEntity#dropFromEntityInteractLootTable` - Drops loot from a table from an entity interaction.
+    - `PositionMoveRotation#withRotation` - Creates a new object with the provided XY rotation.
+    - `Relative`
+        - `rotation` - Gets the set of relative rotations from the XY booleans.
+        - `position` - Gets the set of relative positions from the XYZ booleans.
+        - `direction` - Gets the set of relative deltas from the XYZ booleans.
 - `net.minecraft.world.entity.ai.behavior.TransportItemsBetweenContainers` - A behavior where an entity will move items between visited containers.
 - `net.minecraft.world.entity.ai.memory.MemoryModuleType`
     - `VISITED_BLOCK_POSITIONS` - Important block positions visited.
@@ -945,6 +986,7 @@ public static final TicketType EXAMPLE = new TicketType(
 - `net.minecraft.world.item`
     - `Item$TooltipContext#isPeaceful` - Returns true if the difficulty is set to peaceful.
     - `ToolMaterial#COPPER` - The copper tool material.
+    - `WeatheringCopperItems` - A record of items that represent each of the weathering copper states.
 - `net.minecraft.world.item.equipment`
     - `ArmorMaterials#COPPER` - The copper armor material.
     - `EquipmentAssets#COPPER` - The key reference to the copper equipment asset.
@@ -964,8 +1006,12 @@ public static final TicketType EXAMPLE = new TicketType(
         - `STREAM_CODEC` - The stream codec for the state.
         - `next` - Gets the next state in the ordinal.
         - `previous` - Gets the previous state in the ordinal.
+    - `WeatheringCopperBarsBlock` - The block for weathering copper bars.
+    - `WeatheringCopperBlocks` - A record of blocks that represent each of the weathering copper states.
+    - `WeatheringCopperChainBlock` - The block for weathering copper chains.
     - `WeatheringCopperChestBlock` - The block for the weathering copper chest.
     - `WeatheringCopperGolemStatueBlock` - The block for the weathering copper golem statue.
+    - `WeatheringLanternBlock` - The block for weathering lanterns.
     - `WeatheringLightningRodBlock` - The block for the weathering lightning rod.
 - `net.minecraft.world.level.block.entity`
     - `CopperGolemStatueBlockEntity` - The block entity for the copper golem statue.
@@ -992,14 +1038,22 @@ public static final TicketType EXAMPLE = new TicketType(
     - `LootContextParamSets`
         - `ENTITY_INTERACT` - An entity being interacted with.
         - `BLOCK_INTERACT` - A block being interacted with.
+- `net.minecraft.world.phys.Vec3#X_AXIS`, `Y_AXIS`, `Z_AXIS` - The unit vector in the positive direction of each axis.
 
 ### List of Changes
 
-- `com.mojang.blaze3d.font.GlyphInfo#bake` now takes in a `GlyphStitcher` instead of a function
-    - The function behavior is replaced by `GlyphStitcher#stitch`
+- `com.mojang.blaze3d.buffers.GpuBuffer#size` is now private
+- `com.mojang.blaze3d.font`
+    - `GlyphInfo`
+        - `bake` -> `GlyphInfo$Stitched#bake`, now takes in a `GlyphStitcher` instead of a function
+            - The function behavior is replaced by `GlyphStitcher#stitch`
+        - `$SpaceGlyphInfo` -> `$EmptyStitched`
+    - `GlyphProvider#getGlyph` now returns a `GlyphInfo$Stitched`
 - `com.mojang.blaze3d.opengl`
     - `DirectStateAccess#bufferSubData`, `mapBufferRange`, `unmapBuffer`, `flushMappedBufferRange` now take in the buffer usage bit mask
+    - `GlStateManager#_texImage2D`, `_texSubImage2D` now takes in a `ByteBuffer` instead of an `IntBuffer`
     - `VertexArrayCache#bindVertexArray` can now take in a nullable `GlBuffer`
+- `com.mojang.blaze3d.systems.CommandEncoder#writeToTexture` now takes in a `ByteBuffer` instead of an `IntBuffer`
 - `com.mojang.blaze3d.vertex`
     - `PoseStack$Pose#set` is now public
     - `VertexConsumer#addVertexWith2DPose` no longer takes in the z component
@@ -1012,6 +1066,7 @@ public static final TicketType EXAMPLE = new TicketType(
         - `$Simple` now takes in a `PackFormat` for the `resourcePackVersion` and `datapackVersion`
 - `net.minecraft.client`
     - `Minecraft#setLevel` no longer takes in the `ReceivingLevelScreen$Reason`
+    - `KeyMapping#release` is now protected
     - `Options#invertYMouse` -> `invertMouseY`
     - `ToggleKeyMapping` now has an overload that takes in an input type
     - `User` no longer takes in the user type
@@ -1019,17 +1074,24 @@ public static final TicketType EXAMPLE = new TicketType(
 - `net.minecraft.client.data.models.BlockModelGenerators`
     - `condition` now has an overload that takes in an enum or boolean property
     - `createLightningRod` now takes in the regular and waxed blocks
+    - `createIronBars` -> `createBarsAndItem`, `createBars`; not one-to-one
 - `net.minecraft.client.gui`
     - `Font` no longer takes in a function and boolean, instead a `Font$Provider`
         - `random` is now private
         - `$PreparedTextBuilder#accept` now has an override that takes in a `BakeableGlyph` instead of its codepoint
+        - `$Provider#glyphs` now takes in a `FontDescription` instead of a `ResourceLocation`
     - `GuiGraphics#submitSignRenderState` now takes in a `Model$Simple` instead of a `Model`
-- `net.minecraft.client.gui.font.FontSet` now takes in a `GlyphStitcher` instead of a `TextureManager`
-    - `getGlyphInfo`, `getGlyph` -> `getGlyph`, now package-private, not one-to-one
-    - `getRandomGlyph` now takes in a `RandomSource` and a codepoint instead of the `GlyphInfo`
-    - `whiteGlyph` now returns a `BakeableGlyph`
+- `net.minecraft.client.gui.font`
+    - `FontManager` now takes in the `AtlasManager`
+    - `FontSet` now takes in a `GlyphStitcher` instead of a `TextureManager` and no longer takes in the name
+        - `getGlyphInfo`, `getGlyph` -> `getGlyph`, now package-private, not one-to-one
+        - `getRandomGlyph` now takes in a `RandomSource` and a codepoint instead of the `GlyphInfo`
+        - `whiteGlyph` now returns a `BakeableGlyph`
+- `net.minecraft.client.gui.font.glyphs.SpecialGlyphs` now implements `GlyphInfo$Stitched` instead of `GlyphInfo`
 - `net.minecraft.client.gui.render.GuiRenderer#MIN_GUI_Z` is now public
-- `net.minecraft.client.gui.render.state.GuiElementRenderState#buildVertices` no longer takes in the `z` component
+- `net.minecraft.client.gui.render.state`
+    - `GuiElementRenderState#buildVertices` no longer takes in the `z` component
+    - `GuiRenderState#forEachElement` now takes in a `Consumer<GuiElementRenderState>` instead of a `GuiRenderState$LayeredElementConsumer`
 - `net.minecraft.client.gui.render.state.pip.GuiSignRenderState` now takes in a `Model$Simple` instead of a `Model`
 - `net.minecraft.client.gui.screens`
     - `LevelLoadingScreen` now takes in a `LevelLoadTracker` and `LevelLoadingScreen$Reason`
@@ -1037,10 +1099,12 @@ public static final TicketType EXAMPLE = new TicketType(
     - `Screen`
         - `renderWithTooltip` -> `renderWithTooltipAndSubtitles`
         - `$NarratableSearchResult` is now a record
+- `net.minecraft.client.main.GameConfig$UserData` no longer takes in the `PropertyMap`s
 - `net.minecraft.client.multiplayer`
     - `ClientHandshakePacketListenerImpl` now takes in a `LevelLoadTracker`
     - `CommonListenerCookie` now takes in a `LevelLoadTracker`
     - `LevelLoadStatusManager` -> `LevelLoadTracker`, not one-to-one
+        - `CLOSE_DELAY_MS` -> `LEVEL_LOAD_CLOSE_DELAY_MS`, now public
 - `net.minecraft.client.multiplayer.chat.ChatListener#clearQueue` -> `flushQueue`
 - `net.minecraft.client.server.IntegratedServer` now takes in a `LevelLoadListener` instead of a `ChunkProgressListenerFactory`
 - `net.minecraft.client.sounds`
@@ -1056,6 +1120,12 @@ public static final TicketType EXAMPLE = new TicketType(
         - `$Builder#haltOnError` no longer takes in any parameters
 - `net.minecraft.nbt.NbtUtils#addDataVersion`, `addCurrentDataVersion` now has an overload that takes in a `Dynamic` instead of a `CompoundTag` or `ValueOutput`
 - `net.minecraft.network.chat.Style` is now final
+    - `getFont` now returns a `FontDescription`
+    - `withFont` now takes in a `FontDescription` instead of a `ResourceLocation`
+- `net.minecraft.network.protocol.game`
+    - `ClientboundAddEntityPacket#getXa`, `getYa`, `getZa` -> `getMovement`
+    - `ClientboundPlayerRotationPacket` now takes in whether the XY rotation is relative
+    - `ClientboundSetEntityMotionPacket#getXa`, `getYa`, `getZa` -> `getMovement`
 - `net.minecraft.server`
     - `SPAWN_POSITION_SEARCH_RADIUS` is now public
     - `MinecraftServer` now takes in a `LevelLoadListener` instead of a `ChunkProgressListenerFactory`
@@ -1093,6 +1163,9 @@ public static final TicketType EXAMPLE = new TicketType(
         - `startRiding(Entity)` is now final
         - `startRiding(Entity, boolean)` now takes in an additional boolean of whether to trigger the game event and criteria triggers
         - `killedEntity` now takes in the `DamageSource`
+        - `moveOrInterpolateTo` now has overloads that take in an XY rotation, a `Vec3` position, or all three as optionals
+        - `lerpMotion` now takes in a `Vec3` instead of three doubles
+        - `forceSetRotation` now takes in whether the XY rotation is relative
     - `EntityType` now takes in whether the entity is allowed in peaceful mode
         - `create`, `loadEntityRecursive` now has an overload that takes in an `EntityType`
     - `LivingEntity`
@@ -1101,6 +1174,7 @@ public static final TicketType EXAMPLE = new TicketType(
     - `Mob#shouldDespawnInPeaceful` -> `EntityType#isAllowedInPeaceful`, not one-to-one
 - `net.minecraft.world.entity.animal.Animal#usePlayerItem` -> `Mob#usePlayerItem`
 - `net.minecraft.world.entity.animal.armadillo.Armadillo#brushOffScute` now takes in an `Entity` and `ItemStack`
+- `net.minecraft.world.entity.vehicle.MinecartBehavior#lerpMotion` now takes in a `Vec3` instead of three doubles
 - `net.minecraft.world.item.SpawnEggItem` no longer takes in the `EntityType`
     - `spawnsEntity` no longer takes in the `HolderLookup$Provider`
     - `getType` no longer takes in the `HolderLookup$Provider`
@@ -1122,7 +1196,9 @@ public static final TicketType EXAMPLE = new TicketType(
         - `CHECKED_MAIN_THREAD_EXECUTOR` -> `ResolvableProfile#CHECKED_MAIN_THREAD_EXECUTOR`
         - `setup` -> `ResolvableProfile#setupResolver`
         - `clear` -> `ResolvableProfiler#clearResolver`
-- `net.minecraft.world.level.block.state.BlockBehaviour#getAnalogOutputSignal`, `$BlockStateBase#getAnalogOutputSignal` now takes in the direction the signal is coming from
+- `net.minecraft.world.level.block.state.BlockBehaviour`
+    - `getAnalogOutputSignal`, `$BlockStateBase#getAnalogOutputSignal` now takes in the direction the signal is coming from
+    - `$Properties#noCollission` -> `noCollision`
 - `net.minecraft.world.level.levelgen`
     - `Beardifier` now takes in lists instead of iterators and a nullable `BoundingBox`
     - `NoiseRouter#initialDensityWithoutJaggedness` -> `preliminarySurfaceLevel`
@@ -1132,14 +1208,34 @@ public static final TicketType EXAMPLE = new TicketType(
 ### List of Removals
 
 - `com.mojang.blaze3d.audio.Listener#setGain`, `getGain`
-- `com.mojang.blaze3d.vertex.DefaultVertexFormat#BLIT_SCREEN`
+- `com.mojang.blaze3d.opengl`
+    - `GlShaderModule#compile`
+    - `GlStateManager`
+        - `_glUniform1`, `_glUniform2`, `_glUniform3`, `_glUniform4`
+        - `_glUniformMatrix4`
+        - `glActiveTexture`, `_getActiveTexture`
+- `com.mojang.blaze3d.pipeline.RenderTarget#viewWidth`, `viewHeight`
+- `com.mojang.blaze3d.systems.RenderSystem`
+    - `getQuadVertexBuffer`
+    - `setModelOffset`, `resetModelOffset`, `getModelOffset`
+- `com.mojang.blaze3d.vertex`
+    - `DefaultVertexFormat#BLIT_SCREEN`
+    - `VertexConsumer#setWhiteAlpha`
 - `net.minecraft.SharedConstants#VERSION_STRING`
 - `net.minecraft.client`
+    - `Camera#FOG_DISTANCE_SCALE`
     - `Minecraft#getProgressListener`
     - `Options#RENDER_DISTANCE_TINY`, `RENDER_DISTANCE_NORMAL`
     - `User#getType`, `$Type`
+- `net.minecraft.client.gui.font.FontSet#name`
+- `net.minecraft.client.gui.render.state.GuiRenderState`
+    - `down`, `$Node#down`
+    - `$LayeredElementConsumer`
 - `net.minecraft.client.gui.screens.LevelLoadingScreen#renderChunks`
+- `net.minecraft.client.main.GameConfig$UserData#userProperties`, `profileProperties`
+- `net.minecraft.client.renderer.chunk.ChunkSectionLayer#outputTarget`
 - `net.minecraft.gametest.framework.GameTestTicker#startTicking`
+- `net.minecraft.network.chat.Style#DEFAULT_FONT`
 - `net.minecraft.server.MinecraftServer#getSpawnRadius`
 - `net.minecraft.server.level`
     - `ServerChunkCache#getTickingGenerated`
@@ -1152,5 +1248,8 @@ public static final TicketType EXAMPLE = new TicketType(
 - `net.minecraft.world.entity.monster`
     - `Creeper#canDropMobsSkull`, `increaseDroppedSkulls`
     - `Zombie#getSkull`
-- `net.minecraft.world.level.GameRules#RULE_SPAWN_CHUNK_RADIUS`
+- `net.minecraft.world.entity.vehicle.MinecartTNT#explode(double)`
+- `net.minecraft.world.level`
+    - `BlockGetter#MAX_BLOCK_ITERATIONS_ALONG_TRAVEL`
+    - `GameRules#RULE_SPAWN_CHUNK_RADIUS`
 - `net.minecraft.world.level.block.entity.SkullBlockEntity#fetchGameProfile`
