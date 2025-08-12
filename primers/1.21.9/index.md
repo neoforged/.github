@@ -361,6 +361,9 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
 ```
 
 - `assets/minecraft/shaders/core/blit_screen.json` -> `screenquad.json`, using no-format triangles instead of positioned quads
+- `net.minecraft.client.gui.GuiGraphics`
+    - `renderOutline` -> `submitOutline`
+    - `renderDeferredTooltip` -> `renderDeferredElements`, not one-to-one
 - `net.minecraft.client.gui.render.pip`
     - `GuiBannerResultRenderer` now takes in a `MaterialSet`
     - `GuiEntityRenderer` now takes in a `FeatureRenderDispatcher`
@@ -417,6 +420,7 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
     - `RenderPipelines`
         - `GUI_TEXT` - The pipeline for text in a gui.
         - `GUI_TEXT_INTENSITY` - The pipeline for text intensity when not colored in a gui.
+    - `RenderType#pipeline` - The `RenderPipeline` the type uses.
     - `ScreenEffectRenderer` now takes in a `MaterialSet`
     - `Sheets`
         - `BLOCK_ENTITIES_MAPPER` - A mapper for block textures onto block entities.
@@ -483,12 +487,13 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
     - `ItemRenderer`
         - `getArmorFoilBuffer` -> `getFoilRenderTypes`, not one-to-one
         - `renderStatic(ItemStack, ItemDisplayContext, int, int, PoseStack, MultiBufferSource, Level, Vec3, Direction, int)` is removed
-        - `renderUpwardsFrom` - Renders an item after translating the item upwards the minimum y of the model bounding box.
+        - `getBoundingBox` - Gets the model bounding box of the stack.
     - `PiglinRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
     - `TntMinecartRenderer#renderWhiteSolidBlock` -> `submitWhiteSolidBlock`
     - `ZombieRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
     - `ZombifiedPiglinPiglinRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
 - `net.minecraft.client.renderer.entity.layers`
+    - `BlockDecorationLayer` - A layer that handles a block model transformed by an entity.
     - `BreezeWindLayer` now takes in the `EntityModelSet` instead of the `EntityRendererProvider$Context`
     - `EquipmentLayerRenderer#renderLayers` now takes in the render state, `SubmitNodeCollector`, outline color, and an initial order instead of a `MultiBufferSource`
     - `HumanoidArmorLayer` now takes in `ArmorModelSet`s instead of models
@@ -687,9 +692,9 @@ public boolean mouseClicked(double x, double y, int button, boolean doubleClick)
 
 ### Item Owner
 
-Minecraft has further abstracted the holder of an item in item models to its own interface: `ItemOwner`. An `ItemOwner` is defined by three things: the `level` the owner is in, the `position` of the owner, and the Y rotation (in degrees) of the owner to indicate the facing direction. `ItemOwner`s are implemented on every `Entity`; however, there can also be detached owners by calling `ItemOwner#custom` or creating a `ItemOwner$CustomOwner`.
+Minecraft has further abstracted the holder of an item in item models to its own interface: `ItemOwner`. An `ItemOwner` is defined by three things: the `level` the owner is in, the `position` of the owner, and the Y rotation (in degrees) of the owner to indicate the facing direction. `ItemOwner`s are implemented on every `Entity`; however, their position can be offset by using `ItemOwner#offsetFromOwner` or creating a `ItemOwner$OffsetFromOwner`.
 
-Currently, only the new shelf block uses item owners in a detached state so that compasses are not randomly spinning when placed.
+Currently, only the new shelf block uses the offset owner so that compasses are not randomly spinning when placed.
 
 - `net.minecraft.client.renderer.entity.ItemRenderer#renderStatic` now takes in an optional `ItemOwner` instead of a `LivingEntity`
 - `net.minecraft.client.renderer.item`
@@ -701,7 +706,7 @@ Currently, only the new shelf block uses item owners in a detached state so that
     - `Time$TimeSource#get` now takes in an `ItemOwner` instead of a `Entity`
 - `net.minecraft.world.entity`
     - `Entity` now implements `ItemOwner`
-    - `ItemOwner` - Represents the owner of the item being rendered, or a nonspecific owner given the position, visual rotation, and level.
+    - `ItemOwner` - Represents the owner of the item being rendered.
 
 ### Container User
 
@@ -838,6 +843,13 @@ public static final TicketType EXAMPLE = new TicketType(
     - `removeTicketIf` now takes a `$TicketPredicate` instead of a `BiPredicate`
     - `$TicketPredicate` - Tests the ticket at a given chunk position.
 
+### The 'On Shelf' Transform
+
+Models now have a new transform for determining how an item sits on a shelf called `on_shelf`.
+
+- `net.minecraft.client.renderer.block.model.ItemTransforms#fixedFromBottom` - A transform that expects the item to be sitting on some fixed bottom, like a shelf.
+- `net.minecraft.world.item.ItemDisplayContext#ON_SHELF` - When an item is placed on a shelf.
+
 ### New Tags
 
 - `minecraft:block`
@@ -850,6 +862,10 @@ public static final TicketType EXAMPLE = new TicketType(
     - `chains`
     - `lanterns`
     - `bars`
+- `minecraft:entity_types`
+    - `cannot_be_pushed_onto_boats`
+    - `accepts_iron_golem_gift`
+    - `candidate_for_iron_golem_gift`
 - `minecraft:item`
     - `wooden_shelves`
     - `copper_chests`
@@ -861,6 +877,7 @@ public static final TicketType EXAMPLE = new TicketType(
     - `chains`
     - `lanterns`
     - `bars`
+    - `shearable_from_copper_golem`
 
 ### List of Additions
 
@@ -869,12 +886,15 @@ public static final TicketType EXAMPLE = new TicketType(
     - `DEBUG_SHUFFLE_MODELS` - A flag that likely shuffles the model loading order.
 - `net.minecraft.client`
     - `KeyMapping#shouldSetOnIngameFocus` - Returns whether the key is mapped to some value on the keyboard.
-    - `Minecraft#isOfflineDevelopedMode` - Returns whether the game is in offline developer mode.
+    - `Minecraft`
+        - `isOfflineDevelopedMode` - Returns whether the game is in offline developer mode.
+        - `canSwitchGameMode` - Whether the player entity exists and has a game mode.
     - `Options`
         - `invertMouseX` - When true, inverts the X mouse movement.
         - `toggleAttack` - When true, sets the attack key to be toggleable.
         - `toggleUse` - When true, sets the use key to be toggleable.
         - `sprintWindow` - Time window in ticks where double-tapping the forward key activates sprint.
+        - `saveChatDrafts` - Returns whether the message being typed in chat should be retained if the box is closed.
 - `net.minecraft.client.animation.definitions.CopperGolemAnimation` - The animations for the copper golem.
 - `net.minecraft.client.data.models.BlockModelGenerators`
     - `and` - ANDs the given conditions together.
@@ -902,7 +922,15 @@ public static final TicketType EXAMPLE = new TicketType(
     - `GlyphSource` - An interface that holds the baked glyphs based on its codepoint.
     - `Gui#renderDeferredSubtitles` - Renders the subtitles on screen.
     - `GuiGraphics#getSprite` - Gets a `TextureAtlasSprite` from its material.
-- `net.minecraft.client.gui.components.MultilineTextField#selectWordAtCursor` - Selects the word whether the cursor is currently located.
+- `net.minecraft.client.gui.components`
+    - `ChatComponent`
+        - `saveAsDraft`, `discardDraft` - Handles the draft message in the chat box.
+        - `createScreen`, `openScreen`, `preserveCurrentChatScreen`, `restoreChatScreen` - Handles screen behavior depending on the draft chat option.
+        - `$ChatMethod` - Defines what type of message is the chat.
+        - `$Draft` - Defines a draft message in the chat box.
+    - `EditBox$TextFormatter` - An interface used to format the string in the box.
+    - `MultiLineLabel$Align` - Handles the alignment of the label.
+    - `MultilineTextField#selectWordAtCursor` - Selects the word whether the cursor is currently located.
 - `net.minecraft.client.gui.components.events.GuiEventListener#shouldTakeFocusAfterInteraction` - When true, sets the element as focused when clicked.
 - `net.minecraft.client.gui.font`
     - `AtlasGlyphProvider` - A glyph provider based off a texture atlas.
@@ -912,6 +940,12 @@ public static final TicketType EXAMPLE = new TicketType(
     - `GlyphStitcher` - A class that creates `BakedGlyph`s from its glyph information.
 - `net.minecraft.client.gui.font.glyphs.BakeableGlyph` - An interface that represents a glyph to bake into something usable by the renderer.
 - `net.minecraft.client.gui.screens`
+    - `ChatScreen`
+        - `isDraft` - Whether there is a message that hasn't been sent in the box.
+        - `exitReason` - The reason the chat screen was closed.
+        - `shouldDiscardDraft` - Whether the current draft message should be discarded.
+        - `$ChatConstructor` - A constructor for the chat screen based on the draft state.
+        - `$ExitReason` - The reason the chat screen was closed.
     - `LevelLoadingScreen`
         - `update` - Updates the current load tracker and reason.
         - `$Reason` - The reason for changing the level loading screen.
@@ -919,11 +953,28 @@ public static final TicketType EXAMPLE = new TicketType(
         - `panoramaShouldSpin` - Returns whether the rendered panorama should spin its camera.
         - `setNarrationSuppressTime` - Sets until when the narration should be suppressed for.
         - `isInGameUi` - Returns whether the screen is opened while playing the game, not the pause menu.
+        - `isAllowedInPortal` - Whether this screen can be open during the portal transition effect.
 - `net.minecraft.client.gui.screens.options.OptionsScreen#CONTROLS` is now public
 - `net.minecraft.client.main.GameConfig$GameData#offlineDeveloperMode` - Whether the game is offline and is ran for development.
+- `net.minecraft.client.multiplayer`
+    - `ClientCommonPacketListenerImpl`
+        - `seenPlayers` - All players that have been seen, regardless of if they are currently online, by this player.
+        - `seenInsecureChatWarning` - If the player has seen the insecure chat warning.
+        - `$CommonDialogAccess` - A dialog access used by the client network.
+    - `ClientExplosionTracker` - Tracks the explosions made on the client, specifically to handle particles.
+    - `ClientLevel`
+        - `endFlashState` - Handles the state of the flashes of light that appear in the end.
+        - `trackExplosionEffects` - Tracks an explosion to handle its particles.
+    - `ClientPacketListener#getSeenPlayers` - Returns all players seen by this player.
+- `net.minecraft.client.renderer`
+    - `EndFlashState` - The render state of the end flashes.
+    - `SkyRenderer#renderEndFlash` - Renders the end flashes.
+- `net.minecraft.client.resources.WaypointStyle#ICON_LOCATION_PREFIX` - The prefix for waypoint icons.
+- `net.minecraft.client.resources.sounds.DirectionalSoundInstance` - A sound that changes position based on the direction of the camera.
 - `net.minecraft.core`
     - `BlockPos#betweenCornersInDirection` - An iterable that iterates through the provided bounds in the direction provided by the vector.
     - `Direction#axisStepOrder` - Returns a list of directions that the given vector should be checked in.
+- `net.minecraft.core.particles.ExplosionParticleInfo` - The particle that used as part of an explosion.
 - `net.minecraft.data.loot.packs`
     - `VanillaBlockInteractLoot` - A sub provider for vanilla block loot from entity interaction.
     - `VanillaChargedCreeperExplosionLoot` - A sub provider for vanilla entity loot from charged creeper explosions.
@@ -933,7 +984,9 @@ public static final TicketType EXAMPLE = new TicketType(
 - `net.minecraft.network`
     - `FriendlyByteBuf#readLpVec3`, `writeLpVec3` - Handles syncing a compressed `Vec3`.
     - `LpVec3` - A vec3 network handler that compresses and decompresses a vector into at most two bytes and two integers.
-- `net.minecraft.network.chat.FontDescription` - An identifier that describes a font, typically as a location or sprite.
+- `net.minecraft.network.chat`
+    - `CommonComponents#GUI_COPY_TO_CLIPBOARD` - The message to display when copying a chat to the clipboard.
+    - `FontDescription` - An identifier that describes a font, typically as a location or sprite.
 - `net.minecraft.network.chat.contents.ObjectContents` - An arbitrary piece of content that can be written as part of a component, like a sprite.
 - `net.minecraft.network.syncher.EntityDataSerializers`
     - `WEATHERING_COPPER_STATE` - The weather state of the copper on the golem.
@@ -961,11 +1014,15 @@ public static final TicketType EXAMPLE = new TicketType(
 - `net.minecraft.server.packs.repository.PackCompatibility#UNKNOWN` - The compatibility of the pack with the game is unknown as the major version is set to the max integer value.
 - `net.minecraft.server.packs.resources.ResourceMetadata#getTypedSection`, `getTypedSections` - Gets the metadata sections for the provided types.
 - `net.minecraft.util.InclusiveRange#map` - Maps a range from one generic to another.
+- `net.minecraft.util.random`
+    - `Weighted#streamCodec` - Constructs a stream codec for the weighted entry.
+    - `WeightedList#streamCodec` - Constructs a stream codec for the weighted list.
 - `net.minecraft.util.thread.BlockableEventLoop#shouldRunAllTasks` - Returns if there are any blocked tasks.
 - `net.minecraft.world.entity`
     - `EntityType`
         - `STREAM_CODEC` - The stream codec for an entity type.
         - `$Builder#notInPeaceful` - Sets the entity to not spawn in peaceful mode.
+    - `Entity#canInteractWithLevel` - Whether the entity can interact with the current level.
     - `InsideBlockEffectType#CLEAR_FREEZE` - A in-block effect that clears the frozen ticks.
     - `LivingEntity#dropFromEntityInteractLootTable` - Drops loot from a table from an entity interaction.
     - `PositionMoveRotation#withRotation` - Creates a new object with the provided XY rotation.
@@ -983,6 +1040,7 @@ public static final TicketType EXAMPLE = new TicketType(
     - `CopperGolemOxidationLevel` - A record holding the source events and textures for a given oxidation level.
     - `CopperGolemOxidationLevels` - All vanilla oxidation levels.
     - `CopperGolemState` - The current logic state the copper golem is in.
+- `net.minecraft.world.entity.vehicle.MinecartFurnace#addFuel` - Adds fuel to the furnace to push the entity.
 - `net.minecraft.world.item`
     - `Item$TooltipContext#isPeaceful` - Returns true if the difficulty is set to peaceful.
     - `ToolMaterial#COPPER` - The copper tool material.
@@ -996,6 +1054,7 @@ public static final TicketType EXAMPLE = new TicketType(
         - `chestCanConnectTo` - Returns whether the chest can merge with another block.
         - `getConnectedBlockPos` - Gets the connected block position of the chest.
         - `getOpenChestSound`, `getCloseChestSound` - Returns the sounds played on chest open / close.
+    - `ChiseledBookShelfBlock#FACING`, `SLOT_*_OCCUPIED` - The block state properties of the chiseled bookshelf.
     - `CopperChestBlock` - The block for the copper chest.
     - `CopperGolemStatueBlock` - The block for the copper golem statue.
     - `SelectableSlotContainer` - A container whose slot can be selected based on in-game interaction.
@@ -1018,7 +1077,9 @@ public static final TicketType EXAMPLE = new TicketType(
     - `ListBackedContainer` - A container that is baked by a list of items.
     - `ShelfBlockEntity` - The block entity for the shelf.
 - `net.minecraft.world.level.block.state.BlockBehaviour#shouldChangedStateKeepBlockEntity`, `$BlockStateBase#shouldChangedStateKeepBlockEntity` - Returns whether the block entity should be kept if the block is changed to a different block.
-- `net.minecraft.world.level.block.state.properties.SideChainPart` - The location of where the chain of an object is connected to.
+- `net.minecraft.world.level.block.state.properties`
+    - `BlockStateProperties#ALIGN_ITEMS_TO_BOTTOM` - A property used in a block entity renderer to determine where items should be rendered.
+    - `SideChainPart` - The location of where the chain of an object is connected to.
 - `net.minecraft.world.level.levelgen`
     - `Beardifier#EMPTY` - An instance with no pieces or junctions.
     - `DensityFunction#invert` - Inverts the density output by putting the result one over the value.
@@ -1039,6 +1100,7 @@ public static final TicketType EXAMPLE = new TicketType(
         - `ENTITY_INTERACT` - An entity being interacted with.
         - `BLOCK_INTERACT` - A block being interacted with.
 - `net.minecraft.world.phys.Vec3#X_AXIS`, `Y_AXIS`, `Z_AXIS` - The unit vector in the positive direction of each axis.
+- `net.minecraft.world.waypoints.PartialTickSupplier` - Gets the partial tick given the provided entity.
 
 ### List of Changes
 
@@ -1065,7 +1127,11 @@ public static final TicketType EXAMPLE = new TicketType(
         - `packVersion` now returns a `PackFormat`
         - `$Simple` now takes in a `PackFormat` for the `resourcePackVersion` and `datapackVersion`
 - `net.minecraft.client`
-    - `Minecraft#setLevel` no longer takes in the `ReceivingLevelScreen$Reason`
+    - `Minecraft`
+        - `setLevel` no longer takes in the `ReceivingLevelScreen$Reason`
+        - `cameraEntity` is now private
+        - `openChatScreen` is now public, taking in the `ChatComponent$ChatMethod`
+        - `setCamerEntity` can now take in a null entity
     - `KeyMapping#release` is now protected
     - `Options#invertYMouse` -> `invertMouseY`
     - `ToggleKeyMapping` now has an overload that takes in an input type
@@ -1081,6 +1147,11 @@ public static final TicketType EXAMPLE = new TicketType(
         - `$PreparedTextBuilder#accept` now has an override that takes in a `BakeableGlyph` instead of its codepoint
         - `$Provider#glyphs` now takes in a `FontDescription` instead of a `ResourceLocation`
     - `GuiGraphics#submitSignRenderState` now takes in a `Model$Simple` instead of a `Model`
+- `net.minecraft.client.gui.components`
+    - `EditBox#setFormatter` -> `addFormatter`, not one-to-one
+    - `MultiLineLabel`
+        - `renderCentered`, `renderLeftAligned`, `renderLeftAlignedNoShadow` -> `render`, not one-to-one
+        - `getStyleAtCentered`, `getStyleAtLeftAligned` -> `getStyle`, not one-to-one
 - `net.minecraft.client.gui.font`
     - `FontManager` now takes in the `AtlasManager`
     - `FontSet` now takes in a `GlyphStitcher` instead of a `TextureManager` and no longer takes in the name
@@ -1094,6 +1165,9 @@ public static final TicketType EXAMPLE = new TicketType(
     - `GuiRenderState#forEachElement` now takes in a `Consumer<GuiElementRenderState>` instead of a `GuiRenderState$LayeredElementConsumer`
 - `net.minecraft.client.gui.render.state.pip.GuiSignRenderState` now takes in a `Model$Simple` instead of a `Model`
 - `net.minecraft.client.gui.screens`
+    - `ChatScreen` now takes in a boolean representing whether the message is a draft
+        - `initial` is now protected
+    - `InBedChatScreen` now takes in the initial text and whether there is a draft mesage in the box
     - `LevelLoadingScreen` now takes in a `LevelLoadTracker` and `LevelLoadingScreen$Reason`
     - `ReceivingLevelScreen` has been merged into `LevelLoadingScreen`
     - `Screen`
@@ -1102,10 +1176,13 @@ public static final TicketType EXAMPLE = new TicketType(
 - `net.minecraft.client.main.GameConfig$UserData` no longer takes in the `PropertyMap`s
 - `net.minecraft.client.multiplayer`
     - `ClientHandshakePacketListenerImpl` now takes in a `LevelLoadTracker`
-    - `CommonListenerCookie` now takes in a `LevelLoadTracker`
+    - `CommonListenerCookie` now takes in a `LevelLoadTracker`, map of seen players, and whether the insecure chat warning has been shown
     - `LevelLoadStatusManager` -> `LevelLoadTracker`, not one-to-one
         - `CLOSE_DELAY_MS` -> `LEVEL_LOAD_CLOSE_DELAY_MS`, now public
+    - `TransferState` now takes in a map of seen players and whether the insecure chat warning has been shown
 - `net.minecraft.client.multiplayer.chat.ChatListener#clearQueue` -> `flushQueue`
+- `net.minecraft.client.renderer.DimensionSpecialEffects#forceBrightLightmap` -> `hasEndFlashes`, not one-to-one
+- `net.minecraft.client.resources.WaypointStyle#validate` is now public
 - `net.minecraft.client.server.IntegratedServer` now takes in a `LevelLoadListener` instead of a `ChunkProgressListenerFactory`
 - `net.minecraft.client.sounds`
     - `SoundEngine#updateCategoryVolume` no longer takes in the gain
@@ -1124,6 +1201,7 @@ public static final TicketType EXAMPLE = new TicketType(
     - `withFont` now takes in a `FontDescription` instead of a `ResourceLocation`
 - `net.minecraft.network.protocol.game`
     - `ClientboundAddEntityPacket#getXa`, `getYa`, `getZa` -> `getMovement`
+    - `ClientboundExplodePacket` now takes in a radius, block count, and the block particles to display
     - `ClientboundPlayerRotationPacket` now takes in whether the XY rotation is relative
     - `ClientboundSetEntityMotionPacket#getXa`, `getYa`, `getZa` -> `getMovement`
 - `net.minecraft.server`
@@ -1137,6 +1215,7 @@ public static final TicketType EXAMPLE = new TicketType(
         - `getTickingGenerated` -> `allChunksWithAtLeastStatus`, not one-to-one
     - `PlayerRespawnLogic` -> `PlayerSpawnFinder`, not one-to-one
     - `ServerChunkCache` no longer takes in the `ChunkProgressListener`
+    - `ServerEntityGetter#getNearestEntity` now has an overload that takes in a `TagKey` of entities instead of a class
     - `ServerLevel` no longer takes in the `ChunkProgressListener`
         - `waitForChunkAndEntities` -> `waitForEntities`, not one-to-one
 - `net.minecraft.server.level.progress`
@@ -1171,6 +1250,7 @@ public static final TicketType EXAMPLE = new TicketType(
     - `LivingEntity`
         - `shouldDropLoot` now takes in the `ServerLevel`
         - `dropFromLootTable` now has overloads to take in a specific loot table key and how the items should be dispensed
+        - `getSlotForHand` -> `InteractionHand#asEquipmentSlot`
     - `Mob#shouldDespawnInPeaceful` -> `EntityType#isAllowedInPeaceful`, not one-to-one
 - `net.minecraft.world.entity.animal.Animal#usePlayerItem` -> `Mob#usePlayerItem`
 - `net.minecraft.world.entity.animal.armadillo.Armadillo#brushOffScute` now takes in an `Entity` and `ItemStack`
@@ -1179,11 +1259,16 @@ public static final TicketType EXAMPLE = new TicketType(
     - `spawnsEntity` no longer takes in the `HolderLookup$Provider`
     - `getType` no longer takes in the `HolderLookup$Provider`
 - `net.minecraft.world.item.component.Bees#STREAM_CODEC` now requires a `RegistryFriendlyByteBuf`
+- `net.minecraft.world.item.enchantment.effects.ExplodeEffect` now takes in a list of block particles to display
+- `net.minecraft.world.level`
+    - `GameType#updatePlayerAbilities` now takes in a boolean to determine whether the player is flying in creative
+    - `Level#explode` now takes in a weighter list of explosion particles to display
+    - `ServerExplosion#explode` now returns the number of blocks exploded
 - `net.minecraft.world.level.block`
     - `BeehiveBlock#dropHoneycomb(Level, BlockPos)` -> `dropHoneyComb(ServerLevel, ItemStack, BlockState, BlockEntity, Entity, BlockPos)`
     - `CaveVines#use` entity is no longer nullable
     - `ChestBlock` now takes in an open and close sound
-    - `ChiseledBookShelfBLock` now implements `SelectableSlotContainer`
+    - `ChiseledBookShelfBlock` now implements `SelectableSlotContainer`
         - `BOOKS_PER_ROW` is now private
 - `net.minecraft.world.level.block.entity`
     - `ChiseledBookShelfBlockEntity` now implements `ListBackedContainer`
@@ -1199,11 +1284,16 @@ public static final TicketType EXAMPLE = new TicketType(
 - `net.minecraft.world.level.block.state.BlockBehaviour`
     - `getAnalogOutputSignal`, `$BlockStateBase#getAnalogOutputSignal` now takes in the direction the signal is coming from
     - `$Properties#noCollission` -> `noCollision`
+- `net.minecraft.world.level.block.state.properties.BlockStateProperties#CHISELED_BOOKSHELF_SLOT_*_OCCUPIED` -> `SLOT_*_OCCUPIED`
 - `net.minecraft.world.level.levelgen`
     - `Beardifier` now takes in lists instead of iterators and a nullable `BoundingBox`
     - `NoiseRouter#initialDensityWithoutJaggedness` -> `preliminarySurfaceLevel`
 - `net.minecraft.world.level.levelgen.structure.pools.JigsawPlacement#addPieces` now takes in a `JigsawStructure$MaxDistance` instead of an integer
 - `net.minecraft.world.level.levelgen.structure.structures.JigsawStructure` now takes in a `JigsawStructure$MaxDistance` instead of an integer
+- `net.minecraft.world.waypoints.TrackedWaypoint`
+    - `STREAM_CODEC` is now final
+    - `yawAngleToCamera` now takes in a `PartialTickSupplier`
+    - `pitchDirectionToCamera` now takes in a `PartialTickSupplier`
 
 ### List of Removals
 
@@ -1232,6 +1322,7 @@ public static final TicketType EXAMPLE = new TicketType(
     - `down`, `$Node#down`
     - `$LayeredElementConsumer`
 - `net.minecraft.client.gui.screens.LevelLoadingScreen#renderChunks`
+- `net.minecraft.client.gui.screens.dialog.DialogConnectionAccess#disconnect`
 - `net.minecraft.client.main.GameConfig$UserData#userProperties`, `profileProperties`
 - `net.minecraft.client.renderer.chunk.ChunkSectionLayer#outputTarget`
 - `net.minecraft.gametest.framework.GameTestTicker#startTicking`
