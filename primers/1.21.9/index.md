@@ -169,7 +169,7 @@ The entirety of the rendering pipeline, from entities to block entities, has bee
 
 ### Submission and Rendering
 
-The feature system, like GUIs, is broken into two phases: submission and rendering. The submission phase is handled by the `SubmitNodCollector`, which basically collects the data required to abstractly render an object to the screen. This is all done through the `submit*` methods, which generally take a `PoseStack` to place the object in 3D space, and any other required data such as the model, state, render type, etc.
+The feature system, like GUIs, is broken into two phases: submission and rendering. The submission phase is handled by the `SubmitNodeCollector`, which basically collects the data required to abstractly render an object to the screen. This is all done through the `submit*` methods, which generally take a `PoseStack` to place the object in 3D space, and any other required data such as the model, state, render type, etc.
 
 Here is a quick overview of what each method takes in:
 
