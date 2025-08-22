@@ -165,11 +165,11 @@ Profiles are defined presets that can be configured to the user's desire. Curren
 
 ## Feature Submissions: The Movie
 
-The entirety of the entity rendering pipeline, from the models to the text floating above their heads, has been reworked into a submission / render phase system known as features. It is likely that the feature system will take over block entities and particles as well given that the render phase calls has already been added, although they currently do nothing. This guide will go over the basics of the feature system itself followed by how entities are implemented using it.
+The entirety of the rendering pipeline, from entities to block entities, has been reworked into a submission / render phase system known as features. It is likely that the feature system will also take over particles given that the render phase calls have already been added, although they currently do nothing. This guide will go over the basics of the feature system itself followed by how each major type are implemented using it.
 
 ### Submission and Rendering
 
-The feature system, like GUIs, is broken into two phases: submission and rendering. The submission phase is handled by the `SubmitNodeCollector`, which as the name implies, collects the data required to abstractly render some data to the screen. This is all done through the `submit*` methods, which generally take a `PoseStack` to place the object in 3D space, and any other required data such as the model, state, render type, etc.
+The feature system, like GUIs, is broken into two phases: submission and rendering. The submission phase is handled by the `SubmitNodCollector`, which basically collects the data required to abstractly render an object to the screen. This is all done through the `submit*` methods, which generally take a `PoseStack` to place the object in 3D space, and any other required data such as the model, state, render type, etc.
 
 Here is a quick overview of what each method takes in:
 
@@ -177,20 +177,36 @@ Method                 | Parameters
 :---------------------:|:----------
 `submitHitbox`         | A pose stack, render state of the entity, and the hitboxes render state
 `submitShadow`         | A pose stack, the shadow radius, and the shadow pieces
-`submitNameTag`        | A pose stack, the position offset, the text component, if the text should be seethrough (like when sneaking), light coordinates, and square distance to the camera
-`submitText`           | A pose stack, the XY offset, the text sequence, whether to add a drop shadow, the font display mode, light coordinates, color, and background color
+`submitNameTag`        | A pose stack, an optional position offset, the text component, if the text should be seethrough (like when sneaking), light coordinates, and square distance to the camera
+`submitText`           | A pose stack, the XY offset, the text sequence, whether to add a drop shadow, the font display mode, light coordinates, color,  background color, and outline color
 `submitFlame`          | A pose stack, render state of the entity, and a rotation quaternion
 `submitLeash`          | A pose stack and the leash state
-`submitModel`          | A pose stack, entity model, render state, render type, light coordinates, overlay coordinates, tint color, texture, outline color, and an order (e.g., 0 for base model, 1 for armor model)
+`submitModel`          | A pose stack, entity model, render state, render type, light coordinates, overlay coordinates, tint color, an optional texture, outline color, and an optional crumbling overlay
+`submitModelPart`      | A pose stack, model part, render type, light coordinates, overlay coordinates, an optional texture, whether to use item glint over entity glint if render type is not transparent, whether to render the glint overlay, and tint color
 `submitBlock`          | A pose stack, block state, light coordinates, and overlay coordinates
-`submitFallingBlock`   | A pose stack and the falling render state
+`submitMovingBlock`    | A pose stack and the moving block render state
 `submitBlockModel`     | A pose stack, the render type, block state model, RGB floats, light coordinates, and overlay coordinates
-`submitItem`           | A pose stack, stack render state, light coordinates, and overlay coordinates
+`submitItem`           | A pose stack, item display context, light coordinates, overlay coordinates, tint layers, quads, render type, and foil type
 `submitCustomGeometry` | A pose stack, render type, and a function that takes in the current pose and `VertexConsumer` to create the mesh
 
-The render phase is handled through the `FeatureRenderDispatcher`, which renders the elements using feature renderers. What are feature renderers? Quite literally an arbitrary method that loops through the node contents its going to push to the buffer. Currently, the features push their vertices in the following order: entity shadows, entity models, entity on fire animations, entity name tags, arbitrary floating text, hitboxes, leashes, items, blocks, and finally custom render pipelines. All submissions are then cleared for next use.
+Technically, the `submit*` methods are provided by the `OrderedSubmitNodeCollector`, of which the `SubmitNodeCollector` extends. This is because features can be submitted to different orders, which function similarly to strata in GUIs. By default, all submit calls are pushed onto order 0. Using `SubmitNodeCollector#order` with some integer and then calling the `submit*` method, you can have an object render before or after all features on a given order. This is stored as an AVL tree, where each order's data is stored in a `SubmitNodeCollection`. With the current default feature rendering order, this is only used in very specific circumstances, such as rendering a slime's outer body or equipment layers.
 
-Most of the feature dispatchers are simply run a loop except for two: `EntityModelFeatureRenderer` for entity models, and `CustomFeatureRenderer` for custom geometry. First, both entity models and custom geometry group elements by their `RenderType` to upload all the vertex data for the feature objects in one pass per `RenderType`. Additionally, entity models has an `order` integer that is used to have certain models render on top of another rather than in the same pass. The most common use case is when the base model is rendered on `0` while armor is rendered on layer `1` and on depending on trim and color layers. When to use `order` depends on whether you believe the element is rendered on top of or is part of another model (e.g., sheep and its wool are both on `0` while the enderman eyes are on `1`).
+```java
+// Assume we have access to the `SubmitNodeCollector` collector
+
+// This will render in order 0
+collector.submitModel(...);
+
+// This will render before the `submitModel` call
+collector.order(-1).submitShadow(...);
+
+// This will render after the `submitModel` call
+collector.order(1).submitNameTag(...);
+```
+
+The render phase is handled through the `FeatureRenderDispatcher`, which renders the object using their submitted feature renderers. What are feature renderers? Quite literally an arbitrary method that loops through the node contents its going to push to the buffer. Currently, for a given order, the features push their vertices like so: shadows, models, model parts, flame animations, entity name tags, arbitrary text, hitboxes, leashes, items, blocks, and finally custom render pipelines. Each order, starting from the smallest number to the largest, will rerun all of the feature renders until it reaches the end of the tree. All submissions are then cleared for next use.
+
+Most of the feature dispatchers are simply run a loop except for `ModelFeatureRenderer`, which sorts its translucent models by distance from the camera and adds them to the buffer after all opaque models.
 
 ### Entity Models
 
@@ -360,13 +376,59 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
 }
 ```
 
+### Block Entity Renderer
+
+`BlockEntityRenderer`s also use the new submission method, replacing almost every `render*` with `submit`. Instead of taking in the `MultiBufferSource`, the method now takes in the `ModelFeatureRenderer$CrumblingOverlay`, for handling block breaking on `Model`s; and the `SubmitNodeCollector` for pushing the elements to render. Like entities, when submitting any element, the location in 3D space is taken by getting the last pose on the `PoseStack` and storing that for future use.
+
+```java
+// A basic block entity renderer
+
+// We will assume all the classes listed exist
+public class ExampleBlockEntityRenderer implements BlockEntityRenderer<ExampleBlockEntity> {
+
+    public ExampleBlockEntityRenderer(BlockEntityRendererProvider.Context ctx) {
+        
+    }
+
+    @Override
+    public void submit(ExampleBlockEntity blockEntity, float partialTick, PoseStack poseStack, int lightCoords, int overlayCoords, Vec3 cameraPos, @Nullable ModelFeatureRenderer.CrumblingOverlay crumblingOverlay, SubmitNodeCollector collector) {
+        // An example of submitting something
+        collector.submitModel(..., crumblingOverlay);
+    }
+}
+```
+
+### Special Item Models
+
+Since special item models also make use of custom rendering, they have been updated to with the `submit` change, only replacing `MultiBufferSource` with the `SubmitNodeCollector`.
+
+```java
+// A basic special item model
+
+// We will assume all the classes listed exist
+public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
+
+    public ExampleSpecialModelRenderer() {}
+
+    @Override
+    public void submit(ItemDisplayContext displayContext, PoseStack poseStack, SubmitNodeCollector collector, int lightCoords, int overlayCoords, boolean hasFoil) {
+        // An example of submitting something
+        collector.submitModelPart(...);
+    }
+
+    @Override
+    public void getExtents(Set<Vector3f> extents) {}
+}
+```
+
 - `assets/minecraft/shaders/core/blit_screen.json` -> `screenquad.json`, using no-format triangles instead of positioned quads
 - `net.minecraft.client.gui.GuiGraphics`
     - `renderOutline` -> `submitOutline`
     - `renderDeferredTooltip` -> `renderDeferredElements`, not one-to-one
+- `net.minecraft.client.gui.render.GuiRenderer` now takes in the `SubmitNodeCollector` and `FeatureRenderDispatcher`
+    - `MIN_GUI_Z` is now public
 - `net.minecraft.client.gui.render.pip`
     - `GuiBannerResultRenderer` now takes in a `MaterialSet`
-    - `GuiEntityRenderer` now takes in a `FeatureRenderDispatcher`
     - `GuiSignRenderer` now takes in a `MaterialSet`
 - `net.minecraft.client.model`
     - `AbstractPiglinModel#createArmorMeshSet` - Creates the model meshes for each of the humanoid armor slots.
@@ -379,6 +441,7 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
         - `createBodyLayer` -> `createBaseMesh`, now private
             - Replaced by `createBodyLayer`, `createWindLayer`, `createEyesLayer`
     - `CopperGolemModel` - A model for the copper golem entity.
+    - `CopperGolemStatueModel` - A model for the coper golem statue.
     - `CreakingModel`
         - `NO_PARTS`, `getHeadModelParts` are removed
         - `createEyesLayer` - Creates the eyes of the model.
@@ -411,27 +474,42 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
         - `getSubmitNodeStorage` - Gets the node submission for feature-like objects.
         - `getFeatureRenderDispatcher` - Gets the dispatcher for rendering feature-like objects.
         - `getLevelRenderState` - Gets the render state of dynamic features in a level.
+    - `ItemInHandRenderer`
+        - `renderItem` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource`
+        - `renderHandsWithItems` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource$BufferSource`
     - `LevelRenderer` now takes in the `LevelRenderState` and `FeatureRenderDispatcher`
         - `getSectionRenderDispatcher` is now nullable
     - `LevelRenderState` - The render state of the dynamic features in a level.
     - `MapRenderer#render` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource`
+    - `OrderedSubmitNodeCollector` - A submission handler for holding elements to be drawn in a given order to the screen whenever the features are dispatched.
     - `OutlineBufferSource` no longer takes in any parameters
         - `setColor` now takes in a single integer
+    - `PlayerSkinRenderCache` - A render cache for the player skins.
     - `RenderPipelines`
         - `GUI_TEXT` - The pipeline for text in a gui.
         - `GUI_TEXT_INTENSITY` - The pipeline for text intensity when not colored in a gui.
     - `RenderType#pipeline` - The `RenderPipeline` the type uses.
     - `ScreenEffectRenderer` now takes in a `MaterialSet`
+        - `renderScreenEffect` now takes in a `SubmitNodeCollector`
+    - `ShapeRenderer`
+        - `renderLineBox` now takes in a `PoseStack$Pose` instead of a `PoseStack`
+        - `renderFace` now takes in a `Matrix4f` instead of a `PoseStack`
     - `Sheets`
         - `BLOCK_ENTITIES_MAPPER` - A mapper for block textures onto block entities.
         - `*COPPER*` - Materials for copper chests.
-    - `SpecialBlockModelRenderer#vanilla` now takes in a `SpecialModelRenderer$BakingContext` instead of an `EntityModelSet`
-    - `SubmitNodeCollector` - A submission handler for holding elements to be drawn to the screen at a given time.
-    - `SubmitNodeStorage` - A node collector that hold the submitted features in the provided pose.
+    - `SpecialBlockModelRenderer`
+        - `vanilla` now takes in a `SpecialModelRenderer$BakingContext` instead of an `EntityModelSet`
+        - `renderByBlock` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource`
+    - `SubmitNodeCollection` - An implementation of `OrderedSubmitNodeCollector` that holds the submitted features in separate lists.
+    - `SubmitNodeCollector` - An `OrderedSubmitNodeCollector` that provides a method to change the current order that an element will be rendered in.
+    - `SubmitNodeStorage` - A storage of collections held by some order.
 - `net.minecraft.client.renderer.block`
     - `BlockRenderDispatcher` now takes in a `MaterialSet`
+    - `MovingBlockRenderState` - A render state for a moving block that implements `BlockAndTintGetter`.
     - `LiquidBlockRenderer#setupSprites` now take in the `BlockModelShaper` and `MaterialSet`
 - `net.minecraft.client.renderer.blockentity`
+    - Most methods here that take in the `MultiBufferSource` have been replaced by a `SubmitNodeCollector`, and a `ModelFeatureRenderer$CrumblingOverlay` if the method is not used for item rendering
+    - Most methods change their name from `render*` to `submit*`
     - `AbstractSignRenderer`
         - `getSignModel` now returns a `Model$Simple`
         - `renderSign` now takes in a `Model$Simple`
@@ -440,8 +518,10 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
         - `renderPatterns` now takes in the `MaterialSet`
     - `BedRenderer` has an overload that takes in a `SpecialModelRenderer$BakingContext`
         - The `EntityModelSet` constructor now takes in the `MaterialSet`
-    - `BlockEntityRenderDispatcher` now takes in the `MaterialSet`
-    - `BlockEntityRendererProvider$Context` is now a record, taking in a `MaterialSet`
+    - `BlockEntityRenderDispatcher` now takes in the `MaterialSet` and `PlayerSkinRenderCache`
+        - `render` -> `submit`
+    - `BlockEntityRenderer#render` -> `submit`
+    - `BlockEntityRendererProvider$Context` is now a record, taking in a `MaterialSet` and `PlayerSkinRenderCache`
     - `CopperGolemStatueBlockRenderer` - A block entity renderer for the copper golem statue.
     - `DecoratedPotRenderer` has an overload that takes in a `SpecialModelRenderer$BakingContext`
         - The `EntityModelSet` constructor now takes in the `MaterialSet`
@@ -479,14 +559,16 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
         - `render(S, PoseStack, MultiBufferSource, int)` -> `submit(S, PoseStack, SubmitNodeCollector)`
         - `renderNameTag` ->` submitNameTag`
         - `finalizeRenderState` - Extracts the information of the render state as a last step after `extractRenderState`, such as shadows.
-    - `EntityRendererProvider$Context`
+    - `EntityRendererProvider$Context` now takes in a `PlayerSkinRenderCache`
         - `getModelManager` is removed
         - `getMaterials` - Returns a mapper of material to atlas sprite.
+        - `getPlayerSkinRenderCache` - Gets the render cache of player skins.
     - `ItemEntityRenderer`
         - `renderMultipleFromCount` -> `submitMultipleFromCount`
+        - `renderMultipleFromCount(PoseStack, MultiBufferSource, int, ItemClusterRenderState, RandomSource)` -> `renderMultipleFromCount(PoseStack, SubmitNodeCollector, int, ItemClusterRenderState, RandomSource)`
     - `ItemRenderer`
         - `getArmorFoilBuffer` -> `getFoilRenderTypes`, not one-to-one
-        - `renderStatic(ItemStack, ItemDisplayContext, int, int, PoseStack, MultiBufferSource, Level, Vec3, Direction, int)` is removed
+        - All `renderStatic` -> `renderUpwardsFrom`, now taking in a `SubmitNodeCollector` instead of a `MultiBufferSource`
         - `getBoundingBox` - Gets the model bounding box of the stack.
     - `PiglinRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
     - `TntMinecartRenderer#renderWhiteSolidBlock` -> `submitWhiteSolidBlock`
@@ -495,6 +577,7 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
 - `net.minecraft.client.renderer.entity.layers`
     - `BlockDecorationLayer` - A layer that handles a block model transformed by an entity.
     - `BreezeWindLayer` now takes in the `EntityModelSet` instead of the `EntityRendererProvider$Context`
+    - `CustomHeadLayer` now takes in the `PlayerSkinRenderCache`
     - `EquipmentLayerRenderer#renderLayers` now takes in the render state, `SubmitNodeCollector`, outline color, and an initial order instead of a `MultiBufferSource`
     - `HumanoidArmorLayer` now takes in `ArmorModelSet`s instead of models
         - `setPartVisibility` is removed
@@ -507,6 +590,7 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
     - `SimpleEquipmentLayer` now takes in an order integer
     - `StuckInBodyLayer` now has an additional generic for the render state, also taking in the render state in the constructor
     - `VillagerProfessionLayer` now takes in two models
+- `net.minecraft.client.renderer.entity.player.PlayerRenderer#render*Hand` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource`
 - `net.minecraft.client.renderer.entity.state`
     - `CopperGolemRenderState` - The render state for the copper golem entity.
     - `EntityRenderState`
@@ -514,6 +598,7 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
         - `outlineColor` - The outline color of the entity.
         - `lightCoords` - The packed light coordinates used to light the entity.
         - `shadowPieces`, `$ShadowPiece` - Represents the relative coordinates of the shadow(s) the entity is casting.
+    - `FallingBlockRenderState` fields and implementations have all been moved to `MovingBlockRenderState`
     - `LivingEntityRenderState#appearsGlowing` -> `EntityRenderState#appearsGlowing`, now a method
     - `PaintingRenderState#lightCoords` -> `lightCoordsPerBlock`
     - `PlayerRenderState#useItemRemainingTicks`, `swinging` are removed
@@ -521,24 +606,31 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
 - `net.minecraft.client.renderer.feature`
     - `BlockFeatureRenderer` - Renders the submitted blocks, block models, or falling blocks.
     - `CustomFeatureRenderer` - Renders the submitted geometry via a passed function.
-    - `EntityModelFeatureRenderer` - Renders the submitted entity models.
     - `FeatureRenderDispatcher` - Dispatches all features to render from the submitted node collector objects.
     - `FlameFeatureRenderer` - Renders the submitted entity on fire animation.
     - `HitboxFeatureRenderer` - Renders the submitted entity hitbox.
     - `ItemFeatureRenderer` - Renders the submitted items.
     - `LeashFeatureRenderer` - Renders the submitted leash attached to entities.
+    - `ModelFeatureRenderer` - Renders the submitted `Model`s.
+    - `ModelPartFeatureRenderer` - Renders the submitted `ModelPart`s.
     - `NameTagFeatureRenderer` - Renders the submitted name tags.
     - `ShadowFeatureRenderer` - Render the submitted entity shadow.
     - `TextFeatureRenderer` - Renders the submitted text.
-- `net.minecraft.client.renderer.item.ItemModel$BakingContext` now takes in a `MaterialSet` and implements `SpecialModelRenderer$BakingContext`
+- `net.minecraft.client.renderer.item`
+    - `ItemModel$BakingContext` now takes in a `MaterialSet` and `PlayerSkinRenderCache`, and implements `SpecialModelRenderer$BakingContext`
+    - `ItemStackRenderState#render` -> `submit`, taking in a `SubmitNodeCollector` instead of a `MultiBufferSource`
 - `net.minecraft.client.renderer.special`
+    - Most methods here that take in the `MultiBufferSource` have been replaced by `SubmitNodeCollector`
     - `ChestSpecialRenderer` now takes in a `MaterialSet`
         - `*COPPER*` - Textures for the copper chest.
     - `ConduitSpecialRenderer` now takes in a `MaterialSet`
     - `CopperGolemStatueSpecialRenderer` - A special renderer for the copper golem statue as an item.
     - `HangingSignSpecialRenderer` now takes in a `MaterialSet` and a `Model$Simple` instead of a `Model`
+    - `NoDataSpecialModelRenderer#render` -> `submit`
+    - `PlayerHeadSpecialRenderer` now takes in the `PlayerSkinRenderCache`
     - `ShieldSpecialRenderer` now takes in a `MaterialSet`
     - `SpecialModelRenderer`
+        - `render` -> `submit`
         - `$BakingContext` - The context used to bake a special item model.
         - `$Unbaked#bake` now takes in a `SpecialModelRenderer$BakingContext` instead of an `EntityModelSet`
     - `SpecialModelRenderers#createBlockRenderers` now takes in a `SpecialModelRenderer$BakingContext` instead of an `EntityModelSet`
@@ -562,8 +654,75 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
         - `sprite` -> `MaterialSet#get`
         - `buffer` now takes in a `MaterialSet`
     - `MaterialSet` - A map of material to its atlas sprite.
-    - `ModelBakery` now takes in a `MaterialSet`
+    - `ModelBakery` now takes in a `MaterialSet` and `PlayerSkinRenderCache`
     - `ModelManager` is no longer `AutoCloseable`
+        - The constructor takes in the `PlayerSkinRenderCache`
+
+## The Font Glyph Pipeline
+
+Glyphs have been partially reworked in the backend to both unify both characters and their effects to a single renderable and add a baking flow, albeit delayed. This will provide a brief overview of this new flow.
+
+Let's start from the top when the assets are reloaded, causing the `FontManager` to run. The font definitions are loaded and passed to their appropriate `GlyphProviderDefinition`, which for this example with immediately unpack into a `GlyphProvider$Loader`. The loader reads whatever information it needs (most likely a texture) and maps it to an associated codepoint as an `UnbakedGlyph`. An `UnbakedGlyph` represents a single character containing its `GlyphInfo` with the position metadata and a `bake` method to write it to a texture. `bake` takes in a `UnbakedGlyph$Stitcher`, which itself takes in a `GlyphBitmap` to correctly position and upload the glyph along with the `GlyphInfo` for any offset adjustments. Then, after and resolving and finalizing, the `FontSet`s are created using `FontSet#reload`. This resets the textures and cache and calls `FontSet#selectProviders` to store the active list of `GlyphProvider`s and populates the `glyphsByWidth` by mapping the character advance to a list of matching codepoints. At this point, all of the loading has been done. While the glyphs are stored in their unbaked format, they are not baked and cached until that specific character is rendered.
+
+Now, let's move onto the `FontDescription`. A `FontDescription` provides a one-to-one map to a `GlyphSource`, which is responsible for obtaining the glyphs. Vanilla provides two `FontDescription`s: `$Resource` for mapping to the `FontSet` (the font JSON name) as mentioned above, and `$AtlasSprite` to interpret an atlas as a bunch of glyphs. For a given `Component`, the `FontDescription` used can be set as its `Style` via `Style#withFont`.
+
+So, let's assume you are drawing text to the screen using `FontDescription#DEFAULT`, which uses the defined `assets/minecraft/font/default.json`. Eventually, this will either call `Font#drawInBatch` or `drawInBatch8xOutline`. Then, whether through the `StringSplitter` or directly, the `GlyphSource` is obtained from the `FontDescription`. Then, `GlyphSource#getGlyph` is called. For the `FontDescription$AtlasSprite`, this just returns a wrapper around the `TextureAtlasSprite`. For the `$Resource` though, this internally calls `FontSet#getGlyph`, which stores the `UnbakedGlyph` as part of a `FontSet$DelayedBake`, which it then immediately resolves to the `BakedGlyph` by calling `UnbakedGlyph#bake` to write the glyph to some texture.
+
+A `BakedGlyph` contains two methods: the `GlyphInfo` for the position metadata like before, and a method called `createGlyph`, which returns a `TextRenderable`: a renderer to draw the glyph to the screen. Internally, all resource `BakedGlyph`s are `BakedSheetGlyph`s, as the `UnbakedGlyph$Stitcher#stitch` called just wraps around `GlyphStitcher#stitch`. You can think of the `BakedSheetGlyph` as a view onto a 256x256 `FontTexture`s, where if there is not enough space on one `FontTexture`, then a new `FontTexture` is created.
+
+`BakedSheetGlyph` also implements `EffectGlyph`, which is likely supposed to render some sort of effect on the text. This functionality, while it is currently implemented as just another object, is only used for the white glyph, which goes unused.
+
+- `com.mojang.blaze3d.font`
+    - `GlyphInfo`
+        - `bake` -> `UnbakedGlyph#bake`, now takes in a `UnbakedGlyph$Stitcher` instead of a function
+            - The function behavior is replaced by `UnbakedGlyph$Stitcher#stitch`
+        - `$SpaceGlyphInfo` -> `GlyphInfo#simple` and `EmptyGlyph`, not one-to-one
+        - `$Stitched` -> `UnbakedGlyph`, not one-to-one
+    - `GlyphProvider#getGlyph` now returns an `UnbakedGlyph`
+    - `SheetGlyphInfo` -> `GlyphBitmap`
+- `net.minecraft.client.gui`
+    - `Font` no longer takes in a function and boolean, instead a `Font$Provider`
+        - `random` is now private
+        - `$GlyphVisitor`
+            - `acceptGlyph` now takes in a `TextRenderable` instead of a `BakedGlyph$GlyphInstance`
+            - `acceptEffect` now only takes in a `TextRenderable`
+        - `$PreparedTextBuilder#accept` now has an override that takes in a `BakedGlyph` instead of its codepoint
+        - `$Provider` - A simple interface for providing the glyph source based on its description, along with the empty glyph.
+    - `GlyphSource` - An interface that holds the baked glyphs based on its codepoint.
+- `net.minecraft.client.gui.font`
+    - `AtlasGlyphProvider` - A glyph provider based off a texture atlas.
+    - `FontManager` now takes in the `AtlasManager`
+    - `FontSet` now takes in a `GlyphStitcher` instead of a `TextureManager` and no longer takes in the name
+        - `name` is removed
+        - `source` - Returns the glyph source depending given whether only non-fishy glyphs should be seen.
+        - `getGlyphInfo`, `getGlyph` -> `getGlyph`, now package-private, not one-to-one
+        - `getRandomGlyph` now takes in a `RandomSource` and a codepoint instead of the `GlyphInfo`, returning a `BakedGlyph`
+        - `whiteGlyph` now returns an `EffectGlyph`
+        - `$GlyphSource` - A source that can get the glyphs to bake.
+    - `FontTexture#add` now takes in a `GlyphInfo` and `GlyphBitmap`, returning a `BakedSheetGlyph`
+    - `GlyphStitcher` - A class that creates `BakedGlyph`s from its glyph information.
+    - `TextRenderable` - Represents how a text representation, like a glyph in a font, is rendered.
+- `net.minecraft.client.gui.font.glyphs`
+    - `BakedGlyph` is now an interface that creates the renderable object
+        - It original purpose has been moved to `BakedSheetGlyph`
+    - `EffectGlyph` - An interface that creates the renderable effect of some glyph.
+    - `EmptyGlyph` now implements `UnbakedGlyph` instead of extending `BakedGlyph`
+        - The constructor takes in the text advance of the glyph.
+    - `SpecialGlyphs#bake` now returns a `BakedSheetGlyph`
+        - This method is technically new.
+- `net.minecraft.client.gui.font.providers`
+    - `BitmapProvider$Glyph` now implements `UnbakedGlyph` instead of `GlyphInfo$Stitched`
+    - `UnihexProvider$Glyph` now implements `UnbakedGlyph` instead of `GlyphInfo$Stitched`
+- `net.minecraft.client.gui.render.state`
+    - `GlyphEffectRenderState` is removed
+        - Use `GlyphRenderState`
+    - `GlyphRenderState` now takes in a `TextRenderable` instead of a `BakedGlyph$Instance`
+- `net.minecraft.network.chat`
+    - `FontDescription` - An identifier that describes a font, typically as a location or sprite.
+    - `Style` is now final
+        - `getFont` now returns a `FontDescription`
+        - `withFont` now takes in a `FontDescription` instead of a `ResourceLocation`
+        - `DEFAULT_FONT` is removed
 
 ## `Level#isClientSide` now private
 
@@ -726,13 +885,15 @@ Unless a `GameProfile` is needed, Minecraft now passes around a `NameAndId` for 
 - `net.minecraft.commands.arguments.GameProfileArgument`
     - `getGameProfiles` now return a collections of `NameAndId`s
     - `$Result#getNames` now return a collections of `NameAndId`s
+- `net.minecraft.network.codec.ByteBufCodecs#PLAYER_NAME` - A 16 byte string stream codec of the player name.
 - `net.minecraft.server`
     - `MinecraftServer`
         - `getProfilePermissions` now takes in a `NameAndId` instead of a `GameProfile`
         - `isSingleplayerOwner` now takes in a `NameAndId` instead of a `GameProfile`
-    - `Services` now takes in a `UserNameToIdResolver` instead of a `GameProfileCache`
+    - `Services` now takes in a `UserNameToIdResolver` instead of a `GameProfileCache`, and a `ProfileResolver`
 - `net.minecraft.server.players`
     - `GameProfileCache` -> `UserNameToIdResolver`, `CachedUserNameToIdResolver`; not one-to-one
+        - `getAsync` is removed
     - `NameAndId` - An object that holds the UUID and name of a profile.
     - `PlayerList`
         - `load` -> `loadPlayerData`, not one-to-one
@@ -881,20 +1042,27 @@ Models now have a new transform for determining how an item sits on a shelf call
 
 ### List of Additions
 
-- `com.minecraft.SharedConstants`
-    - `RESOURCE_PACK_FORMAT_MINOR`, `DATA_PACK_FORMAT_MINOR` - The minor component of the pack version.
-    - `DEBUG_SHUFFLE_MODELS` - A flag that likely shuffles the model loading order.
+- `net.minecraft`
+    - `SharedConstants`
+        - `RESOURCE_PACK_FORMAT_MINOR`, `DATA_PACK_FORMAT_MINOR` - The minor component of the pack version.
+        - `DEBUG_SHUFFLE_MODELS` - A flag that likely shuffles the model loading order.
+    - `Util#createGameProfile` - Creates a game profile from the UUID, name, and property map.
 - `net.minecraft.client`
-    - `KeyMapping#shouldSetOnIngameFocus` - Returns whether the key is mapped to some value on the keyboard.
+    - `KeyMapping`
+        - `shouldSetOnIngameFocus` - Returns whether the key is mapped to some value on the keyboard.
+        - `restoreToggleStatesOnScreenClosed` - Restores the toggled keys to its state during in-game actions.
     - `Minecraft`
         - `isOfflineDevelopedMode` - Returns whether the game is in offline developer mode.
         - `canSwitchGameMode` - Whether the player entity exists and has a game mode.
+        - `playerSkinRenderCache` - Returns the cache holding the player's render texture.
+        - `canInterruptScreen` - Whether the current screen can be closed by another screen.
     - `Options`
         - `invertMouseX` - When true, inverts the X mouse movement.
         - `toggleAttack` - When true, sets the attack key to be toggleable.
         - `toggleUse` - When true, sets the use key to be toggleable.
         - `sprintWindow` - Time window in ticks where double-tapping the forward key activates sprint.
         - `saveChatDrafts` - Returns whether the message being typed in chat should be retained if the box is closed.
+    - `ToggleKeyMapping#shouldRestoreStateOnScreenClosed` - Whether the previous toggle state should be restored after screen close.
 - `net.minecraft.client.animation.definitions.CopperGolemAnimation` - The animations for the copper golem.
 - `net.minecraft.client.data.models.BlockModelGenerators`
     - `and` - ANDs the given conditions together.
@@ -918,27 +1086,37 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `TextureMapping#bars` - A texture mapping for a bars-like block.
     - `TextureSlot#BARS` - A reference to the `#bars` texture.
 - `net.minecraft.client.gui`
-    - `Font$Provider` - A simple manager for providing the glyph source based on its location, along with the empty glyph.
-    - `GlyphSource` - An interface that holds the baked glyphs based on its codepoint.
     - `Gui#renderDeferredSubtitles` - Renders the subtitles on screen.
     - `GuiGraphics#getSprite` - Gets a `TextureAtlasSprite` from its material.
 - `net.minecraft.client.gui.components`
+    - `AbstractSelectionList`
+        - `sort` - Sorts the entries within the list.
+        - `swap` - Swaps the position of two entries in the list
+        - `clearEntriesExcept` - Removes all entries that don't match the provided element.
+        - `getNextY` - Returns the Y component to render the scrolled component.
+        - `entriesCanBeSelected` - Whether the entries in the list can be selected.
+        - `scrollToEntry` - Scrolls the bar such that the selected entry is on screen.
+        - `removeEntries` - Removes all entries that are in the provided list.
+        - `$Entry`
+            - `set*` - Sets the component size.
+            - `getContent*` - Get the content size and positions.
     - `ChatComponent`
         - `saveAsDraft`, `discardDraft` - Handles the draft message in the chat box.
         - `createScreen`, `openScreen`, `preserveCurrentChatScreen`, `restoreChatScreen` - Handles screen behavior depending on the draft chat option.
         - `$ChatMethod` - Defines what type of message is the chat.
         - `$Draft` - Defines a draft message in the chat box.
     - `EditBox$TextFormatter` - An interface used to format the string in the box.
+    - `FittingMultiLineTextWidget#minimizeHeight` - Sets the height of the widget to the inner height and padding.
+    - `FocusableTextWidget$BackgroundFill` - An enum that represents when the background should be filled.
+    - `ItemDisplayWidget#renderTooltip` - Submits the tooltip to render.
     - `MultiLineLabel$Align` - Handles the alignment of the label.
     - `MultilineTextField#selectWordAtCursor` - Selects the word whether the cursor is currently located.
+    - `SpriteIconButton$Builder#withTooltip` - Sets the tooltip to display the message.
+    - `StringWidget`
+        - `setMaxWidth` - Sets the max width of the string and how to handle the extra width.
+        - `$TextOverflow` - What to do if the text is longer than the max width.
 - `net.minecraft.client.gui.components.events.GuiEventListener#shouldTakeFocusAfterInteraction` - When true, sets the element as focused when clicked.
-- `net.minecraft.client.gui.font`
-    - `AtlasGlyphProvider` - A glyph provider based off a texture atlas.
-    - `FontSet`
-        - `source` - Returns the glyph source depending given whether only non-fishy glyphs should be seen.
-        - `$GlyphSource` - A source that can get the glyphs to bake.
-    - `GlyphStitcher` - A class that creates `BakedGlyph`s from its glyph information.
-- `net.minecraft.client.gui.font.glyphs.BakeableGlyph` - An interface that represents a glyph to bake into something usable by the renderer.
+- `net.minecraft.client.gui.navigation.CommonInputs#confirm` - Returns whether the keycode is the enter button on the main keyboard or numpad.
 - `net.minecraft.client.gui.screens`
     - `ChatScreen`
         - `isDraft` - Whether there is a message that hasn't been sent in the box.
@@ -946,6 +1124,7 @@ Models now have a new transform for determining how an item sits on a shelf call
         - `shouldDiscardDraft` - Whether the current draft message should be discarded.
         - `$ChatConstructor` - A constructor for the chat screen based on the draft state.
         - `$ExitReason` - The reason the chat screen was closed.
+    - `FaviconTexture#isClosed` - Returns whether the texture has been closed.
     - `LevelLoadingScreen`
         - `update` - Updates the current load tracker and reason.
         - `$Reason` - The reason for changing the level loading screen.
@@ -954,7 +1133,18 @@ Models now have a new transform for determining how an item sits on a shelf call
         - `setNarrationSuppressTime` - Sets until when the narration should be suppressed for.
         - `isInGameUi` - Returns whether the screen is opened while playing the game, not the pause menu.
         - `isAllowedInPortal` - Whether this screen can be open during the portal transition effect.
-- `net.minecraft.client.gui.screens.options.OptionsScreen#CONTROLS` is now public
+        - `canInterruptWithAnotherScreen` - Whether this screen can be closed by another screen, defaults to 'close on escape' screens.
+- `net.minecraft.client.gui.screens.inventory.AbstractCommandBlockScreen#addExtraControls` - Adds any extra widgets to the command block screen.
+- `net.minecraft.client.gui.screens.multiplayer`
+    - `CodeOfConductScreen` - A screens that displays the code of conduct text for a server.
+    - `ServerSelectionList$Entry#matches` - Returns whether the provided entry matches this one.
+- `net.minecraft.client.gui.screens.reporting.ChatSelectionScreen$ChatSelectionList#ITEM_HEIGHT` - The height of each entry in the list.
+- `net.minecraft.client.gui.screens.worldselection.WorldSelectionList`
+    - `returnToScreen` - Returns to the previous screen after reloading the world list.
+    - `$Builder` - Creates a new `WorldSelectionList`.
+    - `$Entry#getLevelSummary` - Returns the summary of the selected world.
+    - `$EntryType` - A enum representing what type of world the entry is.
+    - `$NoWorldsEntry` - An entry where there are no worlds to select from.
 - `net.minecraft.client.main.GameConfig$GameData#offlineDeveloperMode` - Whether the game is offline and is ran for development.
 - `net.minecraft.client.multiplayer`
     - `ClientCommonPacketListenerImpl`
@@ -965,7 +1155,10 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `ClientLevel`
         - `endFlashState` - Handles the state of the flashes of light that appear in the end.
         - `trackExplosionEffects` - Tracks an explosion to handle its particles.
-    - `ClientPacketListener#getSeenPlayers` - Returns all players seen by this player.
+    - `ClientPacketListener`
+        - `getSeenPlayers` - Returns all players seen by this player.
+        - `getPlayerInfoIgnoreCase` - Gets the player info for the provided profile name.
+- `net.minecraft.client.player.LocalPlayerResolver` - A profile resolver for the local player.
 - `net.minecraft.client.renderer`
     - `EndFlashState` - The render state of the end flashes.
     - `SkyRenderer#renderEndFlash` - Renders the end flashes.
@@ -984,16 +1177,22 @@ Models now have a new transform for determining how an item sits on a shelf call
 - `net.minecraft.network`
     - `FriendlyByteBuf#readLpVec3`, `writeLpVec3` - Handles syncing a compressed `Vec3`.
     - `LpVec3` - A vec3 network handler that compresses and decompresses a vector into at most two bytes and two integers.
-- `net.minecraft.network.chat`
-    - `CommonComponents#GUI_COPY_TO_CLIPBOARD` - The message to display when copying a chat to the clipboard.
-    - `FontDescription` - An identifier that describes a font, typically as a location or sprite.
+- `net.minecraft.network.chat.CommonComponents#GUI_COPY_TO_CLIPBOARD` - The message to display when copying a chat to the clipboard.
 - `net.minecraft.network.chat.contents.ObjectContents` - An arbitrary piece of content that can be written as part of a component, like a sprite.
+- `net.minecraft.network.protocol.configuration`
+    - `ClientboundCodeOfConductPacket` - A packet the sends the code of conduct of a server to the joining client.
+    - `ClientConfigurationPacketListener#handleCodeOfConduct` - Handles the code of conduct sent from the server.
+    - `ServerboundAcceptCodeOfConductPacket` - A packet that sends the acceptance response of a client reading the code of conduct from a server.
+    - `ServerConfigurationPacketListener#handleAcceptCodeOfConduct` - Handles the acceptance of the code of conduct from the client.
 - `net.minecraft.network.syncher.EntityDataSerializers`
     - `WEATHERING_COPPER_STATE` - The weather state of the copper on the golem.
     - `COPPER_GOLEM_STATE` - The logic state of the copper golem.
 - `net.minecraft.server.MinecraftServer`
     - `selectLevelLoadFocusPos` - Returns the loading center position of the server, usually the shared spawn position.
     - `getLevelLoadListener` - Returns the listener used to track level loading.
+    - `getCodeOfConducts` - Returns a map of file names to their code of conduct text.
+- `net.minecraft.server.commands.FetchProfileCommand` - Fetches the profile of a given user.
+- `net.minecraft.server.dedicated.DedicatedServerProperties#codeOfConduct` - Whether the server has a code of conduct.
 - `net.minecraft.server.level`
     - `ChunkLoadCounter` - Keeps track of chunk loading when a level is loading or the player spawns.
     - `ChunkMap#getLatestStatus` - Returns the latest status for the given chunk position.
@@ -1003,7 +1202,9 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `ServerPlayer$SavedPosition` - Holds the current position of the player on disk.
 - `net.minecraft.server.level.progress.ChunkLoadStatusView` - A status view for the loading chunks.
 - `net.minecraft.server.network.ConfigurationTask#tick` - Calls the task every tick until it returns true, then finishes the task.
-- `net.minecraft.server.network.config.PrepareSpawnTask` - A configuration task that finds the spawn of the player.
+- `net.minecraft.server.network.config`
+    - `PrepareSpawnTask` - A configuration task that finds the spawn of the player.
+    - `ServerCodeOfConductConfigurationTask` - A configuration task that sends the code of conduct to the client.
 - `net.minecraft.server.packs.OverlayMetadataSection`
     - `codecForPackType` - Constructs a codec for the section given the pack type.
     - `forPackType` - Gets the metadata section type from the pack type.
@@ -1013,12 +1214,19 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `PackMetadataSection#forPackType` - Gets the metadata section type from the pack type.
 - `net.minecraft.server.packs.repository.PackCompatibility#UNKNOWN` - The compatibility of the pack with the game is unknown as the major version is set to the max integer value.
 - `net.minecraft.server.packs.resources.ResourceMetadata#getTypedSection`, `getTypedSections` - Gets the metadata sections for the provided types.
-- `net.minecraft.util.InclusiveRange#map` - Maps a range from one generic to another.
+- `net.minecraft.server.players.ProfileResolver` - Resolves a game profile from its name or UUID.
+- `net.minecraft.util`
+    - `ExtraCodecs#gameProfileCodec` - Creates a codec for a `GameProfile` given the UUID codec.
+    - `InclusiveRange#map` - Maps a range from one generic to another.
+    - `Mth#ceilLong` - Returns the double rounded up to the nearest long.
 - `net.minecraft.util.random`
     - `Weighted#streamCodec` - Constructs a stream codec for the weighted entry.
     - `WeightedList#streamCodec` - Constructs a stream codec for the weighted list.
 - `net.minecraft.util.thread.BlockableEventLoop#shouldRunAllTasks` - Returns if there are any blocked tasks.
 - `net.minecraft.world.entity`
+    - `EntityReference`
+        - `getEntity` - Returns the entity given the type class and the level.
+        - Static `getEntity`, `getLivingEntity`, `getPlayer` - Returns the entity given its `EntityReference` and level.
     - `EntityType`
         - `STREAM_CODEC` - The stream codec for an entity type.
         - `$Builder#notInPeaceful` - Sets the entity to not spawn in peaceful mode.
@@ -1048,6 +1256,13 @@ Models now have a new transform for determining how an item sits on a shelf call
 - `net.minecraft.world.item.equipment`
     - `ArmorMaterials#COPPER` - The copper armor material.
     - `EquipmentAssets#COPPER` - The key reference to the copper equipment asset.
+    - `ResolvableProfile`
+        - `$Static` - Uses the already resolved game profile.
+        - `$Dynamic` - Dynamically resolves the game profile on use.
+        - `$Partial` - Represents part of the game profile depending on whatever information is provided to the component.
+- `net.minecraft.world.level.Level`
+    - `getEntityInAnyDimension` - Gets the entity by UUID.
+    - `getPlayerInAnyDimension` - Gets the player by UUID.
 - `net.minecraft.world.level.block`
     - `Block#dropFromBlockInteractLootTable` - Drops the loot when interacting with a block.
     - `ChestBlock`
@@ -1077,9 +1292,7 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `ListBackedContainer` - A container that is baked by a list of items.
     - `ShelfBlockEntity` - The block entity for the shelf.
 - `net.minecraft.world.level.block.state.BlockBehaviour#shouldChangedStateKeepBlockEntity`, `$BlockStateBase#shouldChangedStateKeepBlockEntity` - Returns whether the block entity should be kept if the block is changed to a different block.
-- `net.minecraft.world.level.block.state.properties`
-    - `BlockStateProperties#ALIGN_ITEMS_TO_BOTTOM` - A property used in a block entity renderer to determine where items should be rendered.
-    - `SideChainPart` - The location of where the chain of an object is connected to.
+- `net.minecraft.world.level.block.state.properties.SideChainPart` - The location of where the chain of an object is connected to.
 - `net.minecraft.world.level.levelgen`
     - `Beardifier#EMPTY` - An instance with no pieces or junctions.
     - `DensityFunction#invert` - Inverts the density output by putting the result one over the value.
@@ -1100,17 +1313,12 @@ Models now have a new transform for determining how an item sits on a shelf call
         - `ENTITY_INTERACT` - An entity being interacted with.
         - `BLOCK_INTERACT` - A block being interacted with.
 - `net.minecraft.world.phys.Vec3#X_AXIS`, `Y_AXIS`, `Z_AXIS` - The unit vector in the positive direction of each axis.
+- `net.minecraft.world.phys.shapes.CollisionContext#alwaysCollideWithFluid` - Whether the collision detector should always collide with a fluid in its path.
 - `net.minecraft.world.waypoints.PartialTickSupplier` - Gets the partial tick given the provided entity.
 
 ### List of Changes
 
 - `com.mojang.blaze3d.buffers.GpuBuffer#size` is now private
-- `com.mojang.blaze3d.font`
-    - `GlyphInfo`
-        - `bake` -> `GlyphInfo$Stitched#bake`, now takes in a `GlyphStitcher` instead of a function
-            - The function behavior is replaced by `GlyphStitcher#stitch`
-        - `$SpaceGlyphInfo` -> `$EmptyStitched`
-    - `GlyphProvider#getGlyph` now returns a `GlyphInfo$Stitched`
 - `com.mojang.blaze3d.opengl`
     - `DirectStateAccess#bufferSubData`, `mapBufferRange`, `unmapBuffer`, `flushMappedBufferRange` now take in the buffer usage bit mask
     - `GlStateManager#_texImage2D`, `_texSubImage2D` now takes in a `ByteBuffer` instead of an `IntBuffer`
@@ -1132,7 +1340,12 @@ Models now have a new transform for determining how an item sits on a shelf call
         - `cameraEntity` is now private
         - `openChatScreen` is now public, taking in the `ChatComponent$ChatMethod`
         - `setCamerEntity` can now take in a null entity
-    - `KeyMapping#release` is now protected
+        - `forceSetScreen` -> `setScreenAndShow`
+        - `getMinecraftSessionService` -> `services`, now returning a `Service` instance
+            - The `MinecraftSessionService` can be obtained via `Service#sessionService`
+    - `KeyMapping`
+        - `key` is now protected
+        - `release` is now protected
     - `Options#invertYMouse` -> `invertMouseY`
     - `ToggleKeyMapping` now has an overload that takes in an input type
     - `User` no longer takes in the user type
@@ -1141,25 +1354,31 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `condition` now has an overload that takes in an enum or boolean property
     - `createLightningRod` now takes in the regular and waxed blocks
     - `createIronBars` -> `createBarsAndItem`, `createBars`; not one-to-one
-- `net.minecraft.client.gui`
-    - `Font` no longer takes in a function and boolean, instead a `Font$Provider`
-        - `random` is now private
-        - `$PreparedTextBuilder#accept` now has an override that takes in a `BakeableGlyph` instead of its codepoint
-        - `$Provider#glyphs` now takes in a `FontDescription` instead of a `ResourceLocation`
-    - `GuiGraphics#submitSignRenderState` now takes in a `Model$Simple` instead of a `Model`
+- `net.minecraft.client.gui.GuiGraphics#submitSignRenderState` now takes in a `Model$Simple` instead of a `Model`
 - `net.minecraft.client.gui.components`
+    - `AbstractSelectionList` no longer takes in the header height
+        - `itemHeight` -> `defaultEntryHeight`
+        - `addEntry`, `addEntryToTop` now takes in the height of the element
+        - `removeEntryFromTop` no longer returns anything
+        - `updateSizeAndPosition` can now take in an X component
+        - `renderItem` now takes in the entry instead of five integers
+        - `renderSelection` now takes in an `AbstractSelectionList$Entry` instead of four integers
+        - `removeEntry` no longer returns anything
+        - `$Entry` now implements `LayoutElement`
+        - `render`, `renderBack` -> `renderContent`
+    - `ContainerObjectSelectionList` no longer takes in the headerh height
     - `EditBox#setFormatter` -> `addFormatter`, not one-to-one
+    - `FocusableTextWidget` now takes in a `$BackgroundFill` instead of a boolean
     - `MultiLineLabel`
         - `renderCentered`, `renderLeftAligned`, `renderLeftAlignedNoShadow` -> `render`, not one-to-one
         - `getStyleAtCentered`, `getStyleAtLeftAligned` -> `getStyle`, not one-to-one
-- `net.minecraft.client.gui.font`
-    - `FontManager` now takes in the `AtlasManager`
-    - `FontSet` now takes in a `GlyphStitcher` instead of a `TextureManager` and no longer takes in the name
-        - `getGlyphInfo`, `getGlyph` -> `getGlyph`, now package-private, not one-to-one
-        - `getRandomGlyph` now takes in a `RandomSource` and a codepoint instead of the `GlyphInfo`
-        - `whiteGlyph` now returns a `BakeableGlyph`
-- `net.minecraft.client.gui.font.glyphs.SpecialGlyphs` now implements `GlyphInfo$Stitched` instead of `GlyphInfo`
-- `net.minecraft.client.gui.render.GuiRenderer#MIN_GUI_Z` is now public
+    - `ObjectSelectionList` no longer takes in the headerh height
+    - `SpriteIconButton` now takes in a `WidgetSprites` instead of a `ResourceLocation`, and toolip `Component`
+        - `sprite` is now a `WidgetSprites`
+        - `$Builder#sprite` now has an overload that takes in a `WidgetSprites`
+        - `$CenteredIcon` now takes in a `WidgetSprites` instead of a `ResourceLocation`, and toolip `Component`
+        - `$TextAndIcon` now takes in a `WidgetSprites` instead of a `ResourceLocation`, and toolip `Component`
+    - `WidgetSprites` now has an overload with a single `ResourceLocation`
 - `net.minecraft.client.gui.render.state`
     - `GuiElementRenderState#buildVertices` no longer takes in the `z` component
     - `GuiRenderState#forEachElement` now takes in a `Consumer<GuiElementRenderState>` instead of a `GuiRenderState$LayeredElementConsumer`
@@ -1169,10 +1388,29 @@ Models now have a new transform for determining how an item sits on a shelf call
         - `initial` is now protected
     - `InBedChatScreen` now takes in the initial text and whether there is a draft mesage in the box
     - `LevelLoadingScreen` now takes in a `LevelLoadTracker` and `LevelLoadingScreen$Reason`
+    - `PauseScreen#disconnectFromWorld` -> `Minecraft#disconnectFromWorld`
     - `ReceivingLevelScreen` has been merged into `LevelLoadingScreen`
     - `Screen`
         - `renderWithTooltip` -> `renderWithTooltipAndSubtitles`
         - `$NarratableSearchResult` is now a record
+- `net.minecraft.client.gui.screens.achievement.StatsScreen`
+    - `initLists`, `initButtons` merged into `onStatsUpdated`
+    - `$ItemRow#getItem` is now protected
+- `net.minecraft.client.gui.screens.inventory.tooltip.ClientActivePlayersTooltip$ActivePlayersTooltip#profiles` now is a list of `PlayerSkinRenderCache$RenderInfo`s instead of `ProfileResult`s
+- `net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen#*_BUTTON_WIDTH` are now private
+- `net.minecraft.client.gui.screens.options.OptionsScreen#CONTROLS` is now public
+- `net.minecraft.client.gui.screens.packs`
+    - `PackSelectionModel` now takes in a `Consumer<PackSelectionModel$EntryBase>` instead of a `Runnable`
+        - `$EntryBase` is now public
+    - `TransferableSelectionList` now is a list of `$Entry`s instead of `$PackEntry`s
+        - `$PackEntry` is no longer static and extends `$Entry`
+- `net.minecraft.client.gui.screens.worldselection`
+    - `CreateWorldScreen#openFresh`, `testWorld`, `createFromExisting` now take in a `Runnable` instead of a `Screen`
+    - `WorldSelectionList` now has a package-private constructor
+        - `getScreen` now returns a basic `Screen`
+        - `$WorldListEntry` is now static
+            - `canJoin` -> `canInteract`, not one-to-one
+- `net.minecraft.client.gui.spectator.PlayerMenuItem` now only takes in the `PlayerInfo`
 - `net.minecraft.client.main.GameConfig$UserData` no longer takes in the `PropertyMap`s
 - `net.minecraft.client.multiplayer`
     - `ClientHandshakePacketListenerImpl` now takes in a `LevelLoadTracker`
@@ -1182,7 +1420,11 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `TransferState` now takes in a map of seen players and whether the insecure chat warning has been shown
 - `net.minecraft.client.multiplayer.chat.ChatListener#clearQueue` -> `flushQueue`
 - `net.minecraft.client.renderer.DimensionSpecialEffects#forceBrightLightmap` -> `hasEndFlashes`, not one-to-one
-- `net.minecraft.client.resources.WaypointStyle#validate` is now public
+- `net.minecraft.client.resources`
+    - `SkinManager` now takes in `Services` instead of a `MinecraftSessionService`
+        - `lookupInsecure` -> `createLookup`, now taking in a boolean of whether to check for insecure skins
+        - `getOrLoad` -> `get`
+    - `WaypointStyle#validate` is now public
 - `net.minecraft.client.server.IntegratedServer` now takes in a `LevelLoadListener` instead of a `ChunkProgressListenerFactory`
 - `net.minecraft.client.sounds`
     - `SoundEngine#updateCategoryVolume` no longer takes in the gain
@@ -1196,9 +1438,7 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `GameTestRunner` now takes in whether the level should be cleared for more space to spawn between batches
         - `$Builder#haltOnError` no longer takes in any parameters
 - `net.minecraft.nbt.NbtUtils#addDataVersion`, `addCurrentDataVersion` now has an overload that takes in a `Dynamic` instead of a `CompoundTag` or `ValueOutput`
-- `net.minecraft.network.chat.Style` is now final
-    - `getFont` now returns a `FontDescription`
-    - `withFont` now takes in a `FontDescription` instead of a `ResourceLocation`
+- `net.minecraft.network.VarInt#MAX_VARINT_SIZE` is now public
 - `net.minecraft.network.protocol.game`
     - `ClientboundAddEntityPacket#getXa`, `getYa`, `getZa` -> `getMovement`
     - `ClientboundExplodePacket` now takes in a radius, block count, and the block particles to display
@@ -1208,7 +1448,8 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `SPAWN_POSITION_SEARCH_RADIUS` is now public
     - `MinecraftServer` now takes in a `LevelLoadListener` instead of a `ChunkProgressListenerFactory`
         - `createLevels` no longer takes in a `ChunkProgressListener`
-        - `getProfileCache` -> `nameToIdCache`, not one-to-one
+        - `getSessionService`, `getProfileKeySignatureValidator`, `getProfileRepository`, `getProfileCache` -> `services`, not one-to-one
+            - `getProfileCache` is now `nameToIdCache`, not one-to-one
 - `net.minecraft.server.dedicated.DedicatedServer` now takes in a `LevelLoadListener` instead of a `ChunkProgressListenerFactory`
 - `net.minecraft.server.level`
     - `ChunkMap` no longer takes in the `ChunkProgressListener`
@@ -1218,6 +1459,7 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `ServerEntityGetter#getNearestEntity` now has an overload that takes in a `TagKey` of entities instead of a class
     - `ServerLevel` no longer takes in the `ChunkProgressListener`
         - `waitForChunkAndEntities` -> `waitForEntities`, not one-to-one
+    - `ServerPlayerGameMode#setGameModeForPlayer` now takes in a `TriState` of how to update the flying of the player when switching to creative mode.
 - `net.minecraft.server.level.progress`
     - `ChunkProgressListener` -> `LevelLoadListener`, not one-to-one
     - `ChunkProgressListenerFactory` -> `MinecraftServer#createChunkLoadStatusView`, not one-to-one
@@ -1236,6 +1478,9 @@ Models now have a new transform for determining how an item sits on a shelf call
 - `net.minecraft.server.packs.repository`
     - `Pack#readPackMetadata` now takes in a `PackFormat` and `PackType` instead of an integer
     - `PackCompatibility#forVersion` now takes in `PackFormat`s instead of integers
+- `net.minecraft.util.ExtraCodecs`
+    - `GAME_PROFILE_WITHOUT_PROPERTIES` -> `AUTHLIB_GAME_PROFILE`, now a `Codec` and public
+    - `GAME_PROFILE` -> `STORED_GAME_PROFILE`
 - `net.minecraft.world.entity`
     - `AgeableMob#finalizeSpawn` is now nullable
     - `Entity`
@@ -1245,6 +1490,9 @@ Models now have a new transform for determining how an item sits on a shelf call
         - `moveOrInterpolateTo` now has overloads that take in an XY rotation, a `Vec3` position, or all three as optionals
         - `lerpMotion` now takes in a `Vec3` instead of three doubles
         - `forceSetRotation` now takes in whether the XY rotation is relative
+    - `EntityReference` is now private, constructed using the `of` static constructors
+        - `getEntity` now takes in a `UUIDLookup<? extends UniquelyIdentifyable>` instead of a `UUIDLookup<? super StoredEntityType>`
+        - `get` now takes in a `Level` instead of a `UUIDLookup`
     - `EntityType` now takes in whether the entity is allowed in peaceful mode
         - `create`, `loadEntityRecursive` now has an overload that takes in an `EntityType`
     - `LivingEntity`
@@ -1254,15 +1502,22 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `Mob#shouldDespawnInPeaceful` -> `EntityType#isAllowedInPeaceful`, not one-to-one
 - `net.minecraft.world.entity.animal.Animal#usePlayerItem` -> `Mob#usePlayerItem`
 - `net.minecraft.world.entity.animal.armadillo.Armadillo#brushOffScute` now takes in an `Entity` and `ItemStack`
+- `net.minecraft.world.entity.projectile.Projectile`
+    - `deflect` now takes in an `EntityReference` of the owner instead of the `Entity` itself
+    - `onDeflection` no longer takes in the direct `Entity`
 - `net.minecraft.world.entity.vehicle.MinecartBehavior#lerpMotion` now takes in a `Vec3` instead of three doubles
 - `net.minecraft.world.item.SpawnEggItem` no longer takes in the `EntityType`
     - `spawnsEntity` no longer takes in the `HolderLookup$Provider`
     - `getType` no longer takes in the `HolderLookup$Provider`
-- `net.minecraft.world.item.component.Bees#STREAM_CODEC` now requires a `RegistryFriendlyByteBuf`
+- `net.minecraft.world.item.component`
+    - `Bees#STREAM_CODEC` now requires a `RegistryFriendlyByteBuf`
+    - `ResolvableProfile` is now a sealed class with a protected constructor, created through the static `createResolved`, `createUnresolved`
+        - `pollResolve`, `resolve`, `isResolved` -> `resolveProfile`, not one-to-one
 - `net.minecraft.world.item.enchantment.effects.ExplodeEffect` now takes in a list of block particles to display
 - `net.minecraft.world.level`
-    - `GameType#updatePlayerAbilities` now takes in a boolean to determine whether the player is flying in creative
-    - `Level#explode` now takes in a weighter list of explosion particles to display
+    - `GameType#updatePlayerAbilities` now takes in a `TriState` to determine whether the player is flying in creative
+    - `Level` no longer implements `UUIDLookup`
+        - `explode` now takes in a weighter list of explosion particles to display
     - `ServerExplosion#explode` now returns the number of blocks exploded
 - `net.minecraft.world.level.block`
     - `BeehiveBlock#dropHoneycomb(Level, BlockPos)` -> `dropHoneyComb(ServerLevel, ItemStack, BlockState, BlockEntity, Entity, BlockPos)`
@@ -1277,19 +1532,17 @@ Models now have a new transform for determining how an item sits on a shelf call
         - `isOwnContainer` is now public
         - `incrementOpeners`, `decrementOpeners` now takes in a `LivingEntity` instead of a `Player`
         - `getPlayersWithContainerOpen` -> `getEntitiesWithContainerOpen`, now public, not one-to-one
-    - `SkullBlockEntity`
-        - `CHECKED_MAIN_THREAD_EXECUTOR` -> `ResolvableProfile#CHECKED_MAIN_THREAD_EXECUTOR`
-        - `setup` -> `ResolvableProfile#setupResolver`
-        - `clear` -> `ResolvableProfiler#clearResolver`
 - `net.minecraft.world.level.block.state.BlockBehaviour`
     - `getAnalogOutputSignal`, `$BlockStateBase#getAnalogOutputSignal` now takes in the direction the signal is coming from
     - `$Properties#noCollission` -> `noCollision`
 - `net.minecraft.world.level.block.state.properties.BlockStateProperties#CHISELED_BOOKSHELF_SLOT_*_OCCUPIED` -> `SLOT_*_OCCUPIED`
+- `net.minecraft.world.level.entity.UUIDLookup#getEntity` -> `lookup`
 - `net.minecraft.world.level.levelgen`
     - `Beardifier` now takes in lists instead of iterators and a nullable `BoundingBox`
     - `NoiseRouter#initialDensityWithoutJaggedness` -> `preliminarySurfaceLevel`
 - `net.minecraft.world.level.levelgen.structure.pools.JigsawPlacement#addPieces` now takes in a `JigsawStructure$MaxDistance` instead of an integer
 - `net.minecraft.world.level.levelgen.structure.structures.JigsawStructure` now takes in a `JigsawStructure$MaxDistance` instead of an integer
+- `net.minecraft.world.phys.shapes.EntityCollisionContext` now takes in a `boolean` instead of a `Predicate<FluidState>`
 - `net.minecraft.world.waypoints.TrackedWaypoint`
     - `STREAM_CODEC` is now final
     - `yawAngleToCamera` now takes in a `PartialTickSupplier`
@@ -1314,19 +1567,34 @@ Models now have a new transform for determining how an item sits on a shelf call
 - `net.minecraft.SharedConstants#VERSION_STRING`
 - `net.minecraft.client`
     - `Camera#FOG_DISTANCE_SCALE`
-    - `Minecraft#getProgressListener`
+    - `Minecraft`
+        - `getProgressListener`
+        - `getProfileKeySignatureValidator`, `canValidateProfileKeys`
     - `Options#RENDER_DISTANCE_TINY`, `RENDER_DISTANCE_NORMAL`
     - `User#getType`, `$Type`
-- `net.minecraft.client.gui.font.FontSet#name`
+- `net.minecraft.client.gui.components`
+    - `AbstractSelectionList`
+        - `headerHeight`, associated constructor has been removed
+        - `setSelectedIndex`, `getFirstElement`, `getEntry`
+        - `isSelectedItem`
+        - `renderHeader`, `renderDecorations`
+        - `ensureVisible`
+        - `remove`
+    - `OptionsList#getMouseOver`
+    - `StringWidget#alignLeft`, `alignCenter`, alignRight`
 - `net.minecraft.client.gui.render.state.GuiRenderState`
     - `down`, `$Node#down`
     - `$LayeredElementConsumer`
 - `net.minecraft.client.gui.screens.LevelLoadingScreen#renderChunks`
+- `net.minecraft.client.gui.screens.achievement.StatsScreen#setActiveList`
 - `net.minecraft.client.gui.screens.dialog.DialogConnectionAccess#disconnect`
+- `net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen`
+    - `BUTTON_ROW_WIDTH`, `FOOTER_HEIGHT`
+    - `setSelected`
 - `net.minecraft.client.main.GameConfig$UserData#userProperties`, `profileProperties`
 - `net.minecraft.client.renderer.chunk.ChunkSectionLayer#outputTarget`
+- `net.minecraft.client.resources.SkinManager#getInsecureSkin`
 - `net.minecraft.gametest.framework.GameTestTicker#startTicking`
-- `net.minecraft.network.chat.Style#DEFAULT_FONT`
 - `net.minecraft.server.MinecraftServer#getSpawnRadius`
 - `net.minecraft.server.level`
     - `ServerChunkCache#getTickingGenerated`
@@ -1340,7 +1608,13 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `Creeper#canDropMobsSkull`, `increaseDroppedSkulls`
     - `Zombie#getSkull`
 - `net.minecraft.world.entity.vehicle.MinecartTNT#explode(double)`
+- `net.minecraft.world.item.Item#verifyComponentsAfterLoad`
 - `net.minecraft.world.level`
     - `BlockGetter#MAX_BLOCK_ITERATIONS_ALONG_TRAVEL`
     - `GameRules#RULE_SPAWN_CHUNK_RADIUS`
-- `net.minecraft.world.level.block.entity.SkullBlockEntity#fetchGameProfile`
+- `net.minecraft.world.level.block.FletchingTableBlock`
+- `net.minecraft.world.level.block.entity.SkullBlockEntity`
+    - `CHECKED_MAIN_THREAD_EXECUTOR`
+    - `setup`, `clear`
+    - `fetchGameProfile`
+    - `setOwner`
