@@ -183,10 +183,10 @@ Method                 | Parameters
 `submitLeash`          | A pose stack and the leash state
 `submitModel`          | A pose stack, entity model, render state, render type, light coordinates, overlay coordinates, tint color, an optional texture, outline color, and an optional crumbling overlay
 `submitModelPart`      | A pose stack, model part, render type, light coordinates, overlay coordinates, an optional texture, whether to use item glint over entity glint if render type is not transparent, whether to render the glint overlay, and tint color
-`submitBlock`          | A pose stack, block state, light coordinates, and overlay coordinates
+`submitBlock`          | A pose stack, block state, light coordinates, overlay coordinates, and outline color
 `submitMovingBlock`    | A pose stack and the moving block render state
-`submitBlockModel`     | A pose stack, the render type, block state model, RGB floats, light coordinates, and overlay coordinates
-`submitItem`           | A pose stack, item display context, light coordinates, overlay coordinates, tint layers, quads, render type, and foil type
+`submitBlockModel`     | A pose stack, the render type, block state model, RGB floats, light coordinates, overlay coordinates, and outline color
+`submitItem`           | A pose stack, item display context, light coordinates, overlay coordinates, outline color, tint layers, quads, render type, and foil type
 `submitCustomGeometry` | A pose stack, render type, and a function that takes in the current pose and `VertexConsumer` to create the mesh
 
 Technically, the `submit*` methods are provided by the `OrderedSubmitNodeCollector`, of which the `SubmitNodeCollector` extends. This is because features can be submitted to different orders, which function similarly to strata in GUIs. By default, all submit calls are pushed onto order 0. Using `SubmitNodeCollector#order` with some integer and then calling the `submit*` method, you can have an object render before or after all features on a given order. This is stored as an AVL tree, where each order's data is stored in a `SubmitNodeCollection`. With the current default feature rendering order, this is only used in very specific circumstances, such as rendering a slime's outer body or equipment layers.
@@ -571,7 +571,7 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
         - All `renderStatic` -> `renderUpwardsFrom`, now taking in a `SubmitNodeCollector` instead of a `MultiBufferSource`
         - `getBoundingBox` - Gets the model bounding box of the stack.
     - `PiglinRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
-    - `TntMinecartRenderer#renderWhiteSolidBlock` -> `submitWhiteSolidBlock`
+    - `TntMinecartRenderer#renderWhiteSolidBlock` -> `submitWhiteSolidBlock`, now takes in an outline color
     - `ZombieRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
     - `ZombifiedPiglinPiglinRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
 - `net.minecraft.client.renderer.entity.layers`
@@ -618,7 +618,7 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
     - `TextFeatureRenderer` - Renders the submitted text.
 - `net.minecraft.client.renderer.item`
     - `ItemModel$BakingContext` now takes in a `MaterialSet` and `PlayerSkinRenderCache`, and implements `SpecialModelRenderer$BakingContext`
-    - `ItemStackRenderState#render` -> `submit`, taking in a `SubmitNodeCollector` instead of a `MultiBufferSource`
+    - `ItemStackRenderState#render` -> `submit`, taking in a `SubmitNodeCollector` instead of a `MultiBufferSource` and an outline color
 - `net.minecraft.client.renderer.special`
     - Most methods here that take in the `MultiBufferSource` have been replaced by `SubmitNodeCollector`
     - `ChestSpecialRenderer` now takes in a `MaterialSet`
