@@ -2,7 +2,7 @@
 
 This primer is licensed under your choice of MIT or CC0, do whatever you want.
 
-BUT do note that this can be updated, so leave a link here so readers can see the updated information themselves.
+BUT do note that this can be updated, so leave a [link here](https://gist.github.com/williewillus/353c872bcf1a6ace9921189f6100d09a) so readers can see the updated information themselves.
 
 1.13 and 1.14 are lumped together in this doc, you're on your own if you just want to go to 1.13 and not 1.14, for some reason.
 
