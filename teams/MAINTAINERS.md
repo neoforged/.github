@@ -1,12 +1,12 @@
-# Maintainer Policies and Guidelines
+# Maintainer Policies and Recommendations
 
-This document aims to clarify policies by which the Maintainer team operates. The goal is to help Maintainers understand what is expected of them and recommendations of how to reduce the chances of conflict within the Maintainer team. It also serves as a launch point for new maintainers to jump into how the team operates.
+This document aims to clarify policies and recommendations by which the Maintainer team operates. The goal is to help Maintainers understand what is expected of them and recommendations of how to reduce the chances of conflict within the Maintainer team. It also serves as a launch point for new maintainers to jump into how the team operates.
 
 ## Policies
 
 - Because the Maintainer team owns multiple projects, each with their own rules and procedures, please visit the CONTRIBUTING.md file and/or README.md on the project's respository. If these files are unclear or missing, reach out in the #maintainer-talks channel on discord to understand the policy surrounding the project of interest.
 
-## Guidelines
+## Recommendations
 
 - It is recommended that Maintainers should ping `@Maintainers` on discord before merging important PRs. What is considered important enough to warrant a ping is left to maintainer discretion, but it is better to ping too often rather than not enough.
 
