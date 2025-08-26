@@ -8,7 +8,7 @@ This document aims to clarify policies by which the Maintainer team operates. Th
 
 ## Guidelines
 
-- Maintainers should ping `@Maintainers` on discord before merging important PRs. What is considered important enough to warrant a ping is left to maintainer discretion, but it is better to ping too often rather than not enough.
+- It is recommended that Maintainers should ping `@Maintainers` on discord before merging important PRs. What is considered important enough to warrant a ping is left to maintainer discretion, but it is better to ping too often rather than not enough.
 
   - An important PR could be one that has a significant impact on many systems, changes the project ecosystem, or requires significant coordination with external projects. But ultimately, it is still left up to the maintainer discretion.
   
