@@ -4,7 +4,7 @@ This document aims to clarify policies by which the Maintainer team operates. Th
 
 ## Policies
 
-- Because the Maintainer team owns multiple projects, each with their own rules and procedures, please visit the CONTRIBUTING.md file and/or README.md on the project's respository. If the CONTRIBUTING.md file is unclear or missing, reach out in the #maintainer-talks channel on discord to understand the policy surrounding the project of interest.
+- Because the Maintainer team owns multiple projects, each with their own rules and procedures, please visit the CONTRIBUTING.md file and/or README.md on the project's respository. If these files are unclear or missing, reach out in the #maintainer-talks channel on discord to understand the policy surrounding the project of interest.
 
 ## Guidelines
 
