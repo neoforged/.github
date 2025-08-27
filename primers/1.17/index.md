@@ -23,7 +23,7 @@ The following are some of the new methods you need to register new TileEntities 
 2. Override `EntityBlock#newBlockEntity` and return a new instance of your block entity
 
 E.g.
-```
+```java
 public class BlockEntityEnabledBlock extends BaseEntityBlock {
 
     public BlockEntityEnabledBlock(BlockBehaviour.Properties properties) {
@@ -55,11 +55,11 @@ If you need separate ticking logic on the client, create another static method t
 
 To return the `BlockEntityTicker` instance, call `BaseEntityBlock$createTickHelper` in the abstract block entity block to create an instance of your Ticker. You can then call the static tick method from your BlockEntity class.
 
-The logical side check can done with a ``Level#isClientSide`` check as normal.
+The logical side check can done with a `Level#isClientSide` check as normal.
 
 E.g. Example below shows us creating a Block class which has a `BlockEntityTicker` for the server side only.
 
-```
+```java
 public class BlockEntityEnabledBlock extends BaseEntityBlock {
 
     public BlockEntityEnabledBlock(BlockBehaviour.Properties properties) {
@@ -73,7 +73,7 @@ public class BlockEntityEnabledBlock extends BaseEntityBlock {
    
     @Override
     @Nullable
-    public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState       state, BlockEntityType<T> type) {
+    public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> type) {
         return level.isClientSide() ? null : createTickerHelper(type, ModBlockEntityType.MY_BLOCK_ENTITY.get(), MyModBlockEntity::serverTick);
     }
 
@@ -81,11 +81,11 @@ public class BlockEntityEnabledBlock extends BaseEntityBlock {
 ```
 
 ## TileEntityRenderer
-In the Forge environment, you need to Subscribe to the ``EntityRenderersEvent`` event.
+In the Forge environment, you need to Subscribe to the `EntityRenderersEvent` event.
 
-- Call ``EntityRenderersEvent$RegisterRenderers#registerBlockEntityRenderer`` to register a BlockEntityRenderer
+- Call `EntityRenderersEvent$RegisterRenderers#registerBlockEntityRenderer` to register a BlockEntityRenderer
 - You now need a `BlockEntityRendererProvider$Context` instance as a parameter in the constructor of your BlockEntityRenderer class.
-- You now need a `BlockEntityRendererProvider` instance in the ``registerBlockEntityRenderer`` method, which takes in the ``BlockEntityRendererProvider$Context`` from your BlockEntityRenderer class.
+- You now need a `BlockEntityRendererProvider` instance in the `registerBlockEntityRenderer` method, which takes in the `BlockEntityRendererProvider$Context` from your BlockEntityRenderer class.
 
 
 
@@ -123,7 +123,7 @@ There are now new objects in Entity Models
 **ModelPart**
 - The ModelRenderer or the group/bone
 - Can be multiple parts within a model, and the parts can contain multiple cubes.
-- You can also have each part have childs of other parts meaning that rotation and position applied to this part will also be applied to other parts in a relative fashion
+- You can also have each part have children of other parts meaning that rotation and position applied to this part will also be applied to other parts in a relative fashion
 
 **ModelPart$Cube**
 - The boxes inside the group/bone
@@ -144,7 +144,7 @@ There are now new objects in Entity Models
 
 **LayerDefinition**
 - The definition of the model + texture
-- Needs to be registered during ``EntityRenderersEvent$RegisterLayerDefinitions``
+- Needs to be registered during `EntityRenderersEvent$RegisterLayerDefinitions`
 
 **MaterialDefinition**
 - The definition of the texture data, specifically the size of the texture
@@ -163,11 +163,11 @@ There are now new objects in Entity Models
 - $RegisterRenderers, for registering the entity renderer
 - $AddLayers, for adding layers to a specific entity renderer
 
-You can refer to Forge’s <a href="https://github.com/MinecraftForge/MinecraftForge/blob/1.17.x/src/test/java/net/minecraftforge/debug/client/rendering/EntityRendererEventsTest.java">EntityRendererEventTest</a> for examples.
+You can refer to Forge’s [EntityRendererEventTest](https://github.com/MinecraftForge/MinecraftForge/blob/1.17.x/src/test/java/net/minecraftforge/debug/client/rendering/EntityRendererEventsTest.java) for examples.
 
 Additional community guides can be seen here:
-- <a href="https://gist.github.com/gigaherz/7115024820f55717bc40a6e2247c6aca">Giga’s Explanation</a>
-- <a href="https://github.com/SizableShrimp/EntityModelJson/blob/1.17.x/docs/SCHEMA.json">Shrimp’s Json Spec<a> (jsons for Entity Models aren’t available yet, Shrimp just did some workaround for it)
+- [Giga’s Explanation](https://gist.github.com/gigaherz/7115024820f55717bc40a6e2247c6aca)
+- [Shrimp’s Json Spec](https://github.com/SizableShrimp/EntityModelJson/blob/1.17.x/docs/SCHEMA.json) (jsons for Entity Models aren’t available yet, Shrimp just did some workaround for it)
 ## World Generation
 Most of the core foundations from 1.16 have remained mostly the same. The main changes relate to the technical foundations in preparations for 1.18 Caves and Cliffs generation.
 ### World Height Changes
@@ -219,9 +219,9 @@ Mojang has recently exposed their game test framework, a set of tools which the 
 - Example usage: https://www.youtube.com/watch?v=vXaWOJTCYNg 
 
 Currently there is no API to use it as part of mods, but there are PRs being made to make it usable for modders.
-- <a href="https://github.com/MinecraftForge/MinecraftForge/pull/8024">PR 8024</a>
+- [PR 8024](https://github.com/MinecraftForge/MinecraftForge/pull/8024)
 
-All the components are under the ``net.minecraft.gametest.framework`` package.
+All the components are under the `net.minecraft.gametest.framework` package.
 
 ## Forge API
 ### Full Migration to Mojang Mappings
@@ -243,34 +243,34 @@ Make a backup! If you're not already using some form of Version Control System (
 
 The steps outlined below do not backup your files, and they irreversibly change them. Be warned. Note that you can switch back mappings at any time, but backups are still not made. 
 
-1. Run ``gradlew -PUPDATE_MAPPINGS_CHANNEL="official" -PUPDATE_MAPPINGS="1.16.5"`` updateMappings in a terminal in your mod's project directory. 
-2. Prepend ``./`` if you're using a Unix-based system. 
+1. Run `gradlew -PUPDATE_MAPPINGS_CHANNEL="official" -PUPDATE_MAPPINGS="1.16.5" updateMappings` in a terminal in your mod's project directory. 
+2. Prepend `./` if you're using a Unix-based system. 
 3. Wait for the process to finish. 
-4. Update your mappings in your `build.gradle` and/or `gradle.properties` file and change the mappings line to match something similar to this effect: ``mappings channel: "official", version: "1.16.5"``
+4. Update your mappings in your `build.gradle` and/or `gradle.properties` file and change the mappings line to match something similar to this effect: `mappings channel: "official", version: "1.16.5"`
 5. Refresh or reimport your Gradle project. 
 6. Done! 
 
 Please note that there are still some bugs associated with changing your mappings. Make sure to try building your mod project or running it to see if there are any compilation errors and fix them.
 
-**Note:** You can run `!updatemappings` in the Forge Discord #bot-commands channel to get help switching to another mappings channel. ﻿ 
+**Note:** You can run `!updatemappings` in the Forge Discord #bot-commands channel to get help switching to another mappings channel.
 
-Read more about the <a href="https://gist.github.com/JDLogic/bf16deed3bcf99bd9e1a22eb21148389">updateMappings command here</a>.
+Read more about the [updateMappings command here](https://gist.github.com/JDLogic/bf16deed3bcf99bd9e1a22eb21148389).
 #### Migration of Class Names to Mojang Mappings
 To migrate class names to Mojang Mapping names, it is recommended you have compilable 1.16.5 code, then migrate to Mojang mappings.
 
 The migration script was designed by Forge contributor, SizableShrimp.
 
-See their detailed explanation of the system in their <a href="https://github.com/SizableShrimp/Forge-Class-Remapper">Github repo</a>.
+See their detailed explanation of the system in their [Github repo](https://github.com/SizableShrimp/Forge-Class-Remapper).
 
 There is also a simpler guide written by one of the Forge team members, Gigaherz.
-- <a href="https://gist.github.com/gigaherz/6fc52ee532f36ec432db62458c1620b5">Gigaherz’s class name port steps</a>
+- [Gigaherz’s class name port steps](https://gist.github.com/gigaherz/6fc52ee532f36ec432db62458c1620b5)
 
 ### Separation of Client-Only Methods within Common Classes
 The OnlyIn annotation has now been stripped from all Common code.
 This means methods that used to be client only will no longer crash dedicated servers instantly.
 
 Relevant PRs:
-- <a href="https://github.com/MinecraftForge/MinecraftForge/pull/7773">PR 7773</a> Migrated into 1.17
+- [PR 7773](https://github.com/MinecraftForge/MinecraftForge/pull/7773) Migrated into 1.17
 - #initializeClient which can consume a custom client instance containing properties only available on the client.
 - An anonymous class should be consumed
 
@@ -309,7 +309,7 @@ To use it,
 3. Check your latest log file and copy paste your access token to be used in your other mod development environments.
 ##### Approach 1 - Use Minecraft Instance
 
-```
+```java
 @Mod.EventBusSubscriber(modid = YourMod.MOD_ID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
 public class ClientEvents {
 
@@ -323,7 +323,7 @@ public class ClientEvents {
 ```
 ##### Approach 2 - Use Mojang Authentication System
 
-```
+```java
 @Mod.EventBusSubscriber(modid = YourMod.MOD_ID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
 public class ClientEvents {
 
@@ -352,12 +352,12 @@ To use these, register through the class type and a supplier of the class type i
 
 
 E.g. Registering an extension point to mark a client side only mod as client only so that when connecting to servers, it does not think it is required on servers and won’t show the red “cross" icon.
-  ``ModLoadingContext.get().registerExtensionPoint(IExtensionPoint.DisplayTest.class, () -> new IExtensionPoint.DisplayTest(() -> FMLNetworkConstants.IGNORESERVERONLY, (incoming, isNetwork) -> true));``
+  `ModLoadingContext.get().registerExtensionPoint(IExtensionPoint.DisplayTest.class, () -> new IExtensionPoint.DisplayTest(() -> FMLNetworkConstants.IGNORESERVERONLY, (incoming, isNetwork) -> true));`
 
 ### HUD Overlay API
 A new HUD Overlay API has been added for 1.17 exclusively. The API does make some breaking changes, so it is not possible to backport to 1.16 in its entirety.
 
-- <a href="https://github.com/MinecraftForge/MinecraftForge/pull/7770">PR 7770</a> Migrated into 1.17
+- [PR 7770](https://github.com/MinecraftForge/MinecraftForge/pull/7770) Migrated into 1.17
 
 This PR adds in OverlayRegistry to register IngameOverlay for an ElementType#Layer
 - Four methods are added which can register the top, bottom, before, or after a particular overlay type, can be enabled or disabled
@@ -372,22 +372,22 @@ This made it confusing for modders so the Forge-provided method isAir(World, Pos
 ### Capabilities
 #### CapabilityToken and @CapabilityInject Deprecation
 Due to Java 16 backend changes and a request to move away from Java reflection, a new way of initialising Capability instances is being added to 1.17 Forge in the future.
-- <a href="https://github.com/MinecraftForge/MinecraftForge/pull/8116"> See Pull Request 8116 for more information </a>.
+- [See Pull Request 8116 for more information](https://github.com/MinecraftForge/MinecraftForge/pull/8116).
 
 **Previous Design**:
-- One would use the ``@CapabilityInject`` annotation on a null field
-```
+- One would use the `@CapabilityInject` annotation on a null field
+```java
 @CapabilityInject(InterfaceForMyCapability.class)
 public static void Capability<InterfaceForMyCapability> CAP_INSTANCE = null;
 ```
 
 **New Design**
 - Introduction of a CapabilityToken object, which can capture generic types, similar to Google’s TypeToken.
-- Capability will now have a ``isRegistered`` function to replace sanity checks of ``!= null``.
-- It also has a addListener(Consumer<Capability>) function, which is analogous too the old @CapabilityInject on a method.
+- Capability will now have a `isRegistered` function to replace sanity checks of `!= null`.
+- It also has a `addListener(Consumer<Capability>)` function, which is analogous too the old @CapabilityInject on a method.
 
 Example use of new design:
-```
+```java
 public static Capability<IDataHolder> DATA_HOLDER_CAPABILITY = CapabilityManager.get(new CapabilityToken<>(){});
 ```
 Note that we use an anonymous class. This forces the compiler to include the generic information we need.
@@ -401,7 +401,7 @@ This was originally intended as an easy API hook for other mods to use your capa
 For pre 1.17 mods that used Capabilities, move the code in the write and read methods to your ICapabilitySerializer implementation.
 
 #### RegisterCapabilitiesEvent
-As of <a href="https://github.com/MinecraftForge/MinecraftForge/pull/8021">PR 8021</a> there is now a `RegisterCapabilitiesEvent` that allows you to register capabilities properly.
+As of [PR 8021](https://github.com/MinecraftForge/MinecraftForge/pull/8021) there is now a `RegisterCapabilitiesEvent` that allows you to register capabilities properly.
 
 Please subscribe to the `RegisterCapabilitiesEvent` and use ``RegisterCapabilitiesEvent#register`` for registering capabilities in the future.
 
@@ -437,31 +437,31 @@ In light of the recent Java 17 release, no, Java 17 **_will not_** work on Forge
 **Open GL**
 
 Everything in terms of shaders is done through RenderSystem now
-- ``RenderSystem#setShader`` which includes vertex consumer data and old RenderType things
+- `RenderSystem#setShader` which includes vertex consumer data and old RenderType things
 
-<a href="https://github.com/MinecraftForge/MinecraftForge/commit/80d08dbf3a8e0341962c23dc4737b9af289ef7de">37.0.15</a> added RegisterShadersEvent for registering new shaders
+[37.0.15](https://github.com/MinecraftForge/MinecraftForge/commit/80d08dbf3a8e0341962c23dc4737b9af289ef7de) added RegisterShadersEvent for registering new shaders
 1. First param is a constructed instance of the the event param, the unique name of the shader, and the vertex format
 2. Second param can be used to cache the instance on load
-3. You can see <a href="https://github.com/MinecraftForge/MinecraftForge/blob/80d08dbf3a8e0341962c23dc4737b9af289ef7de/src/main/java/net/minecraftforge/client/ForgeHooksClient.java#L863-L881">ForgeHooksClient</a> for example on usage
+3. You can see [ForgeHooksClient](https://github.com/MinecraftForge/MinecraftForge/blob/80d08dbf3a8e0341962c23dc4737b9af289ef7de/src/main/java/net/minecraftforge/client/ForgeHooksClient.java#L863-L881) for example on usage
 
-See <a href="https://gist.github.com/gigaherz/b8756ff463541f07a644ef8f14cb10f5">Gigaherz’s Guide - How to use Shaders In 1.17<a>
+See [Gigaherz’s Guide - How to use Shaders In 1.17](https://gist.github.com/gigaherz/b8756ff463541f07a644ef8f14cb10f5)
 
 ### Removal of ToolType and Tool System Redesign
 
 The patches Forge made to allow for blocks to have a “correct" tool (be mined faster by certain tools) has now been overhauled. All 1.17 mods will need to change their code to account for this new system.
 
-This new system was designed by Forge team member Gigaherz. This is added through  <a href="https://github.com/MinecraftForge/MinecraftForge/pull/7970">PR 7970</a>, 
+This new system was designed by Forge team member Gigaherz. This is added through [PR 7970](https://github.com/MinecraftForge/MinecraftForge/pull/7970), 
 
-To use this new tool system, please see the <a href="https://gist.github.com/gigaherz/691f528a61f631af90c9426c076a298a"> guide written by Gigaherz </a>.
+To use this new tool system, please see the [guide written by Gigaherz](https://gist.github.com/gigaherz/691f528a61f631af90c9426c076a298a).
 
 A brief summary of the system is as follows:
-- Register a tier by ``TierSortingRegistry#registerTier``, must be initialized before specific item so best to do statically
+- Register a tier by `TierSortingRegistry#registerTier`, must be initialized before specific item so best to do statically
 - Create tier using ForgeTier
 
-Specific actions a tool make take is done by registering a ToolAction via ``ToolAction#get``, defaults in ToolActions.
-- ``Item#isCorrectToolForDrops``. This determines if block can be dropped 
-- ``Item#getDestroySpeed``. Determines how fast the block can be mined
-- ``Item#canPerformAction``. Checks if a particular tool can perform a specific action, currently unused in the vanilla system
+Specific actions a tool make take is done by registering a ToolAction via `ToolAction#get`, defaults in ToolActions.
+- `Item#isCorrectToolForDrops`. This determines if block can be dropped 
+- `Item#getDestroySpeed`. Determines how fast the block can be mined
+- `Item#canPerformAction`. Checks if a particular tool can perform a specific action, currently unused in the vanilla system
 
 There is a datapack override for modpack creators for overriding the sorting list for custom behavior, mods will define within the tier registering
 ## Potential Changes in Forge
@@ -470,7 +470,7 @@ Fluids are getting a complete overhaul in 1.17.
 
 Previously, Fluids were limited to water-like behaviour only due to Mojang hardcoding their water references in many parts of the codebase. Since patching all those references would be major changes, the Fluid Overhaul will only be considered in 1.17 and above.
 
-You can keep track of the PR here: Fluid Overhaul <a href="https://github.com/MinecraftForge/MinecraftForge/pull/7992">PR 7992</a>
+You can keep track of the PR here: Fluid Overhaul [PR 7992](https://github.com/MinecraftForge/MinecraftForge/pull/7992)
 
 ## References and Contributors
 - Gigaherz - various guides and documentation for the 1.17 systems
