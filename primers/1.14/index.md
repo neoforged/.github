@@ -112,7 +112,7 @@ Here's the extremely quick rundown. Assumes prior knowledge of blockstates:
 
 * Read https://mcforge.readthedocs.io/en/1.13.x/utilities/tags/
 * Remember: Block tags (`tags/blocks/...`)are only used for commands like /execute which query the blocks in world directly. Advancements and recipes both operate on *ItemBlock*s and use *item* tags (`tags/items/...`). Yes this will result in some duplication. If you're lazy, you can skip out on the block tags since the item tags are much more important, but doing them is still recommended for good compatibility.
-      * For example, mods which have in-world recipes like Botania might want to use block tags. In <1.13 such mods must slowly iterate the OreDictionary (which is built for items, not blocks) and/or perform caching logic. With block tags, it would just be a constant time set lookup.
+      * For example, mods which have in-world recipes like Botania might want to use block tags. Prior to 1.13 such mods must slowly iterate the OreDictionary (which is built for items, not blocks) and/or perform caching logic. With block tags, it would just be a constant time set lookup.
 
 ## Recipes
 * You need a json for every recipe now (*dramatic music plays*)
@@ -268,7 +268,7 @@ you implemented the necessary method in your IParticleData Deserializer.
 * Biome ids are internally ints now instead of bytes, which raises the maximum number of allowed biomes from 255 to 2 billion.
 * Enchantments are now stored by registry name instead of int id (about time...)
 * A word about integer ID's
-  * For Items and Blocks, you should have already switched  to fully using registry names for everything. The registry name <-> int ID maps still exist in vanilla for performance purposes, but they should *never* be used for anything other than network communication because they are NOT guaranteed to be the same after joining a different world. This should already be an established modding convention since 1.8, but people still break it, so I'll mention it again :P
+  * For Items and Blocks, you should have already switched  to fully using registry names for everything. The registry name to int ID maps still exist in vanilla for performance purposes, but they should *never* be used for anything other than network communication because they are NOT guaranteed to be the same after joining a different world. This should already be an established modding convention since 1.8, but people still break it, so I'll mention it again :P
 * There's lots of superinterfaces on world now representing different things you can do (e.g. there's an interface for read-only access to the world). If possible, try using the least specific one.
 * Most nameable things that still used strings now use text components, so translate all the things!
 * There's multiple kinds of air block now (air, void_air, and cave_air). So if you're doing == Blocks.AIR checks still, change them to IBlockState.isAir checks
