@@ -182,7 +182,7 @@ Method                 | Parameters
 `submitFlame`          | A pose stack, render state of the entity, and a rotation quaternion
 `submitLeash`          | A pose stack and the leash state
 `submitModel`          | A pose stack, entity model, render state, render type, light coordinates, overlay coordinates, tint color, an optional texture, outline color, and an optional crumbling overlay
-`submitModelPart`      | A pose stack, model part, render type, light coordinates, overlay coordinates, an optional texture, whether to use item glint over entity glint if render type is not transparent, whether to render the glint overlay, and tint color
+`submitModelPart`      | A pose stack, model part, render type, light coordinates, overlay coordinates, an optional texture, whether to use item glint over entity glint if render type is not transparent, whether to render the glint overlay, tint color, and an optional crumbling overlay
 `submitBlock`          | A pose stack, block state, light coordinates, overlay coordinates, and outline color
 `submitMovingBlock`    | A pose stack and the moving block render state
 `submitBlockModel`     | A pose stack, the render type, block state model, RGB floats, light coordinates, overlay coordinates, and outline color
@@ -446,6 +446,7 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
         - `NO_PARTS`, `getHeadModelParts` are removed
         - `createEyesLayer` - Creates the eyes of the model.
     - `EntityModel#setupAnim` -> `Model#setupAnim`
+    - `HeadedModel#translateToHead` - Transforms the pose stack to the head's position and rotation.
     - `HumanoidArmorModel` -> `HumanoidModel#createArmorMeshSet`, not one-to-one
     - `HumanoidModel#copyPropertiesTo` is removed
     - `Model` now takes in a generic representing the render state
@@ -515,7 +516,7 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
         - `renderSign` now takes in a `Model$Simple`
     - `BannerRenderer` has an overload that takes in a `SpecialModelRenderer$BakingContext`
         - The `EntityModelSet` constructor now takes in the `MaterialSet`
-        - `renderPatterns` now takes in the `MaterialSet`
+        - `renderPatterns` -> `submitPatterns` now takes in the `MaterialSet` and `ModelFeatureRenderer$CrumblingOverlay`
     - `BedRenderer` has an overload that takes in a `SpecialModelRenderer$BakingContext`
         - The `EntityModelSet` constructor now takes in the `MaterialSet`
     - `BlockEntityRenderDispatcher` now takes in the `MaterialSet` and `PlayerSkinRenderCache`
@@ -535,7 +536,6 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
         - `createSignModel` now returns a `Model$Simple`
         - `renderInHand` now takes in a `MaterialSet`
     - `SkullBlockRenderer#submitSkull` - Submits the skull model to the collector.
-    - `SpawnerRenderer#renderEntityInSpawner` no longer takes in the light coordinates integer
 - `net.minecraft.client.renderer.entity`
     - Most methods here that take in the `MultiBufferSource` and light coordinates integer have been replaced by `SubmitNodeCollector` and a render state param
     - Most methods change their name from `render*` to `submit*`
@@ -636,6 +636,8 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
     - `SpecialModelRenderers#createBlockRenderers` now takes in a `SpecialModelRenderer$BakingContext` instead of an `EntityModelSet`
     - `StandingSignSpecialRenderer` now takes in a `MaterialSet` and a `Model$Simple` instead of a `Model`
 - `net.minecraft.client.renderer.texture`
+    - `SkinTextureDownloader` is now an instance class rather than a static method holder, taking in a `Proxy`, `TextureManager`, and the main thread `Executor`
+        - Most methods that were previously static are now instance methods
     - `SpriteContents` now takes in an optional `AnimationMetadataSection` and `MetadataSectionType$WithValue` list instead of a `ResourceMetadata`
         - `metadata` -> `getAdditionalMetadata`, not one-to-one
     - `SpriteLoader`
@@ -649,6 +651,10 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
             - `getSprite` - Returns the atlas sprite for a given resource location.
     - `TextureAtlasSprite#isAnimated` -> `SpriteContents#isAnimated`
 - `net.minecraft.client.renderer.texture.atlas.SpriteResourceLoader#create` now takes a set of `MetadataSectionType`s instead of a collection
+- `net.minecraft.client.resources`
+    - `SkinManager` now takes in `Services` instead of a `MinecraftSessionService`, and a `SkinTextureDownloader`
+        - `lookupInsecure` -> `createLookup`, now taking in a boolean of whether to check for insecure skins
+        - `getOrLoad` -> `get`
 - `net.minecraft.client.resources.model`
     - `Material`
         - `sprite` -> `MaterialSet#get`
@@ -664,13 +670,71 @@ Glyphs have been partially reworked in the backend to both unify both characters
 
 Let's start from the top when the assets are reloaded, causing the `FontManager` to run. The font definitions are loaded and passed to their appropriate `GlyphProviderDefinition`, which for this example with immediately unpack into a `GlyphProvider$Loader`. The loader reads whatever information it needs (most likely a texture) and maps it to an associated codepoint as an `UnbakedGlyph`. An `UnbakedGlyph` represents a single character containing its `GlyphInfo` with the position metadata and a `bake` method to write it to a texture. `bake` takes in a `UnbakedGlyph$Stitcher`, which itself takes in a `GlyphBitmap` to correctly position and upload the glyph along with the `GlyphInfo` for any offset adjustments. Then, after and resolving and finalizing, the `FontSet`s are created using `FontSet#reload`. This resets the textures and cache and calls `FontSet#selectProviders` to store the active list of `GlyphProvider`s and populates the `glyphsByWidth` by mapping the character advance to a list of matching codepoints. At this point, all of the loading has been done. While the glyphs are stored in their unbaked format, they are not baked and cached until that specific character is rendered.
 
-Now, let's move onto the `FontDescription`. A `FontDescription` provides a one-to-one map to a `GlyphSource`, which is responsible for obtaining the glyphs. Vanilla provides two `FontDescription`s: `$Resource` for mapping to the `FontSet` (the font JSON name) as mentioned above, and `$AtlasSprite` to interpret an atlas as a bunch of glyphs. For a given `Component`, the `FontDescription` used can be set as its `Style` via `Style#withFont`.
+Now, let's move onto the `FontDescription`. A `FontDescription` provides a one-to-one map to a `GlyphSource`, which is responsible for obtaining the glyphs. Vanilla provides three `FontDescription`s: `$Resource` for mapping to the `FontSet` (the font JSON name) as mentioned above, `$AtlasSprite` to interpret an atlas as a bunch of glyphs, and `$PlayerSprite` for rendering the player head and hat. For a given `Component`, the `FontDescription` used can be set as its `Style` via `Style#withFont`.
 
-So, let's assume you are drawing text to the screen using `FontDescription#DEFAULT`, which uses the defined `assets/minecraft/font/default.json`. Eventually, this will either call `Font#drawInBatch` or `drawInBatch8xOutline`. Then, whether through the `StringSplitter` or directly, the `GlyphSource` is obtained from the `FontDescription`. Then, `GlyphSource#getGlyph` is called. For the `FontDescription$AtlasSprite`, this just returns a wrapper around the `TextureAtlasSprite`. For the `$Resource` though, this internally calls `FontSet#getGlyph`, which stores the `UnbakedGlyph` as part of a `FontSet$DelayedBake`, which it then immediately resolves to the `BakedGlyph` by calling `UnbakedGlyph#bake` to write the glyph to some texture.
+So, let's assume you are drawing text to the screen using `FontDescription#DEFAULT`, which uses the defined `assets/minecraft/font/default.json`. Eventually, this will either call `Font#drawInBatch` or `drawInBatch8xOutline`. Then, whether through the `StringSplitter` or directly, the `GlyphSource` is obtained from the `FontDescription`. Then, `GlyphSource#getGlyph` is called. For the `FontDescription$AtlasSprite` and `$PlayerSprite`, this just returns a wrapper around the texture in question. For the `$Resource` though, this internally calls `FontSet#getGlyph`, which stores the `UnbakedGlyph` as part of a `FontSet$DelayedBake`, which it then immediately resolves to the `BakedGlyph` by calling `UnbakedGlyph#bake` to write the glyph to some texture.
 
-A `BakedGlyph` contains two methods: the `GlyphInfo` for the position metadata like before, and a method called `createGlyph`, which returns a `TextRenderable`: a renderer to draw the glyph to the screen. Internally, all resource `BakedGlyph`s are `BakedSheetGlyph`s, as the `UnbakedGlyph$Stitcher#stitch` called just wraps around `GlyphStitcher#stitch`. You can think of the `BakedSheetGlyph` as a view onto a 256x256 `FontTexture`s, where if there is not enough space on one `FontTexture`, then a new `FontTexture` is created.
+A `BakedGlyph` contains two methods: the `GlyphInfo` for the position metadata like before, and a method called `createGlyph`, which returns a `TextRenderable`: a renderer to draw the glyph to the screen. `TextRenderable` also has a subinterface called `PlainTextRenderable` for help with texture sprites. Internally, all resource `BakedGlyph`s are `BakedSheetGlyph`s, as the `UnbakedGlyph$Stitcher#stitch` called just wraps around `GlyphStitcher#stitch`. You can think of the `BakedSheetGlyph` as a view onto a 256x256 `FontTexture`s, where if there is not enough space on one `FontTexture`, then a new `FontTexture` is created.
 
 `BakedSheetGlyph` also implements `EffectGlyph`, which is likely supposed to render some sort of effect on the text. This functionality, while it is currently implemented as just another object, is only used for the white glyph, which goes unused.
+
+### Object Info
+
+`ObjectInfo`s are the server side implementations to construct the `FontDescription` used to render an arbitrary object through the glyph pipeline. Each info takes in the `FontDescription` and a regular `String` to display a simple description. Additionally, it takes in a `MapCodec` to encode and decode from the object contents.
+
+Note that for custom `FontDescription`s to map to a source properly, you will need to somehow modify `FontManager$CachedFontProvider#getGlyphSource` or implement a custom `Font$Provider`.
+
+```java
+// A basic font description
+public static record BlockDescription(Block block) implements FontDescription {}
+
+// A simple object info
+public record BlockInfo(Block block) implements ObjectInfo {
+    // The codec to send the information over the network
+    public static final MapCodec<BlockInfo> MAP_CODEC = BuiltInRegistries.BLOCK.byNameCodec().fieldOf("block");
+
+    @Override
+    public FontDescription fontDescription() {
+        // The font description to render
+        return new BlockDescription(this.block);
+    }
+
+    @Override
+    public String description() {
+        // Just a text description of the object
+        return Objects.toString(BuiltInRegistries.BLOCK.getKey(this.block));
+    }
+
+    @Override
+    public MapCodec<? extends ObjectInfo> codec() {
+        return MAP_CODEC;
+    }
+}
+
+// Create the `GlyphSource` and `PlainTextRenderable` used to render the object
+public record BlockRenderable(...) implements PlainTextRenderable {
+    // ...
+}
+
+public static GlyphSource create(Block block) {
+    return new SingleSpriteSource(...);
+}
+```
+
+The `ObjectInfo` also needs to be rendered to `ObjectInfos#ID_MAPPER`:
+
+```java
+// Assumes the the mapper has been made public
+ObjectInfos.ID_MAPPER.put("examplemod:block", BlockInfo.MAP_CODEC);
+```
+
+### Component Contents
+
+Component contents also now use an id mapper instead of holding the id on the type. This means that creating a custom component is done by somehow hooking into `ComponentSerialization#bootstrap` and registering the map codec of your `ComponentContents` implementation to the mapper.
+
+### Data Sources
+
+Data sources has received a similar treatment to component contents, now using an id mapper instead of holding the id on the type. The data source is then registered by registering to `DataSources#ID_MAPPER` the map codec of your `DataSource`. Note that the mapper field is private, so you will probably need to use an available workaround.
 
 - `com.mojang.blaze3d.font`
     - `GlyphInfo`
@@ -691,7 +755,7 @@ A `BakedGlyph` contains two methods: the `GlyphInfo` for the position metadata l
     - `GlyphSource` - An interface that holds the baked glyphs based on its codepoint.
 - `net.minecraft.client.gui.font`
     - `AtlasGlyphProvider` - A glyph provider based off a texture atlas.
-    - `FontManager` now takes in the `AtlasManager`
+    - `FontManager` now takes in the `AtlasManager` and `PlayerSkinRenderCache`
     - `FontSet` now takes in a `GlyphStitcher` instead of a `TextureManager` and no longer takes in the name
         - `name` is removed
         - `source` - Returns the glyph source depending given whether only non-fishy glyphs should be seen.
@@ -701,6 +765,9 @@ A `BakedGlyph` contains two methods: the `GlyphInfo` for the position metadata l
         - `$GlyphSource` - A source that can get the glyphs to bake.
     - `FontTexture#add` now takes in a `GlyphInfo` and `GlyphBitmap`, returning a `BakedSheetGlyph`
     - `GlyphStitcher` - A class that creates `BakedGlyph`s from its glyph information.
+    - `PlainTextRenderable` - An implementation of `TextRenderable` that determines how a sprite is rendered.
+    - `PlayerGlyphProvider` - A glyph provider for rendering the player head and hat.
+    - `SingleSpriteSource` - A glyph source that only contains one glyph, such as a texture.
     - `TextRenderable` - Represents how a text representation, like a glyph in a font, is rendered.
 - `net.minecraft.client.gui.font.glyphs`
     - `BakedGlyph` is now an interface that creates the renderable object
@@ -718,11 +785,279 @@ A `BakedGlyph` contains two methods: the `GlyphInfo` for the position metadata l
         - Use `GlyphRenderState`
     - `GlyphRenderState` now takes in a `TextRenderable` instead of a `BakedGlyph$Instance`
 - `net.minecraft.network.chat`
+    - `Component#object` - Creates a mutable component with object contents.
+    - `ComponentContents#type` -> `codec`, dropping the string id
+        - `$Type` is removed
+    - `ComponentSerialization`
+        - `createLegacyComponentMatcher`  no longer requires a `StringRepresentable` generic, instead taking in a id mapper using `String` keys
+        - `$FuzzyCodec` now takes in a collection of map codecs instead of a list
     - `FontDescription` - An identifier that describes a font, typically as a location or sprite.
     - `Style` is now final
         - `getFont` now returns a `FontDescription`
         - `withFont` now takes in a `FontDescription` instead of a `ResourceLocation`
         - `DEFAULT_FONT` is removed
+- `net.minecraft.network.chat.contents`
+    - `BlockDataSource` -> `.data.BlockDataSource`
+    - `DataSource` -> `.data.DataSource`
+        - `type` -> `codec`, dropping the string id
+    - `EntityDataSource` -> `.data.EntityDataSource`
+    - `*Contents`
+        - `CODEC` -> `MAP_CODEC`
+        - `TYPE` is removed
+    - `ObjectContents` - An arbitrary piece of content that can be written as part of a component, like a sprite.
+    - `StorageDataSource` -> `.data.StorageDataSource`
+- `net.minecraft.network.chat.contents.data.DataSources` - All vanilla-registered data sources.
+- `net.minecraft.network.chat.contents.objects`
+    - `AtlasSprite` - An object info for a sprite in a texture atlas.
+    - `ObjectInfo` - Information relating the references for an arbitrary object through the glyph pipeline.
+    - `ObjectInfos` - All vanilla object infos.
+    - `PlayerSprite` - An object info for a player head and hat texture.
+
+## The JSON-RPC Management Servers
+
+Minecraft has introduced support for remotely managing dedicated servers through a JSON-RPC websocket. This can be enabled through the `management-server-enabled` property, which listens for a server on `localhost:25585` by default. The entire system handles not only constructing the network requests sent via `JsonElement`s, but also the schemas each request uses. These schemas can then be generated through the `JsonRpcApiSchema` data provider.
+
+There are two types of RPC methods supported by the system: `IncomingRpcMethod`s for requests from the management server, and `OutgoingRpcMethod`s to either notify or request information from the management server. Both of these are static registry objects, but rather than implementing the interfaces, they are typically constructed and registered through their associated builders.
+
+### Schemas
+
+`Schema`s, as the name implies, are the specification of the JSON objects. They are constructed in a similar fashion `JsonElement`s and registered to a general `Schema#SCHEMA_REGISTRY` for reference resolving. Most are constructed as `Schema#record`s, with their field and types being populated via `withField` (usually by calling `Schema#flatten`), before being populated into a `SchemaComponent`, which maps a reference name to the schema. Then the `Schema`s can be obtained via `asRef` or `asArray` to get the object or array implementation, respectively.
+
+```json5
+// An example json for changing the weather:
+{
+    "weather": "clear|rain|thunder",
+    "duration": -1,
+}
+```
+
+Here is what the associated schema component would look like:
+
+```java
+public static final SchemaComponent WEATHER_SCHEMA = new SchemaComponent(
+    // The reference name
+    // While we can use colon, it would need to be percent encoded as defined by RFC 3986
+    "examplemod_weather",
+    // The schema to use
+    Schema.record()
+        .withField("weather", Schema.ofEnum(List.of("clear", "rain", "thunder")).flatten())
+        .withField("duration", Schema.INT_SCHEMA.flatten())
+);
+
+// Register the schema ot the registry
+Schema.getSchemaRegistry().put(WEATHER_SCHEMA.ref(), WEATHER_SCHEMA.schema());
+```
+
+Note that schemas currently cannot specify whether its property is optional or not.
+
+### `IncomingRpcMethod`
+
+`IncomingRpcMethod`s are constructed and registered through the `method` builder. These methods take in the handler function to update the minecraft server, a codec for the result, and an optional codec for the parameters sent from the management server. From there, the builder contains methods towards the discovery service and how to execute the method. `$IncomingRpcMethodBuilder#response` and `param` define the parameters and response sent by the management server. `description` is used by the discovery service for the schemas. `undiscoverable` hides the route by default. Finally, `notOnMainThread` tells the method that it can run off the main thread. Once the desired methods are called, then either `build` or `register` can be used to construct the object, taking in the route endpoint as a namespace and path.
+
+The methods passed in take in the `MinecraftApi` for communicating with the dedicated server through specified 'services', and the current `ClientInfo` connection. It also takes in the parameter object if it exists.
+
+```java
+// Construct the dto object
+public record WeatherDto(String weather, int duration) {
+    public static final Codec<WeatherDto> CODEC = RecordCodecBuilder.create(
+        instance -> instance.group(
+            Codec.STRING.fieldOf("weather").forGetter(WeatherDto::weather),
+            Codec.INT.fieldOf("duration").forGetter(WeatherDto::duration),
+        )
+        .apply(instance, WeatherDtoe::new)
+    );
+
+    // Create the incoming method handler
+    public static WeatherDto handleWeather(MinecraftApi api, WeatherDto params, ClientInfo info) {
+        // Note that the api makes the server private since it expects the
+        // logic to be handled through one of the middle layer services.
+        // We will assume the `server` field was made public somehow.
+        if (params.weather().equals("clear")) {
+            api.server.overworld().setWeatherParameters(params.duration(), 0, false, false);
+        } else if (params.weather().equals("rain")) {
+            api.server.overworld().setWeatherParameters(0, params.duration(), true, false);
+        } else if (params.weather().equals("thunder")) {
+            api.server.overworld().setWeatherParameters(0, params.duration(), true, true);
+        }
+
+        return params;
+    }
+}
+
+// Construct and register the method endpoint
+IncomingRpcMethod.method(
+    // The handler method
+    WeatherDto::handleWeather,
+    // The codec for the parameters
+    WeatherDto.CODEC,
+    // The codec for the result
+    WeatherDto.CODEC
+)
+    // Sets the description of the route
+    .description("Sets the weather")
+    // The parameters
+    .param(new ParamInfo(
+        // The name of the object
+        "weather",
+        // The schema
+        WEATHER_SCHEMA.asRef()
+    ))
+    // The response
+    .response(new ResultInfo(
+        // The name of the object
+        "weather",
+        // The schema
+        WEATHER_SCHEMA.asRef()
+    ))
+    // Build and register the route
+    .register(
+        BuiltInRegistries.INCOMING_RPC_METHOD,
+        // The endpoint namespace
+        "examplemod",
+        // The endpoint path
+        "weather/update"
+    );
+```
+
+### `OutgoingRpcMethod`
+
+`OutgoingRpcMethod`s are constructed and registered through the `notification` or `request` builder. Notifications typically only send parameters with no returned result, while requests provide a result as well. In either case, they just take in codecs for the params or result when present. `$OutgoingRpcMethod#response` and `param` define the parameters and response sent by the minecraft server. `description` is used by the discovery service for the schemas. Once the desired methods are called, then either `build` or `register` can be used to construct the object, taking in the route endpoint as a namespace and path.
+
+Currently, vanilla only broadcasts notifications through the `NotificationService`: a remote logger for specific method actions, like player join or changing game rule. While there are results, they must be read via `Connection#sendRequest` and handled asynchronously.
+
+```java
+// Construct the outgoing method
+// Since the minecraft server will be sending these, we need to hold the object
+public static final OutgoingRpcMethod.ParmeterlessNotification SOMETHING_HAPPENED = OutgoingRpcMethod.notification()
+        .description("Something happened!")
+        .register("examplemod", "something");
+
+// Send notification, assume we have access to the `ManagementServer` managementServer
+managementServer.forEachConnection(connection -> connection.sendNotification(SOMETHING_HAPPENED));
+```
+
+- `net.minecraft.SharedConstants#RPC_MANAGEMENT_SERVER_API_VERSION` - The API version for JSON RPC server management.
+- `net.minecraft.core.registries`
+    - `BuiltInRegistries`, `Registries`
+        - `INCOMING_RPC_METHOD` - Registry for queries to the RPC service.
+        - `OUTGOING_RPC_METHOD` - Registry for broadcasts from the RPC service.
+- `net.minecraft.server`
+    - `MinecraftServer`
+        - `notificationManager` - Returns the current notification manager.
+        - `onGameRuleChanged` - Handles what happens when the game rule of the current server changes.
+        - `getOperatorUserPermissionLevel` -> `operatorUserPermissionLevel`
+        - `isLevelEnabled` -> `isAllowedToEnterPortal`, not one-to-one
+        - `isSpawningMonsters` is now protected
+        - `setPvpAllowed` replaced by `GameRules#RULE_PVP`
+        - `setFlightAllowed` replaced by `DedicatedServerProperties#allowFlight`
+        - `isCommandBlockEnabled` is no longer abstract
+        - `getPlayerIdleTimeout` -> `playerIdleTimeout`
+        - `kickUnlistedPlayers` no longer takes in the `CommandSourceStack`
+        - `pauseWhileEmptySeconds` -> `pauseWhenEmptySeconds`
+        - `getSpawnProtectionRadius` -> `DedicatedServer#spawnProtectionRadius`
+        - `isUsingWhiteList` - Handles enabling whitelist users for the server.
+        - `setAutoSave`, `isAutoSave` - Handles whether the server should auto save every so often.
+- `net.minecraft.server.dedicated`
+    - `DedicatedServer` now takes in a `LevelLoadListener` instead of a `ChunkProgressListenerFactory`
+        - `setAllowFlight` - Sets whether the players can fly in the server.
+        - `setDifficulty` - Sets the game difficulty of the server.
+        - `viewDistance`, `setViewDistance` - Handles the view distance of the server (renderable chunks).
+        - `simulationDistance`, `setSimulationDistance` - Handles the simulation distance of the server (logic running chunks).
+        - `setMaxPlayers` - Sets the maximum number of players that can join the server.
+        - `setSpawnProtectionRadius` - Sets the radius of chunks that should be under spawn protection.
+        - `setRepliesToStatus` - Sets whether the game uses the legacy query handler.
+        - `setHidesOnlinePlayers` - Sets whether online players should be hidden from other players.
+        - `setOperatorUserPermissionLevel` - Sets the permission level of operator users.
+        - `statusHeartbeatInterval`, `setStatusHeartbeatInterval` - Handles the interval that the management server will check the minecraft server is still alive.
+        - `entityBroadcastRangePercentage`, `setEntityBroadcastRangePercentage` - Handles the broadcast range scalar for entity tracking.
+        - `forceGameMode`, `setForceGameMode` - Handles forcing all game modes for the users.
+        - `gameMode`, `setGameMode` - Sets the default game mode of the server.
+        - `setAcceptsTransfers` - Sets whether the server accepts client transfers from other servers.
+        - `setPauseWhenEmptySeconds` - Sets the number of seconds that the server should wait until it stops ticking when there are no players.
+    - `DedicatedServerProperties`
+        - `pvp` replaced by `GameRules#RULE_PVP`
+        - `allowFlight`, `motd`, `forceGameMode`, `enforceWhitelist`, `difficulty`, `gameMode`, `spawnProtection`, `opPermissionLevel`,  `viewDistance`, `simulationDistance`, `enableStatus`, `hideOnlinePlayers`, `entityBroadcastRangePercentage`, `pauseWhenEmptySeconds`, `acceptsTransfers` are now mutable properties
+        - `allowNether` replaced by `GameRules#RULE_ALLOW_NETHER`
+        - `spawnMonsters` replaced by `GameRules#RULE_SPAWN_MONSTERS`
+        - `enabledCommandBlock` replaced by `GameRules#ENABLE_COMMAND_BLOCKS`
+        - `managementServerEnabled` - Returns whether a management server is enabled.
+        - `managementServerHost` - Returns the host the management server is communicating on.
+        - `managementServerPort` - Returns the port the management server is communicating on.
+        - `statusHeartbeatInterval` - Returns the heartbeat interval the management server sends to make sure the minecraft server is still alive.
+    - `Settings#getMutable` - Gets a mutable property for the settings key and default.
+- `net.minecraft.server.jsonrpc`
+    - `Connection` - The inbound handler for json elements sent by the management server.
+    - `IncomingRpcMethod` - A definition and handler for the incoming message sent by the management server.
+    - `IncomingRpcMethods` - All vanilla incoming RPC handlers.
+    - `JsonRPCErrors` - An enum of errors that can be thrown when attempting to read, parse, or execute the method.
+    - `JsonRpcLogger` - A general logger for things performed by the minecraft server, whether communication or logic.
+    - `JsonRpcNotificationService` - A notification service that broadcasts to all connected minecraft servers.
+    - `JsonRPCUtils` - A utility for request objects and errors.
+    - `ManagementServer` - A basic websocket comms for the minecraft server to communicate with the management server.
+    - `OutgoingRpcMethod` - A definition and handler for outgoing requests to the management server.
+    - `OutgoingRpcMethods` - All vanilla outgoing RPC handlers.
+    - `PendingRpcRequest` - A pending request made by the minecraft server to the management server.
+- `net.minecraft.server.jsonrpc.api`
+    - `FlatSchema` - Defines the json schema for an item or property, specifying either a reference, type, enum, or array.
+    - `MethodInfo` - Defines a method that is handled by the management server, either inbound or outbound.
+    - `ParamInfo` - Defines the parameters a specific method takes in.
+    - `PlayerDto` - A data transfer object representing the player.
+    - `ResultInfo` - Defines the response a specific method returns.
+    - `Schema` - An implementation of the json schema used the discovery service, parameters, and results.
+    - `SchemaComponent` - A reference definition of some component within a schema.
+    - `TypeRefSchema` - Defines the json schema for an item either referencing another or some type.
+- `net.minecraft.server.jsonrpc.dataprovider.JsonRpcApiSchema` - A data provider that generates the json schema from the discovery service.
+- `net.minecraft.server.jsonrpc.internalapi`
+    - `MinecraftAllowListService` - A minecraft middle layer that handles communication from the management server about the allow list.
+    - `MinecraftApi` - A minecraft api that handles all the services that communicate with the management server.
+    - `MinecraftBanListService` - A minecraft middle layer that handles communication from the management server about the ban list.
+    - `MinecraftGameRuleService` - A minecraft middle layer that handles communication from the management server about the game rules.
+    - `MinecraftOperatorListService` - A minecraft middle layer that handles communication from the management server about the operator commands.
+    - `MinecraftPlayerListService` - A minecraft middle layer that handles communication from the management server about the player list.
+    - `MinecraftServerSettingsService` - A minecraft middle layer that handles communication from the management server about the server settings.
+    - `MinecraftServerStateService` - A minecraft middle layer that handles communication from the management server about the current server state and send messages.
+- `net.minecraft.server.jsonrpc.methods`
+    - `AllowlistService` - A service that handles communication from the management server about the allow list.
+    - `BanlistService` - A service that handles communication from the management server about the player ban list.
+    - `ClientInfo` - An identifier for the current minecraft server connection to the management server.
+    - `DiscoveryService` - A service that displays the schemas of all services supported by the management server.
+    - `EncodeJsonRpcException` - An exception thrown when attempting to encode the json packet.
+    - `GameRulesService` - A service that handles communication from the management server about the game rules.
+    - `InvalidParameterJsonRpcException` - An exception thrown when the parameters to the method are invalid
+    - `IpBanlistService` - A service that handles communication from the management server about the ip ban list.
+    - `Message` - A data transfer object representing a literal or translatable component.
+    - `OperatorService` - A service that handles communication from the management server about the operator commands.
+    - `PlayerService` - A service that handles communication from the management server about the player list.
+    - `RemoteRpcErrorException` - An exception thrown when something goes wrong on the management server.
+    - `ServerSettingsService` - A service that handles communication from the management server about the server settings.
+    - `ServerStateService` - A service that handles communication from the management server about the current server state and send messages.
+- `net.minecraft.server.jsonrpc.websocket`
+    - `JsonToWebSocketEncoder` - A message to message encoder for a json.
+    - `WebSocketToJsonCodec` - A message to message decoder for a json.
+- `net.minecraft.server.notifications`
+    - `EmptyNotificationService` - A notification service that does nothing.
+    - `NotificationManager` - A manager for handling multiple notification services.
+    - `NotificationService` - A service that defines prospective actions taken by a listener, like a management server.
+- `net.minecraft.server.players`
+    - `BanListEntry#DEFAULT_BAN_REASON` - The default reason a player is banned.
+    - `IpBanList` now takes in the `NotificationService`
+        - `add`, `remove` - Handles entries on the list.
+    - `PlayerList` now takes in the `NotificationService` instead of the max players
+        - `maxPlayers` is removed
+        - `op` now has an override for the permission level and bypass limit boolean
+        - `setUsingWhiteList` -> `MinecraftServer#setUsingWhiteList`
+        - `getPlayer` - Gets a player by their name.
+    - `ServerOpList` now takes in the `NotificationService`
+        - `add`, `remove` - Handles entries on the list.
+    - `StoredUserEntry#getUser` is now public
+    - `StoredUserList` now takes in the `NotificationService`
+        - `add`, `remove` now return a boolean if successful
+        - `remove(StoredUserEntry<K>)` is removed
+        - `clear` - Clears all stored users.
+    - `UserBanList` now takes in the `NotificationService`
+        - `add`, `remove` - Handles entries on the list.
+    - `UserWhiteList` now takes in the `NotificationService`
+        - `add`, `remove` - Handles entries on the list.
 
 ## `Level#isClientSide` now private
 
@@ -886,14 +1221,17 @@ Unless a `GameProfile` is needed, Minecraft now passes around a `NameAndId` for 
     - `getGameProfiles` now return a collections of `NameAndId`s
     - `$Result#getNames` now return a collections of `NameAndId`s
 - `net.minecraft.network.codec.ByteBufCodecs#PLAYER_NAME` - A 16 byte string stream codec of the player name.
+- `net.minecraft.network.protocol.status.ServerStatus$Players#Sample` now is a list of `NameAndId`s rather than `GameProfile`s
 - `net.minecraft.server`
     - `MinecraftServer`
         - `getProfilePermissions` now takes in a `NameAndId` instead of a `GameProfile`
         - `isSingleplayerOwner` now takes in a `NameAndId` instead of a `GameProfile`
+        - `ANONYMOUS_PLAYER_PROFILE` is now a `NameAndId`, now private
     - `Services` now takes in a `UserNameToIdResolver` instead of a `GameProfileCache`, and a `ProfileResolver`
 - `net.minecraft.server.players`
     - `GameProfileCache` -> `UserNameToIdResolver`, `CachedUserNameToIdResolver`; not one-to-one
         - `getAsync` is removed
+        - `add(GameProfile)` is removed
     - `NameAndId` - An object that holds the UUID and name of a profile.
     - `PlayerList`
         - `load` -> `loadPlayerData`, not one-to-one
@@ -1011,6 +1349,22 @@ Models now have a new transform for determining how an item sits on a shelf call
 - `net.minecraft.client.renderer.block.model.ItemTransforms#fixedFromBottom` - A transform that expects the item to be sitting on some fixed bottom, like a shelf.
 - `net.minecraft.world.item.ItemDisplayContext#ON_SHELF` - When an item is placed on a shelf.
 
+### Cursor Types
+
+The current cursor on screen can now change to a native `CursorType`, via `GLFW#glfwCreateStandardCursor` in a GUI via `GuiGraphics#requestCursor`, or `Window#selectCursor` anywhere else. Note that `Window#setAllowCursorChanges` must be true, which can be set through the options menu.
+
+- `com.mojang.blaze3d.platform.Window`
+    - `setAllowCursorChanges` - Sets whether the cursor can be changed to a different standard shape.
+    - `selectCursor` - Sets the current cursor to the specified type.
+- `com.mojang.blaze3d.platform.cursor`
+    - `CursorType` - A definition of a GLFW standard cursor shape.
+        - `createStandardCursor` - Creates a standard cursor from its shape, name, and fallback.
+    - `CursorTypes` - Blaze3d's cursor types.
+- `net.minecraft.client.Options#allowCursorChanges` - Sets whether the cursor can be changed to a different standard shape.
+- `net.minecraft.client.gui.GuiGraphics`
+    - `requestCursor` - Requests the cursor to submit to be rendered.
+    - `applyCursor` - Applies the cursor change for rendering.
+
 ### New Tags
 
 - `minecraft:block`
@@ -1046,7 +1400,6 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `SharedConstants`
         - `RESOURCE_PACK_FORMAT_MINOR`, `DATA_PACK_FORMAT_MINOR` - The minor component of the pack version.
         - `DEBUG_SHUFFLE_MODELS` - A flag that likely shuffles the model loading order.
-    - `Util#createGameProfile` - Creates a game profile from the UUID, name, and property map.
 - `net.minecraft.client`
     - `KeyMapping`
         - `shouldSetOnIngameFocus` - Returns whether the key is mapped to some value on the keyboard.
@@ -1066,7 +1419,7 @@ Models now have a new transform for determining how an item sits on a shelf call
 - `net.minecraft.client.animation.definitions.CopperGolemAnimation` - The animations for the copper golem.
 - `net.minecraft.client.data.models.BlockModelGenerators`
     - `and` - ANDs the given conditions together.
-    - `createShelf` - Creates a shelf block state.
+    - `createShelf` - Creates a shelf block state from a base and a particle texture.
     - `addShelfPart` - Adds a variant for a model for all the shelf's states.
     - `forEachHorizontalDirection` - Performs an operation for a pair of directions and rotations.
     - `shelfCondition` - Constructs a condition based on the state of the shelf.
@@ -1089,6 +1442,7 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `Gui#renderDeferredSubtitles` - Renders the subtitles on screen.
     - `GuiGraphics#getSprite` - Gets a `TextureAtlasSprite` from its material.
 - `net.minecraft.client.gui.components`
+    - `AbstractScrollArea#isOverScrollbar` - Returns whether the current cursor position is over the scroll bar.
     - `AbstractSelectionList`
         - `sort` - Sorts the entries within the list.
         - `swap` - Swaps the position of two entries in the list
@@ -1105,7 +1459,10 @@ Models now have a new transform for determining how an item sits on a shelf call
         - `createScreen`, `openScreen`, `preserveCurrentChatScreen`, `restoreChatScreen` - Handles screen behavior depending on the draft chat option.
         - `$ChatMethod` - Defines what type of message is the chat.
         - `$Draft` - Defines a draft message in the chat box.
-    - `EditBox$TextFormatter` - An interface used to format the string in the box.
+    - `EditBox`
+        - `DEFAULT_HINT_STYLE` - The style of the default hints.
+        - `SEARCH_HINT_STYLE` - The style of the searchable hints, such as in a recipe book.
+        - `$TextFormatter` - An interface used to format the string in the box.
     - `FittingMultiLineTextWidget#minimizeHeight` - Sets the height of the widget to the inner height and padding.
     - `FocusableTextWidget$BackgroundFill` - An enum that represents when the background should be filled.
     - `ItemDisplayWidget#renderTooltip` - Submits the tooltip to render.
@@ -1137,7 +1494,9 @@ Models now have a new transform for determining how an item sits on a shelf call
 - `net.minecraft.client.gui.screens.inventory.AbstractCommandBlockScreen#addExtraControls` - Adds any extra widgets to the command block screen.
 - `net.minecraft.client.gui.screens.multiplayer`
     - `CodeOfConductScreen` - A screens that displays the code of conduct text for a server.
-    - `ServerSelectionList$Entry#matches` - Returns whether the provided entry matches this one.
+    - `ServerSelectionList$Entry`
+        - `matches` - Returns whether the provided entry matches this one.
+        - `join` - Handles how the client joins to the server entry.
 - `net.minecraft.client.gui.screens.reporting.ChatSelectionScreen$ChatSelectionList#ITEM_HEIGHT` - The height of each entry in the list.
 - `net.minecraft.client.gui.screens.worldselection.WorldSelectionList`
     - `returnToScreen` - Returns to the previous screen after reloading the world list.
@@ -1164,6 +1523,7 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `SkyRenderer#renderEndFlash` - Renders the end flashes.
 - `net.minecraft.client.resources.WaypointStyle#ICON_LOCATION_PREFIX` - The prefix for waypoint icons.
 - `net.minecraft.client.resources.sounds.DirectionalSoundInstance` - A sound that changes position based on the direction of the camera.
+- `net.minecraft.client.server.IntegratedServer#MAX_PLAYERS` - The maximum number of players allowed in an locally hosted server.
 - `net.minecraft.core`
     - `BlockPos#betweenCornersInDirection` - An iterable that iterates through the provided bounds in the direction provided by the vector.
     - `Direction#axisStepOrder` - Returns a list of directions that the given vector should be checked in.
@@ -1178,7 +1538,6 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `FriendlyByteBuf#readLpVec3`, `writeLpVec3` - Handles syncing a compressed `Vec3`.
     - `LpVec3` - A vec3 network handler that compresses and decompresses a vector into at most two bytes and two integers.
 - `net.minecraft.network.chat.CommonComponents#GUI_COPY_TO_CLIPBOARD` - The message to display when copying a chat to the clipboard.
-- `net.minecraft.network.chat.contents.ObjectContents` - An arbitrary piece of content that can be written as part of a component, like a sprite.
 - `net.minecraft.network.protocol.configuration`
     - `ClientboundCodeOfConductPacket` - A packet the sends the code of conduct of a server to the joining client.
     - `ClientConfigurationPacketListener#handleCodeOfConduct` - Handles the code of conduct sent from the server.
@@ -1191,6 +1550,7 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `selectLevelLoadFocusPos` - Returns the loading center position of the server, usually the shared spawn position.
     - `getLevelLoadListener` - Returns the listener used to track level loading.
     - `getCodeOfConducts` - Returns a map of file names to their code of conduct text.
+    - `enforceGameTypeForPlayers` - Sets the game type of all players.
 - `net.minecraft.server.commands.FetchProfileCommand` - Fetches the profile of a given user.
 - `net.minecraft.server.dedicated.DedicatedServerProperties#codeOfConduct` - Whether the server has a code of conduct.
 - `net.minecraft.server.level`
@@ -1216,7 +1576,9 @@ Models now have a new transform for determining how an item sits on a shelf call
 - `net.minecraft.server.packs.resources.ResourceMetadata#getTypedSection`, `getTypedSections` - Gets the metadata sections for the provided types.
 - `net.minecraft.server.players.ProfileResolver` - Resolves a game profile from its name or UUID.
 - `net.minecraft.util`
-    - `ExtraCodecs#gameProfileCodec` - Creates a codec for a `GameProfile` given the UUID codec.
+    - `ExtraCodecs`
+        - `gameProfileCodec` - Creates a codec for a `GameProfile` given the UUID codec.
+        - `$LateBoundIdMapper#values` - Returns a set of values within the mapper.
     - `InclusiveRange#map` - Maps a range from one generic to another.
     - `Mth#ceilLong` - Returns the double rounded up to the nearest long.
 - `net.minecraft.util.random`
@@ -1230,7 +1592,9 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `EntityType`
         - `STREAM_CODEC` - The stream codec for an entity type.
         - `$Builder#notInPeaceful` - Sets the entity to not spawn in peaceful mode.
-    - `Entity#canInteractWithLevel` - Whether the entity can interact with the current level.
+    - `Entity`
+        - `canInteractWithLevel` - Whether the entity can interact with the current level.
+        - `isInShallowWater` - Returns whether the player is in water but not underwater.
     - `InsideBlockEffectType#CLEAR_FREEZE` - A in-block effect that clears the frozen ticks.
     - `LivingEntity#dropFromEntityInteractLootTable` - Drops loot from a table from an entity interaction.
     - `PositionMoveRotation#withRotation` - Creates a new object with the provided XY rotation.
@@ -1242,12 +1606,14 @@ Models now have a new transform for determining how an item sits on a shelf call
 - `net.minecraft.world.entity.ai.memory.MemoryModuleType`
     - `VISITED_BLOCK_POSITIONS` - Important block positions visited.
     - `TRANSPORT_ITEMS_COOLDOWN_TICKS` - How many ticks to wait before transporting items.
+    - `UNREACHABLE_TRANSPORT_BLOCK_POSITIONS` - Holds a list of positions that are impossible to get to.
 - `net.minecraft.world.entity.animal.coppergolem`
     - `CopperGolem` - The copper golem entity.
     - `CopperGolemAi` - The brain logic for the copper golem.
     - `CopperGolemOxidationLevel` - A record holding the source events and textures for a given oxidation level.
     - `CopperGolemOxidationLevels` - All vanilla oxidation levels.
     - `CopperGolemState` - The current logic state the copper golem is in.
+- `net.minecraft.world.entity.player.Player#isMobilityRestricted` - Returns whether the player has the blindness effect.
 - `net.minecraft.world.entity.vehicle.MinecartFurnace#addFuel` - Adds fuel to the furnace to push the entity.
 - `net.minecraft.world.item`
     - `Item$TooltipContext#isPeaceful` - Returns true if the difficulty is set to peaceful.
@@ -1260,15 +1626,18 @@ Models now have a new transform for determining how an item sits on a shelf call
         - `$Static` - Uses the already resolved game profile.
         - `$Dynamic` - Dynamically resolves the game profile on use.
         - `$Partial` - Represents part of the game profile depending on whatever information is provided to the component.
-- `net.minecraft.world.level.Level`
-    - `getEntityInAnyDimension` - Gets the entity by UUID.
-    - `getPlayerInAnyDimension` - Gets the player by UUID.
+- `net.minecraft.world.level`
+    - `BaseCommandBlock$CloseableCommandBlockSource` - A command source typically for a command block.
+    - `Level`
+        - `getEntityInAnyDimension` - Gets the entity by UUID.
+        - `getPlayerInAnyDimension` - Gets the player by UUID.
 - `net.minecraft.world.level.block`
     - `Block#dropFromBlockInteractLootTable` - Drops the loot when interacting with a block.
     - `ChestBlock`
         - `chestCanConnectTo` - Returns whether the chest can merge with another block.
         - `getConnectedBlockPos` - Gets the connected block position of the chest.
         - `getOpenChestSound`, `getCloseChestSound` - Returns the sounds played on chest open / close.
+        - `getChestType` - Returns the type of the chest based on the surrounding chests.
     - `ChiseledBookShelfBlock#FACING`, `SLOT_*_OCCUPIED` - The block state properties of the chiseled bookshelf.
     - `CopperChestBlock` - The block for the copper chest.
     - `CopperGolemStatueBlock` - The block for the copper golem statue.
@@ -1356,6 +1725,7 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `createIronBars` -> `createBarsAndItem`, `createBars`; not one-to-one
 - `net.minecraft.client.gui.GuiGraphics#submitSignRenderState` now takes in a `Model$Simple` instead of a `Model`
 - `net.minecraft.client.gui.components`
+    - `AbstractScrollArea#renderScrollbar` now takes in the current XY position of the cursor.
     - `AbstractSelectionList` no longer takes in the header height
         - `itemHeight` -> `defaultEntryHeight`
         - `addEntry`, `addEntryToTop` now takes in the height of the element
@@ -1397,7 +1767,9 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `initLists`, `initButtons` merged into `onStatsUpdated`
     - `$ItemRow#getItem` is now protected
 - `net.minecraft.client.gui.screens.inventory.tooltip.ClientActivePlayersTooltip$ActivePlayersTooltip#profiles` now is a list of `PlayerSkinRenderCache$RenderInfo`s instead of `ProfileResult`s
-- `net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen#*_BUTTON_WIDTH` are now private
+- `net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen`
+    - `*_BUTTON_WIDTH` are now private
+    - `join` is now public
 - `net.minecraft.client.gui.screens.options.OptionsScreen#CONTROLS` is now public
 - `net.minecraft.client.gui.screens.packs`
     - `PackSelectionModel` now takes in a `Consumer<PackSelectionModel$EntryBase>` instead of a `Runnable`
@@ -1420,11 +1792,7 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `TransferState` now takes in a map of seen players and whether the insecure chat warning has been shown
 - `net.minecraft.client.multiplayer.chat.ChatListener#clearQueue` -> `flushQueue`
 - `net.minecraft.client.renderer.DimensionSpecialEffects#forceBrightLightmap` -> `hasEndFlashes`, not one-to-one
-- `net.minecraft.client.resources`
-    - `SkinManager` now takes in `Services` instead of a `MinecraftSessionService`
-        - `lookupInsecure` -> `createLookup`, now taking in a boolean of whether to check for insecure skins
-        - `getOrLoad` -> `get`
-    - `WaypointStyle#validate` is now public
+- `net.minecraft.client.resources.WaypointStyle#validate` is now public
 - `net.minecraft.client.server.IntegratedServer` now takes in a `LevelLoadListener` instead of a `ChunkProgressListenerFactory`
 - `net.minecraft.client.sounds`
     - `SoundEngine#updateCategoryVolume` no longer takes in the gain
@@ -1450,7 +1818,6 @@ Models now have a new transform for determining how an item sits on a shelf call
         - `createLevels` no longer takes in a `ChunkProgressListener`
         - `getSessionService`, `getProfileKeySignatureValidator`, `getProfileRepository`, `getProfileCache` -> `services`, not one-to-one
             - `getProfileCache` is now `nameToIdCache`, not one-to-one
-- `net.minecraft.server.dedicated.DedicatedServer` now takes in a `LevelLoadListener` instead of a `ChunkProgressListenerFactory`
 - `net.minecraft.server.level`
     - `ChunkMap` no longer takes in the `ChunkProgressListener`
         - `getTickingGenerated` -> `allChunksWithAtLeastStatus`, not one-to-one
@@ -1515,6 +1882,9 @@ Models now have a new transform for determining how an item sits on a shelf call
         - `pollResolve`, `resolve`, `isResolved` -> `resolveProfile`, not one-to-one
 - `net.minecraft.world.item.enchantment.effects.ExplodeEffect` now takes in a list of block particles to display
 - `net.minecraft.world.level`
+    - `BaseCommandBlock` no longer implements `CommandSource`
+        - `createCommandSourceStack` now takes in a `CommandSource`
+    - `GameRules#availableRules` is now public
     - `GameType#updatePlayerAbilities` now takes in a `TriState` to determine whether the player is flying in creative
     - `Level` no longer implements `UUIDLookup`
         - `explode` now takes in a weighter list of explosion particles to display
@@ -1536,6 +1906,8 @@ Models now have a new transform for determining how an item sits on a shelf call
     - `getAnalogOutputSignal`, `$BlockStateBase#getAnalogOutputSignal` now takes in the direction the signal is coming from
     - `$Properties#noCollission` -> `noCollision`
 - `net.minecraft.world.level.block.state.properties.BlockStateProperties#CHISELED_BOOKSHELF_SLOT_*_OCCUPIED` -> `SLOT_*_OCCUPIED`
+- `net.minecraft.world.level.chunk.PalettedContainer` constructor is now private
+    - `$Strategy#getConfiguration` now takes in an `int` instead of an `IdMap`, now protected
 - `net.minecraft.world.level.entity.UUIDLookup#getEntity` -> `lookup`
 - `net.minecraft.world.level.levelgen`
     - `Beardifier` now takes in lists instead of iterators and a nullable `BoundingBox`
@@ -1591,11 +1963,13 @@ Models now have a new transform for determining how an item sits on a shelf call
 - `net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen`
     - `BUTTON_ROW_WIDTH`, `FOOTER_HEIGHT`
     - `setSelected`
+    - `joinSelectedServer`
 - `net.minecraft.client.main.GameConfig$UserData#userProperties`, `profileProperties`
 - `net.minecraft.client.renderer.chunk.ChunkSectionLayer#outputTarget`
 - `net.minecraft.client.resources.SkinManager#getInsecureSkin`
 - `net.minecraft.gametest.framework.GameTestTicker#startTicking`
 - `net.minecraft.server.MinecraftServer#getSpawnRadius`
+- `net.minecraft.server.dedicated.DedicatedServer#storeUsingWhiteList`
 - `net.minecraft.server.level`
     - `ServerChunkCache#getTickingGenerated`
     - `ServerPlayer#loadGameTypes`
