@@ -1,4 +1,4 @@
-# Maintainer Policies and Recommendations
+# Maintainer Guidelines
 
 This document aims to clarify policies and recommendations by which the Maintainer team operates. The goal is to help Maintainers understand what is expected of them and recommendations of how to reduce the chances of conflict within the Maintainer team. It also serves as a launch point for new maintainers to jump into how the team operates.
 
