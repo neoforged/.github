@@ -34,7 +34,7 @@ The primers were written by:
 
 ## License
 
-The primers are under the copyright and licensed by their original authors
+The primers are under the copyright and licensed by their original authors.
 
 ### 1.12 - 1.15
 
