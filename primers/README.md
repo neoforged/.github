@@ -1,8 +1,8 @@
 # Primers
 
-The primers in this repository are meant to provide a high level, non-exhaustive overview on migrating a mod between two Minecraft versions. Each subdirectory represents the version the primer is written for.
+The primers in this repository are meant to provide a high level, non-exhaustive overview on migrating a mod between two Minecraft versions. Each section represents the version the primer is written for.
 
-Primers for versions 1.12-1.17 have their vanilla and Forge changes combined into one file. All other primers store vanilla changes in the main `index` file and mod loader changes in a file with its name.
+Primers for versions 1.12-1.17 have their vanilla and Forge changes combined into one. All other primers store vanilla changes in the main section, while mod loader changes are in a subsection with its name.
 
 The primers were written by:
 * [@ChampionAsh5357](https://github.com/ChampionAsh5357)
@@ -34,22 +34,22 @@ The primers were written by:
 
 ## License
 
-The primers in this directory are under the copyright and licensed by their original authors
+The primers are under the copyright and licensed by their original authors
 
 ### 1.12 - 1.15
 
 Primers for versions 1.12-1.15 are under the copyright of [@williewillus](https://github.com/williewillus) and licensed under the MIT license.
 
-See [the Choose a License website](https://choosealicense.com/licenses/mit/) for additional details, and see the [`LICENSE-WILLIEWILLUS`](LICENSE-WILLIEWILLUS) file for the full license text.
+See [the Choose a License website](https://choosealicense.com/licenses/mit/) for additional details, and see [`LICENSE-WILLIEWILLUS`](LICENSE-WILLIEWILLUS) for the full license text.
 
 ### 1.16 - 1.17
 
 Primers for versions 1.16-1.17 are under the copyright of [@50ap5ud5](https://github.com/50ap5ud5) and licensed under the Creative Commons Attribution 4.0 International.
 
-See [the Creative Commons website](https://creativecommons.org/licenses/by/4.0/) for additional details, and see the [`LICENSE-50AP5UD5`](LICENSE-50AP5UD5) file for the full license text.
+See [the Creative Commons website](https://creativecommons.org/licenses/by/4.0/) for additional details, and see [`LICENSE-50AP5UD5`](LICENSE-50AP5UD5) for the full license text.
 
 ### Other Versions
 
-All other primers in this directory are under the copyright of [@ChampionAsh5357](https://github.com/ChampionAsh5357) and licensed under the Creative Commons Attribution 4.0 International.
+All other primers are under the copyright of [@ChampionAsh5357](https://github.com/ChampionAsh5357) and licensed under the Creative Commons Attribution 4.0 International.
 
-See [the Creative Commons website](https://creativecommons.org/licenses/by/4.0/) for additional details, and see the [`LICENSE-CHAMPIONASH5357`](LICENSE-CHAMPIONASH5357) file  for the full license text.
+See [the Creative Commons website](https://creativecommons.org/licenses/by/4.0/) for additional details, and see [`LICENSE-CHAMPIONASH5357`](LICENSE-CHAMPIONASH5357) for the full license text.
