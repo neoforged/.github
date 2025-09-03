@@ -165,7 +165,7 @@ Profiles are defined presets that can be configured to the user's desire. Curren
 
 ## Feature Submissions: The Movie
 
-The entirety of the rendering pipeline, from entities to block entities, has been reworked into a submission / render phase system known as features. It is likely that the feature system will also take over particles given that the render phase calls have already been added, although they currently do nothing. This guide will go over the basics of the feature system itself followed by how each major type are implemented using it.
+The entirety of the rendering pipeline, from entities to block entities to particles, has been reworked into a submission / render phase system known as features. This guide will go over the basics of the feature system itself followed by how each major type are implemented using it.
 
 ### Submission and Rendering
 
@@ -188,6 +188,7 @@ Method                 | Parameters
 `submitBlockModel`     | A pose stack, the render type, block state model, RGB floats, light coordinates, overlay coordinates, and outline color
 `submitItem`           | A pose stack, item display context, light coordinates, overlay coordinates, outline color, tint layers, quads, render type, and foil type
 `submitCustomGeometry` | A pose stack, render type, and a function that takes in the current pose and `VertexConsumer` to create the mesh
+`submitParticleGroup`  | A `$ParticleGroupRenderer`
 
 Technically, the `submit*` methods are provided by the `OrderedSubmitNodeCollector`, of which the `SubmitNodeCollector` extends. This is because features can be submitted to different orders, which function similarly to strata in GUIs. By default, all submit calls are pushed onto order 0. Using `SubmitNodeCollector#order` with some integer and then calling the `submit*` method, you can have an object render before or after all features on a given order. This is stored as an AVL tree, where each order's data is stored in a `SubmitNodeCollection`. With the current default feature rendering order, this is only used in very specific circumstances, such as rendering a slime's outer body or equipment layers.
 
@@ -378,22 +379,48 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
 
 ### Block Entity Renderer
 
-`BlockEntityRenderer`s also use the new submission method, replacing almost every `render*` with `submit`. Instead of taking in the `MultiBufferSource`, the method now takes in the `ModelFeatureRenderer$CrumblingOverlay`, for handling block breaking on `Model`s; and the `SubmitNodeCollector` for pushing the elements to render. Like entities, when submitting any element, the location in 3D space is taken by getting the last pose on the `PoseStack` and storing that for future use.
+`BlockEntityRenderer`s also use the new submission method, replacing almost every `render*` with `submit`. They have taken a play from entities, now having their own `BlockEntityRenderState` which is extracted from the `BlockEntity`. As such, `BlockEntityRenderer` now has a new generic `S` for the `BlockEntityRenderState`.
+
+The `BlockEntityRenderState`, by default, contains information about its position, block state, type, light coordinates, and the current break progress as a `ModelFeatureRenderer$CrumblingOverlay`. These are all populated through `BlockEntityRenderState#extractBase`, which is called in `BlockEntityRenderer#extractRenderState`. Like entities, the render state is first constructed via `BlockEntityRenderer#createRenderState` before the values are extracted from the block entity. `extractRenderState` does contain the partial tick and camera position, but this is not passed to the `BlockEntityRenderState` by default.
+
+As such, the `submit` method that takes over the `render` method takes in the render state, a `PoseStack` for the location in 3D space, and the `SubmitNodeCollector` for pushing the elements to render.
 
 ```java
-// A basic block entity renderer
+// We will assume all the classes not specified here exist
 
-// We will assume all the classes listed exist
-public class ExampleBlockEntityRenderer implements BlockEntityRenderer<ExampleBlockEntity> {
+// A simple render state
+public class ExampleRenderState extends BlockEntityRenderState {
+    public float partialTick;
+}
+
+// A basic block entity renderer
+public class ExampleBlockEntityRenderer implements BlockEntityRenderer<ExampleBlockEntity, ExampleRenderState> {
 
     public ExampleBlockEntityRenderer(BlockEntityRendererProvider.Context ctx) {
-        
+        // Get anything you need from the context
     }
 
     @Override
-    public void submit(ExampleBlockEntity blockEntity, float partialTick, PoseStack poseStack, int lightCoords, int overlayCoords, Vec3 cameraPos, @Nullable ModelFeatureRenderer.CrumblingOverlay crumblingOverlay, SubmitNodeCollector collector) {
+    public ExampleRenderState createRenderState() {
+        // Create the render state used to submit the block entity to the feature renderer
+        return new ExampleRenderState();
+    }
+
+    @Override
+    public void extractRenderState(ExampleBlockEntity blockEntity, ExampleRenderState renderState, float partialTick, Vec3 cameraPos, @Nullable ModelFeatureRenderer.CrumblingOverlay crumblingOverlay) {
+        // Extract the necessary rendering values from the block entity to the render state
+        // Always call super or BlockEntityRenderState#extractBase
+        super.extractRenderState(blockEntity, renderState, partialTick, cameraPos, crumblingOverlay);
+
+        // Populate any desired values
+        renderState.partialTick = partialTick;
+    }
+
+
+    @Override
+    public void submit(ExampleRenderState renderState, PoseStack poseStack, SubmitNodeCollector collector) {
         // An example of submitting something
-        collector.submitModel(..., crumblingOverlay);
+        collector.submitModel(..., renderState.breakProgress);
     }
 }
 ```
@@ -421,10 +448,292 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
 }
 ```
 
-- `assets/minecraft/shaders/core/blit_screen.json` -> `screenquad.json`, using no-format triangles instead of positioned quads
-- `net.minecraft.client.gui.GuiGraphics`
-    - `renderOutline` -> `submitOutline`
-    - `renderDeferredTooltip` -> `renderDeferredElements`, not one-to-one
+### Particles
+
+Particles have been added to the submission process; however, there are multiple paths depending on how complicated your particle is. A few classes and general names have been reused for an additional purpose as well, sometimes making it difficult to understand how each part works. As such, this document will go over two methods of creating a particle: one more familiar with the old system, and one that explains the underlying nuances from the ground up.
+
+#### The Separation of Engines and Resources
+
+Before we discuss the two methods, first, let's go with the overarching changes. `ParticleEngine` has been functionally split up into two classes: `ParticleEngine`, which handle the actual ticking and extraction, not submission, of the render state; and `ParticleResources`, which is the reload listener that registers the `ParticleProvider` and optionally `ParticleResources$SpriteParticleRegistration` and reloads the `SpriteSet` from its `ParticleDescription`. This underlying behavior hasn't change (besides the whole extract and submission process), the methods have simply been moved.
+
+`ParticleProvider#createParticle` also now provides a `RandomSource`, which can be used as needed.
+
+As for the actual submission and rendering process, this is handled outside of `ParticleEngine`. More specifically, the `LevelRenderer` extracts all the particles to submit in `ParticlesRenderState` via `ParticleEngine#extract`. Then, in `LevelRenderer#addParticlesPass`, the resource handles are set to the particle `FramePass`, to which on execution the particles are submitted via `ParticlesRenderState#submit` and then rendered through the feature dispatcher via `ParticleFeatureRenderer`.
+
+#### A Single Quad
+
+Many particles in the old system were simply made up of a single quad with a texture(s) slapped on it. These particles are `SingleQuadParticle`s, which merges both the previous `SingleQuadParticle` and `TextureSheetParticle` into one. The `SingleQuadParticle` now takes in an initial `TextureAtlasSprite` to set the first texture, which can then be updated by overriding `Particle#tick` and calling `SingleQuadParticle#setSpriteFromAge` for a `SpriteSet` or directly with `setSprite`. The tint can also be modified in the tick using `setColor` and `setAlpha`. Some also set these directly in `SingleQuadParticle#extract`, but which to use depends on if you need to override the entire tick or not.
+
+To determine the `RenderType` that is used to render the quad, `SingleQuadParticle#getLayer` must be set to the desired `$Layer`. This replaces `Particle#getRenderType`. `$Layer#TERRAIN` with use the block atlas with a translucent particle while `OPAQUE` and `TRANSLUCENT` wil the use the associated particle type with the particle atlas.
+
+In addition to all this, you can also set how the particle is rotated by overriding `SingleQuadParticle#getFacingCameraMode`. `$FacingCameraMode` is a functional interface that sets the rotation of the particle whenever it is extracted. By default, this means that the texture will always face the camera. Any other method changes and additions are in the list below.
+
+From there, everything else is the same to create the `ParticleProvider` and register it.
+
+```java
+// We will assume we have some SimpleParticleType EXAMPLE_QUAD for our particle
+// Additionally, we will assume there is some particle description with our textures to use
+public class ExampleQuadParticle extends SingleQuadParticle {
+
+    private final SpriteSet spriteSet;
+
+    // This can be package-private, protected, or public
+    // public should be used if the particle will be constructed outside of the provider
+    ExampleQuadParticle(ClientLevel level, double x, double y, double z, SpriteSet spriteSet) {
+        // We use first to set the initial particle texture
+        super(level, x, y, z, spriteSet.first());
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        // Update the particle image
+        this.setSpriteFromAge(spriteSet);
+    }
+
+    @Override
+    public SingleQuadParticle.Layer getLayer() {
+        // We are using a sprite set from a particle description with translucent textures
+        // This will be set to translucent
+        return SingleQuadParticle.Layer.TRANSLUCENT;
+    }
+
+    // Create the provider
+    public static class Provider implements ParticleProvider<SimpleParticleType> {
+
+        private final SpriteSet spriteSet;
+
+        public Provider(SpriteSet spriteSet) {
+            this.spriteSet = spriteSet;
+        }
+
+        @Override
+        public Particle createParticle(SimpleParticleType options, ClientLevel level, double x, double y, double z, double xd, double yd, double zd, RandomSource random) {
+            // Create the particle
+            return new ExampleQuadParticle(level, x, y, z, this.spriteSet);
+        }
+    }
+}
+
+// Register the provider to `ParticleResources#register`
+// Assume access to ParticleResources resources and register has been made public
+resources.register(EXAMPLE_QUAD, ExampleQuadParticle.Provider::new);
+```
+
+#### From the Ground Up
+
+What about rendering some more complex or custom? Well, in those instances, we need to take a deeper dive into how particles are extracted by the `ParticleEngine`. The `Particle` class, by itself actually does no extraction, submission, or rendering itself. It simply handles the physics update every tick. The actual extraction logic is handled through a `ParticleGroup`, while the submission is handled by a `ParticleGroupRenderState`.
+
+So, what is a `ParticleGroup`? Well, as the name implies, a particle group holds a group of particles and is responsible for keeping track of, ticking, and extracting the render state of its particles. The generic represents the type of `Particle` it can keep track of up to the maximum of 16,384 per group (though individual particles can set their own subgroup limit via `Particle#getParticleLimit`). All `SingleQuadParticle`s are part of the `QuadParticleGroup`. To extract the render state, the `ParticleEngine` calls `ParticleGroup#extractRenderState`, which takes in the current frustum, camera, and partial tick to return a `ParticleGroupRenderState`.
+
+`ParticleGroupRenderState` is sort of a mix between a render state, submission handler, and cache. It contains two methods: `submit`, which takes in the `SubmitNodeCollector` and submits the group; and `clear`, which clears all previous particle states. Only `QuadParticleRenderState` makes use of the cache as the render states are currently cleared immediately after rendering.
+
+To link the `ParticleGroup` to a `Particle` for use, we must set the `ParticleRenderType` using `Particle#getGroup`. `ParticleRenderType`, unlike the previous version, is simply a key for a `ParticleGroup`. This key is mapped to the group via `ParticleEngine#createParticleGroup`, and the submission/render order is determined by `ParticleEngine#RENDER_ORDER`. Both the method and the list must be patched for the particle to be properly managed by your group and extracted for submission.
+
+```java
+// We will assume we have some SimpleParticleType EXAMPLE_ONE, EXAMPLE_TWO for our particles
+// This example with construct two particles with the same base type to show how the group works
+
+// Create the particle type
+public static final ParticleRenderType EXAMPLE_TYPE = new ParticleRenderType("examplemod:example_type");
+
+// Create our particles
+public abstract class ExampleParticle extends Particle {
+
+    // You can handle passing to the particle group however you want
+    // Making the fields accessible or having a dedicated method
+    public final Model<Unit> model;
+
+    protected ExampleParticle(ClientLevel level, double x, double y, double z, Function<EntityModelSet, Model<Unit>> modelFactory) {
+        super(level, x, y, z);
+        this.model = modelFactory.apply(Minecraft.getInstance().getEntityModels());
+    }
+
+    @Override
+    public ParticleRenderType getGroup() {
+        // Set the particle type to our group
+        return EXAMPLE_TYPE;
+    }
+
+    @FunctionalInterface
+    public interface ExampleParticleFactory<P extends ExampleParticle> {
+        
+        P create(ClientLevel level, double x, double y, double z);
+    }
+
+    protected static <P extends ExampleParticle> ParticleProvider<SimpleParticleType> createProvider(ExampleParticleFactory<P> factory) {
+        return (options, level, x, y, z, xd, yd, zd, random) -> factory.create(level, x, y, z);
+    }
+}
+
+public class ExampleOneParticle extends ExampleParticle {
+
+    ExampleOneParticle(ClientLevel level, double x, double y, double z) {
+        super(level, x, y, z, modelSet -> new Model.Simple(new ModelPart(Collections.emptyList(), Collections.emptyMap()), RenderType::entityCutoutNoCull));
+    }
+
+    public static ParticleProvider<SimpleParticleType> provider() {
+        return ExampleParticle.createProvider(ExampleOneParticle::new);
+    }
+}
+
+public class ExampleTwoParticle extends ExampleParticle {
+
+    private static final ParticleLimit LIMIT = new ParticleLimit(5);
+
+    ExampleTwoParticle(ClientLevel level, double x, double y, double z) {
+        super(level, x, y, z, modelSet -> new Model.Simple(new ModelPart(Collections.emptyList(), Collections.emptyMap()), RenderType::entityCutoutNoCull));
+    }
+
+    @Override
+    public Optional<ParticleLimit> getParticleLimit() {
+        // Limits the number of particles using the LIMIT subgroup to 5
+        // Note that since ParticleLimit is a record, any with the same limit will be considered as the same key
+        return Optional.of(LIMIT);
+    }
+
+    public static ParticleProvider<SimpleParticleType> provider() {
+        return ExampleParticle.createProvider(ExampleTwoParticle::new);
+    }
+}
+
+// Register the providers to `ParticleResources#register`
+// Assume access to ParticleResources resources and register has been made public
+resources.register(EXAMPLE_ONE, ExampleOneParticle.provider());
+resources.register(EXAMPLE_TWO, ExampleTwoParticle.provider());
+
+// Create the render state to submit all particles in the group
+// Store whatever you need to submit to the node collector
+public record ExampleGroupRenderState(List<Model<Unit>> models) implements ParticleGroupRenderState {
+
+    @Override
+    public void submit(SubmitNodeCollector collector) {
+        // Submit every particle 
+        this.models.forEach(model -> collector.submitModel(model, ...));
+    }
+}
+
+// Create the particle group to keep track of the particles and create the render state
+// Both EXAMPLE_ONE and EXAMPLE_TWO will be added to this group
+public class ExampleParticleGroup extends ParticleGroup<ExampleParticle> {
+
+    public ExampleParticleGroup(ParticleEngine engine) {
+        super(engine);
+    }
+
+    @Override
+    public ParticleGroupRenderState extractRenderState(Frustum frustum, Camera camera, float partialTick) {
+        // Create the particle group to submit the particles
+        return new ExampleGroupRenderState(
+            this.particles.stream.map(particle -> particle.model).toList()
+        );
+    }
+}
+
+// Link the ParticleRenderType to its ParticleGroup
+// Assume we have access to ParticleEngine engine
+// Assume that ParticleEngine#RENDER_ORDER is made mutable and public
+// Assume we can patch ParticleEngine#createParticleGroup
+engine.RENDER_ORDER.add(EXAMPLE_TYPE);
+
+// In ParticleEngine
+private ParticleGroup<?> createParticleGroup(ParticleRenderType renderType) {
+    if (renderType == EXAMPLE_TYPE) {
+        // this is referring to the ParticleEngine
+        return new ExampleParticleGroup(this);
+    }
+    // ...
+}
+```
+
+### Atlas Handler Consolidation
+
+The atlas handler has had some of its logic modified to consolidate other sprites and change how to obtain a `TextureAtlasSprite`.
+
+First, map decorations, paintings, and GUI sprites are now proper atlases with their own sheets: `Sheets#MAP_DECORATIONS_SHEET`, `PAINTINGS_SHEET`, and `GUI_SHEET` respectively.
+
+Obtaining the `TextureAtlasSprite` from said sheets are now completely routed through the `MaterialSet`: a functional interface that takes in a `Material` (basically a sheet location and texture location), and returns the associated `TextureAtlasSprite`. The `MaterialSet` handles texture grabs for item models, block entity renderers, and entity renderers:
+
+```java
+// Here is an example material to grab the apple texture from the appropriate sheet
+public static final Material APPLE = new Material(
+    TextureAtlas.LOCATION_BLOCKS, // The sheet where the item textures are stored
+    ResourceLocation.fromNamespaceAndPath("minecraft", "item/apple") // The texture name according to the sprite contents
+);
+// You can also do the same using Sheets.ITEMS_MAPPER.defaultNamespaceApply("apple")
+
+// For some item model
+public class ExampleUnbakedItemModel implements ItemModel.Unbaked {
+    
+    // ...
+
+    @Override
+    public ItemModel bake(ItemModel.BakingContext ctx) {
+        TextureAtlasSprite appleTexture = ctx.materials().get(APPLE);
+        // ...
+    }
+}
+
+// For some special item model
+public class ExampleUnbakedSpecialModel implements SpecialModelRenderer.Unbaked {
+    
+    // ...
+
+    @Override
+    @Nullable
+    public SpecialModelRenderer<?> bake(SpecialModelRenderer.BakingContext ctx) {
+        TextureAtlasSprite appleTexture = ctx.materials().get(APPLE);
+        // ...
+    }
+}
+
+// For some block entity renderer
+public class ExampleBlockEntityRenderer implements BlockEntityRenderer<ExampleBlockEntity> {
+
+    public ExampleBlockEntityRenderer(BlockEntityRendererProvider.Context ctx) {
+        TextureAtlasSprite appleTexture = ctx.materials().get(APPLE);
+        // ...
+    }
+
+    // ...
+}
+
+
+// For some entity renderer
+public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, ExampleEntityState> {
+
+    public ExampleEntityRenderer(EntityRendererProvider.Context ctx) {
+        TextureAtlasSprite appleTexture = ctx.getMaterials().get(APPLE);
+        // ...
+    }
+
+    // ...
+}
+```
+
+- `assets/minecraft/shaders/core`
+    - `blit_screen.json` -> `screenquad.json`, using no-format triangles instead of positioned quads
+    - `position_color_lightmap.*` are removed
+    - `position_color_tex_lightmap.*` are removed
+- `com.mojang.blaze3d.vertex`
+    - `CompactVectorArray` - An holder that smashes a list of float vectors into a single sequential array.
+    - `MeshData$SortState#centroids` now returns a `CompactVectorArray`
+    - `VertexSorting`
+        - `byDistance` now takes in a `Vector3fc` instead of a `Vector3f`
+        - `sort` now takes in a `CompactVectorArray` instead of a `Vector3f[]`
+- `net.minecraft.client.Minecraft`
+    - `getTextureAtlas` -> `AtlasManager#getAtlasOrThrow`, not one-to-one
+    - `getPaintingTextures`, `getMapDecorationTextures`, `getGuiSprites` -> `getAtlasManager`, not one-to-one
+- `net.minecraft.client.animation.Keyframe` now has an overload that takes in the `preTarget` and `postTarget` instead of one simple `target`, taking in a `Vector3fc` instead of a `Vector3f`
+- `net.minecraft.client.entity`
+    - `ClientAvatarEntity` - The client data of the avatar.
+    - `ClientAvatarState` - The movement state of the avatar.
+    - `ClientMannequin` - The client version of the `Mannequin` entity.
+- `net.minecraft.client.gui`
+    - `GuiGraphics`
+        - `renderOutline` -> `submitOutline`
+        - `renderDeferredTooltip` -> `renderDeferredElements`, not one-to-one
+    `GuiSpriteManager` class is removed
 - `net.minecraft.client.gui.render.GuiRenderer` now takes in the `SubmitNodeCollector` and `FeatureRenderDispatcher`
     - `MIN_GUI_Z` is now public
 - `net.minecraft.client.gui.render.pip`
@@ -446,15 +755,18 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
         - `NO_PARTS`, `getHeadModelParts` are removed
         - `createEyesLayer` - Creates the eyes of the model.
     - `EntityModel#setupAnim` -> `Model#setupAnim`
+    - `GuardianParticleModel` - The particle spawned from a guardian.
     - `HeadedModel#translateToHead` - Transforms the pose stack to the head's position and rotation.
     - `HumanoidArmorModel` -> `HumanoidModel#createArmorMeshSet`, not one-to-one
     - `HumanoidModel#copyPropertiesTo` is removed
     - `Model` now takes in a generic representing the render state
     - `PlayerCapeModel` now extends `PlayerModel`
     - `PlayerEarsModel` now extends `PlayerModel`
-    - `PlayerModel` static fields are now `protected`
+    - `PlayerModel` render state has been broadened to `AvatarRenderState`
+        - Static fields are now `protected`
         - `createArmorMeshSet` - Creates the model meshes for each of the humanoid armor slots.
     - `SkullModelBase$State` - Represents the state of the backing object.
+    - `SpinAttackEffectModel` generic has been broadened to `AvatarRenderState`
     - `VillagerLikeModel` now takes in a generic for the render state
         - `hatVisible` is removed
             - Replaced by `VillagerModel#createNoHatModel`
@@ -465,11 +777,121 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
     - `ZombieVillagerModel`
         - `createArmorLayer` -> `createArmorLayerSet`, not one-to-one
         - `createNoHatLayer` - Creates the model without the hat layer.
-- `net.minecraft.client.model.geom.ModelPart#copyFrom` is removed
+- `net.minecraft.client.model.geom.ModelPart`
+    - `copyFrom` is removed
+    - `$Polygon#normal` is now a `Vector3fc` instead of a `Vector3f`
+    - `$Vertex`
+        - `pos` -> `x`, `y`, `z`
+        - `worldX`, `worldY`, `worldZ` - Returns the coordinates scaled down by a factor of 16.
 - `net.minecraft.client.model.geom.builders.PartDefinition`
     - `clearRecursively` - Clears all children parts and its sub-children.
     - `retainPartsAndChildren` - Retains the specified parts from its root and any sub-children.
     - `retainExactParts` - Retains only the top level part, clearing out all others and sub-children.
+- `net.minecraft.client.particle`
+    - `AttackSweepParticle` now extends `SingleQuadParticle`
+    - `BaseAshSmokeParticle` now extends `SingleQuadParticle` and is `abstract`
+    - `BlockMarker` now extends `SingleQuadParticle`
+    - `BreakingItemParticle` now extends `SingleQuadParticle`
+        - The constructor takes in a `TextureAtlasSprite` instead of the `ItemStackRenderState`
+        - `$ItemParticleProvider#calculateState` -> `getSprite`, not one-to-one
+    - `BubbleColumnUpParticle` now extends `SingleQuadParticle`
+    - `BubbleParticle` now extends `SingleQuadParticle`
+    - `BubblePopParticle` now extends `SingleQuadParticle`
+    - `CampfireSmokeParticle` now extends `SingleQuadParticle`
+    - `CritParticle` now extends `SingleQuadParticle`
+    - `DragonBreathParticle` now extends `SingleQuadParticle`
+        - `$Provider` generic now uses a `PowerParticleOption`
+    - `DripParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+        - `create*Particle` methods -> `$*Provider` classes
+    - `DustParticleBase` now extends `SingleQuadParticle`
+    - `ElderGuardianParticleGroup` - The particle group responsible for setting up and submitting the elder guardian particle.
+    - `ExplodeParticle` now extends `SingleQuadParticle`
+    - `FallingDustParticle` now extends `SingleQuadParticle`
+    - `FallingLeavesParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite` instead of a `SpriteSet`
+    - `FireflyParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+    - `FireworkParticles`
+        - `$FlashProvider` generic now uses `ColorParticleOption`
+        - `$OverlayParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+    - `FlameParticle` now takes in a `TextureAtlasSprite`
+    - `FlyStraightTowardsParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+    - `FlyTowardsPositionParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+    - `GlowParticle` now extends `SingleQuadParticle`
+    - `GustParticle` now extends `SingleQuadParticle`
+    - `HeartParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+    - `HugeExplosionParticle` now extends `SingleQuadParticle`
+    - `ItemPickupParticle` now takes in the `EntityRenderState` instead of the `EntityRenderDispatcher`
+        - Fields are now all `protected` aside from the target entity
+    - `ItemPickupParticleGroup` - The particle group responsible for setting up and submitting the item pickup particle.
+    - `LavaParticle` now extends `SingleQuadParticle`
+    - `MobAppearanceParticle` -> `ElderGuardianParticle`
+    - `NoRenderParticleGroup` - The particle group that does nothing.
+    - `NoteParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+    - `Particle`
+        - `rCol`, `gCol`, `bCol`, `alpha` -> `SingleQuadParticle#rCol`, `gCol`, `bCol`, `alpha`
+        - `roll`, `oRoll` -> `SingleQuadParticle#roll`, `oRoll`
+        - `setColor`, `setAlpha` -> `SingleQuadParticle#setColor`, `setAlpha`
+        - `render`, `renderCustom` -> `ParticleGroupRenderState#submit`, not one-to-one
+        - `getRenderType` -> `getGroup`
+            - The original purpose of this method has been moved to `SingleQuadParticle#getLayer`
+        - `getParticleGroup` -> `getParticleLimit`, not one-to-one
+    - `ParticleEngine` no longer implements `PreparableReloadListener`
+        - The constructor now takes in the `ParticleResources` instead of the `TextureManager`
+        - `close` is removed
+        - `updateCount` is now `protected`
+        - `render` -> `extract`, not one-to-one
+        - `destroy` -> `ClientLevel#addDestroyBlockEffect`
+        - `crack` -> `ClientLevel#addBreakingBlockEffect`
+        - `clearParticles` is now `public`
+        - `$MutableSpriteSet` -> `ParticleResources$MutableSpriteSet`
+        - `$SpriteParticleRegistration` -> `ParticleResources$SpriteParticleRegistration`
+    - `ParticleGroup` - A holder of particles for a specific `ParticleRenderType`, responsible for ticking and extracting the general render state.
+    - `ParticleProvider`
+        - `createParticle` now takes in the `RandomSource`
+        - `$Sprite#createParticle` now takes in the `RandomSource` and returns a `SingleQuadParticle` instead of a `TextureSheetParticle`
+    - `ParticleRenderType` no longer takes in the `RenderType`
+        - This record has been repurposed to represent a key for the particle groups
+        - `TERRAIN_SHEET` -> `SingleQuadParticle$Layer#TERRAIN`
+        - `PARTICLE_SHEET_OPAQUE` -> `SingleQuadParticle$Layer#OPAQUE`
+        - `PARTICLE_SHEET_TRANSLUCENT` -> `SingleQuadParticle$Layer#TRANSLUCENT`
+        - `CUSTOM` is replaced by a particle group that is not for `ParticleRenderType#SINGLE_QUADS`
+    - `ParticleResources` - Loads the particle providers, any necessary descriptions, and computes them into their desired sprite set.
+    - `PlayerCloudParticle` now extends `SingleQuadParticle`
+    - `PortalParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+    - `QuadParticleGroup` - The particle group responsible for setting up and submitting single quad particles.
+    - `ReversePortalParticle` now takes in a `TextureAtlasSprite`
+    - `RisingParticle` now extends `SingleQuadParticle`
+    - `SculkChargeParticle` now extends `SingleQuadParticle`
+    - `SculkChargePopParticle` now extends `SingleQuadParticle`
+    - `SculkChargePopParticle` now extends `SingleQuadParticle`
+    - `ShriekParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+    - `SimpleAnimatedParticle` now extends `SingleQuadParticle` and is `abstract`
+    - `SingleQuadParticle` now takes in a `TextureAtlasSprite`
+        - `sprite` - The texture of the particle.
+        - `render` -> `extract`, not one-to-one, now taking in the `QuadParticleRenderState` instead of a `VertexConsumer`
+        - `renderRotatedQuad` -> `extractRotatedQuad`, not one-to-one, now taking in the `QuadParticleRenderState` instead of a `VertexConsumer`
+        - `getU0`, `getU1`, `getV0`, `getV1` are no longer abstract
+        - `getLayer` - Sets the render layer of the single quad.
+        - `$Layer` - The layer the single quad should render in.
+    - `SnowflakeParticle` now extends `SingleQuadParticle`
+    - `SpellParticle` now extends `SingleQuadParticle`
+        - `InstantProvider` generic now uses `SpellParticleOption`
+    - `SplashParticle` now takes in a `TextureAtlasSprite`
+    - `SpriteSet#first` - Returns the first texture in the sprite set.
+    - `SuspendedParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+    - `SuspendedTownParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+    - `TerrainParticle` now extends `SingleQuadParticle`
+    - `TextureSheetParticle` class is removed, use `SingleQuadParticle` instead
+    - `TrailParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+    - `TrialSpawnerDetectionParticle` now extends `SingleQuadParticle`
+    - `VibrationSignalParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+    - `WakeParticle` now extends `SingleQuadParticle`
+    - `WaterCurrentDownParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+    - `WaterDropParticle` now extends `SingleQuadParticle` and takes in a `TextureAtlasSprite`
+- `net.minecraft.client.player.AbstractClientPlayer` fields are now stored within `ClientAvatarState`
+    - `elytraRot*` -> `*Cloak`
+    - `clientLevel` is removed
+    - `getDeltaMovementLerped` -> `addWalkedDistance`, not one-to-one
+    - `updateBob` - Updates the bobbing motion of the camera.
 - `net.minecraft.client.renderer`
     - `GameRenderer` now takes in the `BlockRenderDispatcher`
         - `getSubmitNodeStorage` - Gets the node submission for feature-like objects.
@@ -481,11 +903,15 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
     - `LevelRenderer` now takes in the `LevelRenderState` and `FeatureRenderDispatcher`
         - `getSectionRenderDispatcher` is now nullable
     - `LevelRenderState` - The render state of the dynamic features in a level.
-    - `MapRenderer#render` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource`
+    - `MapRenderer` now takes in an `AtlasManager` instead of a `MapDecorationTextureManager`
+        - `render` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource`
     - `OrderedSubmitNodeCollector` - A submission handler for holding elements to be drawn in a given order to the screen whenever the features are dispatched.
     - `OutlineBufferSource` no longer takes in any parameters
         - `setColor` now takes in a single integer
+    - `ParticleGroupRenderState` - The render state for a group of particles.
+    - `ParticlesRenderState` - The render state for all particles.
     - `PlayerSkinRenderCache` - A render cache for the player skins.
+    - `QuadParticleRenderState` - The render group state for all single quad particles.
     - `RenderPipelines`
         - `GUI_TEXT` - The pipeline for text in a gui.
         - `GUI_TEXT_INTENSITY` - The pipeline for text intensity when not colored in a gui.
@@ -496,8 +922,10 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
         - `renderLineBox` now takes in a `PoseStack$Pose` instead of a `PoseStack`
         - `renderFace` now takes in a `Matrix4f` instead of a `PoseStack`
     - `Sheets`
+        - `GUI_SHEET`, `MAP_DECORATIONS_SHEET`, `PAINTINGS_SHEET` - Atlas textures.
         - `BLOCK_ENTITIES_MAPPER` - A mapper for block textures onto block entities.
         - `*COPPER*` - Materials for copper chests.
+        - `chooseMaterial` now takes in a `ChestRenderState$ChestMaterialType` instead of a `BlockEntity` and `boolean`
     - `SpecialBlockModelRenderer`
         - `vanilla` now takes in a `SpecialModelRenderer$BakingContext` instead of an `EntityModelSet`
         - `renderByBlock` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource`
@@ -510,19 +938,28 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
     - `LiquidBlockRenderer#setupSprites` now take in the `BlockModelShaper` and `MaterialSet`
 - `net.minecraft.client.renderer.blockentity`
     - Most methods here that take in the `MultiBufferSource` have been replaced by a `SubmitNodeCollector`, and a `ModelFeatureRenderer$CrumblingOverlay` if the method is not used for item rendering
-    - Most methods change their name from `render*` to `submit*`
+    - Most methods change their name from `render*` to `submit*`, with the main submit method now using a `BlockEntityRenderState`
+    - All `BlockEntityRenderer`s now have a `BlockEntityRenderState` generic
+    - `AbstractEndPortalRenderer` - A block entity renderer for the end portal.
     - `AbstractSignRenderer`
         - `getSignModel` now returns a `Model$Simple`
-        - `renderSign` now takes in a `Model$Simple`
+        - `renderSign` -> `submitSign`, now takes in a `Model$Simple` and no longer takes in a tint color
     - `BannerRenderer` has an overload that takes in a `SpecialModelRenderer$BakingContext`
         - The `EntityModelSet` constructor now takes in the `MaterialSet`
         - `renderPatterns` -> `submitPatterns` now takes in the `MaterialSet` and `ModelFeatureRenderer$CrumblingOverlay`
+    - `BeaconRenderer#renderBeaconBeam` -> `submitBeaconBeam`, no longer takes in the game time `long`
     - `BedRenderer` has an overload that takes in a `SpecialModelRenderer$BakingContext`
         - The `EntityModelSet` constructor now takes in the `MaterialSet`
     - `BlockEntityRenderDispatcher` now takes in the `MaterialSet` and `PlayerSkinRenderCache`
-        - `render` -> `submit`
-    - `BlockEntityRenderer#render` -> `submit`
+        - `render` -> `submit`, now takes in the `BlockEntityRenderState` instead of a `BlockEntity`, and no longer takes in the partial tick `float`
+        - `getRenderer` now has an overload that can get the renderer from its `BlockEntityRenderState`
+        - `tryExtractRenderState` - Gets the `BlockEntityRenderState` from its `BlockEntity`
+    - `BlockEntityRenderer` now has another generic `S` representing the `BlockEntityRenderState`
+        - `render` -> `submit`, taking in the `BlockEntityRenderState`, the `PoseStack`, and the `SubmitNodeCollector`
+        - `createRenderState` - Creates the render state object.
+        - `extractRenderState` - Extracts the render state from the block entity.
     - `BlockEntityRendererProvider$Context` is now a record, taking in a `MaterialSet` and `PlayerSkinRenderCache`
+        - It now has another generic `S` representing the `BlockEntityRenderState`
     - `CopperGolemStatueBlockRenderer` - A block entity renderer for the copper golem statue.
     - `DecoratedPotRenderer` has an overload that takes in a `SpecialModelRenderer$BakingContext`
         - The `EntityModelSet` constructor now takes in the `MaterialSet`
@@ -536,6 +973,34 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
         - `createSignModel` now returns a `Model$Simple`
         - `renderInHand` now takes in a `MaterialSet`
     - `SkullBlockRenderer#submitSkull` - Submits the skull model to the collector.
+- `net.minecraft.client.renderer.blockentity.state`
+    - `BannerRenderState` - The render state for the banner block entity.
+    - `BeaconRenderState` - The render state for the beacon block entity.
+    - `BedRenderState` - The render state for the bed block entity.
+    - `BellRenderState` - The render state for the bell block entity.
+    - `BlockEntityRenderState` - The base render state for all block entities.
+    - `BlockEntityWithBoundingBoxRenderState` - The render state for a block entity with a custom bounding box.
+    - `BrushableBlockRenderState` - The render state for a brushable block entity.
+    - `CampfireRenderState` - The render state for the campfire block entity.
+    - `ChestRenderState` - The render state for the chest block entity.
+    - `CondiutRenderState` - The render state for the conduit block entity.
+    - `CopperGolemStatueRenderState` - The render state for the copper golem block entity.
+    - `DecoratedPotRenderState` - The render state for the decorated pot block entity.
+    - `EnchantTableRenderState` - The render state for the enchantment table block entity.
+    - `EndGatewayRenderState` - The render state for the end gateway block entity.
+    - `EndPortalRenderState` - The render state for the end portal block entity.
+    - `LecternRenderState` - The render state for the lectern block entity.
+    - `PistonHeadRenderState` - The render state for the piston head block entity.
+    - `ShelfRenderState` - The render state for the shelf block entity.
+    - `ShulkerBoxRenderState` - The render state for the shulker box block entity.
+    - `SignRenderState` - The render state for the sign block entity.
+    - `SkullBlockRenderState` - The render state for the skull block entity.
+    - `SpawnerRenderState` - The render state for the spawner block entity.
+    - `TestInstanceRenderState` - The render state for the test instance block entity.
+    - `VaultRenderState` - The render state for the vault block entity.
+- `net.minecraft.client.renderer.culling.Frustum`
+    - `offset` - Offsets the position.
+    - `pointInFrustum` - Checks whether the provided coordinate is within the frustum.
 - `net.minecraft.client.renderer.entity`
     - Most methods here that take in the `MultiBufferSource` and light coordinates integer have been replaced by `SubmitNodeCollector` and a render state param
     - Most methods change their name from `render*` to `submit*`
@@ -548,49 +1013,60 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
     - `CopperGolemRenderer` - The renderer for the copper golem entity.
     - `DisplayRenderer#renderInner` -> `submitInner`
     - `EnderDragonRenderer#renderCrystalBeams` -> `submitCrystalBeams`
-    - `EntityRenderDispatcher`
+    - `EntityRenderDispatcher` now takes in the `AtlasManager`
         - `prepare` no longer takes in the `Level`
         - `setRenderShadow`, `setRenderHitBoxes`, `shouldRenderHitBoxes` are removed
         - `extractEntity` - Creates the render state from the entity and the partial tick.
         - `render` -> `submit`
         - `setLevel` -> `resetCamera`, not one-to-one
+        - `getPlayerRenderer` - Gets the `AvatarRenderer` from the given client player.
     - `EntityRenderer`
         - `NAMETAG_SCALE` is now public
         - `render(S, PoseStack, MultiBufferSource, int)` -> `submit(S, PoseStack, SubmitNodeCollector)`
         - `renderNameTag` ->` submitNameTag`
         - `finalizeRenderState` - Extracts the information of the render state as a last step after `extractRenderState`, such as shadows.
-    - `EntityRendererProvider$Context` now takes in a `PlayerSkinRenderCache`
+    - `EntityRendererProvider$Context` now takes in the `PlayerSkinRenderCache` and `AtlasManager`
         - `getModelManager` is removed
         - `getMaterials` - Returns a mapper of material to atlas sprite.
         - `getPlayerSkinRenderCache` - Gets the render cache of player skins.
+        - `getAtlas` - Returns the atlas for that location.
+    - `EntityRenderers#createPlayerRenderers` now returns a map of `PlayerModelType`s to `AvatarRenderer`s
     - `ItemEntityRenderer`
         - `renderMultipleFromCount` -> `submitMultipleFromCount`
         - `renderMultipleFromCount(PoseStack, MultiBufferSource, int, ItemClusterRenderState, RandomSource)` -> `renderMultipleFromCount(PoseStack, SubmitNodeCollector, int, ItemClusterRenderState, RandomSource)`
-    - `ItemRenderer`
+    - `ItemRenderer` no longer takes in the `ItemModelResolver`
         - `getArmorFoilBuffer` -> `getFoilRenderTypes`, not one-to-one
-        - All `renderStatic` -> `renderUpwardsFrom`, now taking in a `SubmitNodeCollector` instead of a `MultiBufferSource`
-        - `getBoundingBox` - Gets the model bounding box of the stack.
+        - `renderStatic` methods are removed
     - `PiglinRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
     - `TntMinecartRenderer#renderWhiteSolidBlock` -> `submitWhiteSolidBlock`, now takes in an outline color
     - `ZombieRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
     - `ZombifiedPiglinPiglinRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
 - `net.minecraft.client.renderer.entity.layers`
+    - `ArrowLayer` now deals with `AvatarRenderState` instead of `PlayerRenderState`
+    - `BeeStingerLayer` now deals with `AvatarRenderState` instead of `PlayerRenderState`
     - `BlockDecorationLayer` - A layer that handles a block model transformed by an entity.
     - `BreezeWindLayer` now takes in the `EntityModelSet` instead of the `EntityRendererProvider$Context`
+    - `CapeLayer` now deals with `AvatarRenderState` instead of `PlayerRenderState`
     - `CustomHeadLayer` now takes in the `PlayerSkinRenderCache`
+    - `Deadmau5EarsLayer` now deals with `AvatarRenderState` instead of `PlayerRenderState`
     - `EquipmentLayerRenderer#renderLayers` now takes in the render state, `SubmitNodeCollector`, outline color, and an initial order instead of a `MultiBufferSource`
     - `HumanoidArmorLayer` now takes in `ArmorModelSet`s instead of models
         - `setPartVisibility` is removed
     - `ItemInHandLayer#renderArmWithItem` -> `submitArmWithItem`
     - `LivingEntityEmissiveLayer` now takes in a function for the texture instead of a `ResourceLocation` and a model instead of the `$DrawSelector`
         - `$DrawSelector` is removed
+    - `ParrotOnShoulderLayer` now deals with `AvatarRenderState` instead of `PlayerRenderState`
+    - `PlayerItemInHandLayer` now deals with `AvatarRenderState` instead of `PlayerRenderState`
     - `RenderLayer`
         - `renderColoredCutoutModel`, `coloredCutoutModelCopyLayerRender` now takes in a `Model` instead of an `EntityModel`, a `SubmitNodeCollector` instead of a `MultiBufferSource`, and an integer representing the order layer for rendering
         - `render` -> `submit`, taking in a `SubmitNodeCollector` instead of a `MultiBufferSource`
     - `SimpleEquipmentLayer` now takes in an order integer
+    - `SpinAttackEffectLayer` now deals with `AvatarRenderState` instead of `PlayerRenderState`
     - `StuckInBodyLayer` now has an additional generic for the render state, also taking in the render state in the constructor
+        - `numStuck` now takes in an `AvatarRenderState` instead of the `PlayerRenderState`
     - `VillagerProfessionLayer` now takes in two models
-- `net.minecraft.client.renderer.entity.player.PlayerRenderer#render*Hand` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource`
+- `net.minecraft.client.renderer.entity.player.PlayerRenderer` -> `AvatarRenderer`
+    - `render*Hand` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource`
 - `net.minecraft.client.renderer.entity.state`
     - `CopperGolemRenderState` - The render state for the copper golem entity.
     - `EntityRenderState`
@@ -601,7 +1077,8 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
     - `FallingBlockRenderState` fields and implementations have all been moved to `MovingBlockRenderState`
     - `LivingEntityRenderState#appearsGlowing` -> `EntityRenderState#appearsGlowing`, now a method
     - `PaintingRenderState#lightCoords` -> `lightCoordsPerBlock`
-    - `PlayerRenderState#useItemRemainingTicks`, `swinging` are removed
+    - `PlayerRenderState` -> `AvatarRenderState`
+        - `useItemRemainingTicks`, `swinging` are removed
     - `WitherSkullRenderState#xRot`, `yRot` -> `modeState`, not one-to-one
 - `net.minecraft.client.renderer.feature`
     - `BlockFeatureRenderer` - Renders the submitted blocks, block models, or falling blocks.
@@ -613,6 +1090,7 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
     - `LeashFeatureRenderer` - Renders the submitted leash attached to entities.
     - `ModelFeatureRenderer` - Renders the submitted `Model`s.
     - `ModelPartFeatureRenderer` - Renders the submitted `ModelPart`s.
+    - `ParticleFeatureRenderer` - Renders the submitted particles.
     - `NameTagFeatureRenderer` - Renders the submitted name tags.
     - `ShadowFeatureRenderer` - Render the submitted entity shadow.
     - `TextFeatureRenderer` - Renders the submitted text.
@@ -652,17 +1130,35 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
     - `TextureAtlasSprite#isAnimated` -> `SpriteContents#isAnimated`
 - `net.minecraft.client.renderer.texture.atlas.SpriteResourceLoader#create` now takes a set of `MetadataSectionType`s instead of a collection
 - `net.minecraft.client.resources`
+    - `MapDecorationTextureManager` class is removed
+    - `PaintingTextureManager` class is removed
+    - `PlayerSkin$Model` -> `PlayerModelType`
     - `SkinManager` now takes in `Services` instead of a `MinecraftSessionService`, and a `SkinTextureDownloader`
         - `lookupInsecure` -> `createLookup`, now taking in a boolean of whether to check for insecure skins
         - `getOrLoad` -> `get`
+    - `TextureAtlasHolder` class is removed
 - `net.minecraft.client.resources.model`
+    - `AtlasIds` -> `net.minecraft.data.AtlasIds`
+    - `AtlasSet` -> `AtlasManager`, not one-to-one
+        - `forEach` - Iterates through each of the atlas sheets.
     - `Material`
         - `sprite` -> `MaterialSet#get`
         - `buffer` now takes in a `MaterialSet`
     - `MaterialSet` - A map of material to its atlas sprite.
     - `ModelBakery` now takes in a `MaterialSet` and `PlayerSkinRenderCache`
     - `ModelManager` is no longer `AutoCloseable`
-        - The constructor takes in the `PlayerSkinRenderCache`
+        - The constructor takes in the `PlayerSkinRenderCache`, `AtlasManager` instead of the `TextureManager`, and the max mipmap levels integer
+        - `getAtlas` -> `MaterialSet#get`
+        - `updateMaxMipLevel` -> `AtlasManager#updateMaxMipLevel`
+- `net.minecraft.core.particles`
+    - `ParticleGroup` -> `ParticleLimit`
+    - `ParticleTypes`
+        - `DRAGON_BREATH` now uses a `PowerParticleOption`
+        - `EFFECT` now uses a `SpellParticleOption`
+        - `FLASH` now uses a `ColorParticleOption`
+        - `INSTANT_EFFECT` now uses a `SpellParticleOption`
+    - `PowerParticleOption` - A particle option for the dragon's breath.
+    - `SpellParticleOption` - A particle option for potion effects.
 
 ## The Font Glyph Pipeline
 
@@ -1039,7 +1535,7 @@ managementServer.forEachConnection(connection -> connection.sendNotification(SOM
     - `NotificationManager` - A manager for handling multiple notification services.
     - `NotificationService` - A service that defines prospective actions taken by a listener, like a management server.
 - `net.minecraft.server.players`
-    - `BanListEntry#DEFAULT_BAN_REASON` - The default reason a player is banned.
+    - `BanListEntry#getReason` can now be `null`
     - `IpBanList` now takes in the `NotificationService`
         - `add`, `remove` - Handles entries on the list.
     - `PlayerList` now takes in the `NotificationService` instead of the max players
@@ -1059,6 +1555,104 @@ managementServer.forEachConnection(connection -> connection.sendNotification(SOM
     - `UserWhiteList` now takes in the `NotificationService`
         - `add`, `remove` - Handles entries on the list.
 
+## Input Handling Consolidation
+
+Input handling has previously passed around the raw values, each in their own separate argument, provided by GLFW. However, a good bit of the handling logic is redundant, as specific keys are commonly checked, or all values are passed around in a game of hot potato from one method to the next. With this in mind, the input handlers in `GuiEventListener` and other calls, are now handled through event objects. These objects still contain the info GLFW passed through; however, now they have a lot of common checks through the super `InputWithModifiers` interface.
+
+There are two types of events: `KeyEvent`s for key presses, and `MouseButtonEvent`s for mouse presses. Key, scancode, and modifiers are wrapped into the `KeyEvent`. Button, modifiers, and the XY screen position are wrapped into the `MouseButtonEvent`. As such, it is generally a drag-and-drop replacement of just removing any of the parameters mentioned above and replacing them with their appropriate event.
+
+### Key Mapping Categories
+
+Key mappings have changed slightly, no longer taking in a raw string for its category, and instead using a value from the `KeyMapping$Category` enum. This means that it will be a little bit harder to add custom categories, as you will need to modify or extend the enum at runtime, or directly patch into the `KeyBindsList` constructor for a custom id as the category description string is only used for adding the entry to the selection list.
+
+### Double-Click Expansion
+
+`GuiEventListener#mouseClicked` now takes in whether the click was in fact a double-click as a boolean.
+
+```java
+// For some Screen subclass (or AbstractWidget or any GUI object rendering)
+
+@Override
+public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+    // ...
+    return false;
+}
+```
+
+- `com.mojang.blaze3d.platform.InputConstants`
+    - `MOD_SHIFT`, `MOD_ALT`, `MOD_SUPER`, `MOD_CAPS_LOCK`, `MOD_NUM_LOCK` - Modifier keys to transform a key input.
+    - `KEY_LWIN`, `KEY_RWIN` -> `KEY_LSUPER`, `KEY_RSUPER`
+    - `getKey` now takes in a `KeyEvent` instead of the key and scancode `int`s
+    - `isKeyDown`, `setupKeyboardCallbacks`, `setupMouseCallbacks`, `grabOrReleaseMouse`, `updateRawMouseInput` now take in a `Window` instead of the `long` handle
+- `net.minecraft.client`
+    - `KeyboardHandler`
+        - `keyPress` is now private
+        - `setup` now takes in a `Window` instead of the `long` handle
+    - `KeyMapping` now takes in a `$Category` instead of a `String`
+        - `shouldSetOnIngameFocus` - Returns whether the key is mapped to some value on the keyboard.
+        - `restoreToggleStatesOnScreenClosed` - Restores the toggled keys to its state during in-game actions.
+        - `key` is now protected
+        - `release` is now protected
+        - `CATEGORY_*` -> `$Category#*`
+            - Strings can be obtained via `$Category#descriptionId`
+        - `getCategory` now returns a `$Category` instead of a `String`
+        - `matches` now takes in a `KeyEvent` instead of the key and scancode `int`s
+        - `matchesMouse` now takes in a `MouseButtonEvent` instead of the button `int`
+    - `Minecraft#ON_OSX` -> `InputQuirks#ON_OSX`
+    - `MouseHandler#setup` now takes in a `Window` instead of the `long` handle
+    - `ToggleKeyMapping` now has an overload that takes in an input type
+        - The constructor now takes in a `KeyMapping$Category` instead of a `String`
+- `net.minecraft.client.gui.components`
+    - `AbstractButton#onPress` now takes in an `InputWithModifiers`
+    - `AbstractScrollArea#updateScrolling` now takes in a `MouseButtonEvent` instead of the button info and XY positions
+    - `AbstractWidget`
+        - `onClick` now takes in a `MouseButtonEvent` instead of the XY positions and whether the button was double-clicked
+        - `onRelease` now takes in a `MouseButtonEvent` instead of the XY positions
+        - `onDrag` now takes in a `MouseButtonEvent` instead of the XY positions
+        - `isValidClickButton` now takes in the `MouseButtonInfo` instead of the button `int`
+    - `CommandSuggestions`
+        - `keyPressed` now takes in a `KeyEvent` instead of the key, scancode, modifiers `int`
+        - `mouseClicked` now takes in a `MouseButtonEvent` instead of the button info and XY positions
+        - `$SuggestionsList`
+            - `mouseClicked` no longer takes in the button `int`
+            - `keyPressed` now takes in a `KeyEvent` instead of the key, scancode, modifiers `int`
+    - `MultilineTextField#keyPressed` now takes in a `KeyEvent` instead of the key `int`
+- `net.minecraft.client.gui.components.events.GuiEventListener`
+    - `DOUBLE_CLICK_THRESHOLD_MS` -> `MouseHandler#DOUBLE_CLICK_THRESHOLD_MS`
+    - `mouseClicked` now takes in a `MouseButtonEvent` instead of the button info and XY positions, and whether the button was double-clicked
+    - `mouseReleased` now takes in a `MouseButtonEvent` instead of the button info and XY positions
+    - `mouseDragged` now takes in a `MouseButtonEvent` instead of the button info and XY positions
+    - `keyPressed` now takes in a `KeyEvent` instead of the key, scancode, modifiers `int`
+    - `keyReleased` now takes in a `KeyEvent` instead of the key, scancode, modifiers `int`
+    - `charTyped` now takes in a `CharacterEvent` instead of the codepoint `char` and modifiers `int`
+- `net.minecraft.client.gui.font.TextFieldHelper`
+    - `charTyped` now takes in a `CharacterEvent` instead of the codepoint `char`
+    - `keyPressed` now takes in a `KeyEvent` instead of the key `int`
+- `net.minecraft.client.gui.navigation.CommonInputs` class is removed
+    - `selected` -> `InputWithModifiers#isSelection`
+    - `confirm` -> `InputWithModifiers#isConfirmation`
+- `net.minecraft.client.gui.screens.Screen`
+    - `hasControlDown` -> `Minecraft#hasControlDown`, `InputWithModifiers#hasControlDown`
+    - `hasShiftDown` -> `Minecraft#hasShiftDown`, `InputWithModifiers#hasShiftDown`
+    - `hasAltDown` -> `Minecraft#hasAltDown`, `InputWithModifiers#hasAltDown`
+    - `isCut` -> `InputWithModifiers#isCut`
+    - `isPaste` -> `InputWithModifiers#isPaste`
+    - `isCopy` -> `InputWithModifiers#isCopy`
+    - `isSelectAll` -> `InputWithModifiers#isSelectAll`
+- `net.minecraft.client.gui.screens.inventory.AbstractContainerScreen`
+    - `hasClickedOutside` no longer takes in the button `int`
+    - `checkHotbarKeyPressed` now takes in a `KeyEvent` instead of the key and modifiers `int` 
+- `net.minecraft.client.gui.screens.recipebook`
+    - `hasClickedOutside` no longer takes in the button `int`
+    - `RecipeBookPage#mouseClicked` now takes in a `MouseButtonEvent` instead of the button info and XY positions, and whether the button was double-clicked
+- `net.minecraft.client.input`
+    - `CharacterEvent` - Some kind of input interaction generates a codepoint with the currently active modifiers.
+    - `InputQuirks` - A utility for quirks between operating systems when handling inputs.
+    - `InputWithModifiers` - Defines an input with the currently active modifiers, along with some common input checks.
+    - `KeyEvent` - Some kind of input interaction generates a key by the scancode with the currently active modifiers.
+    - `MouseButtonEvent` - Some kind of input interaction generates a button at the XY position.
+    - `MouseButtonInfo` - Some kind of input interaction generates a button with the currently active modifiers.
+
 ## `Level#isClientSide` now private
 
 The `Level#isClientSide` field is now private, so all queries must be made to the method version:
@@ -1073,116 +1667,6 @@ level.isClientSide();
 ## Minor Migrations
 
 The following is a list of useful or interesting additions, changes, and removals that do not deserve their own section in the primer.
-
-### Atlas Handler Consolidation
-
-The atlas handler has had some of its logic modified to consolidate other sprites and change how to obtain a `TextureAtlasSprite`.
-
-First, map decorations, paintings, and GUI sprites are now proper atlases with their own sheets: `Sheets#MAP_DECORATIONS_SHEET`, `PAINTINGS_SHEET`, and `GUI_SHEET` respectively.
-
-Obtaining the `TextureAtlasSprite` from said sheets are now completely routed through the `MaterialSet`: a functional interface that takes in a `Material` (basically a sheet location and texture location), and returns the associated `TextureAtlasSprite`. The `MaterialSet` handles texture grabs for item models, block entity renderers, and entity renderers:
-
-```java
-// Here is an example material to grab the apple texture from the appropriate sheet
-public static final Material APPLE = new Material(
-    TextureAtlas.LOCATION_BLOCKS, // The sheet where the item textures are stored
-    ResourceLocation.fromNamespaceAndPath("minecraft", "item/apple") // The texture name according to the sprite contents
-);
-// You can also do the same using Sheets.ITEMS_MAPPER.defaultNamespaceApply("apple")
-
-// For some item model
-public class ExampleUnbakedItemModel implements ItemModel.Unbaked {
-    
-    // ...
-
-    @Override
-    public ItemModel bake(ItemModel.BakingContext ctx) {
-        TextureAtlasSprite appleTexture = ctx.materials().get(APPLE);
-        // ...
-    }
-}
-
-// For some special item model
-public class ExampleUnbakedSpecialModel implements SpecialModelRenderer.Unbaked {
-    
-    // ...
-
-    @Override
-    @Nullable
-    public SpecialModelRenderer<?> bake(SpecialModelRenderer.BakingContext ctx) {
-        TextureAtlasSprite appleTexture = ctx.materials().get(APPLE);
-        // ...
-    }
-}
-
-// For some block entity renderer
-public class ExampleBlockEntityRenderer implements BlockEntityRenderer<ExampleBlockEntity> {
-
-    public ExampleBlockEntityRenderer(BlockEntityRendererProvider.Context ctx) {
-        TextureAtlasSprite appleTexture = ctx.materials().get(APPLE);
-        // ...
-    }
-
-    // ...
-}
-
-
-// For some entity renderer
-public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, ExampleEntityState> {
-
-    public ExampleEntityRenderer(EntityRendererProvider.Context ctx) {
-        TextureAtlasSprite appleTexture = ctx.getMaterials().get(APPLE);
-        // ...
-    }
-
-    // ...
-}
-```
-
-- `net.minecraft.client.Minecraft`
-        - `getTextureAtlas` -> `AtlasManager#getAtlasOrThrow`, not one-to-one
-        - `getPaintingTextures`, `getMapDecorationTextures`, `getGuiSprites` -> `getAtlasManager`, not one-to-one
-- `net.minecraft.client.gui.GuiSpriteManager` is removed
-- `net.minecraft.client.particle.ParticleEngine` no longer takes in the `TextureManager`
-    - `close` is removed
-- `net.minecraft.client.renderer`
-    - `MapRenderer` now takes in an `AtlasManager` instead of a `MapDecorationTextureManager`
-    - `Sheets#GUI_SHEET`, `MAP_DECORATIONS_SHEET`, `PAINTINGS_SHEET` - Atlas textures.
-- `net.minecraft.client.renderer.entity`
-    - `EntityRenderDispatcher` now takes in the `AtlasManager`
-    - `EntityRendererProvider$Context` now takes in the `AtlasManager`
-        - `getAtlas` - Returns the atlas for that location.
-- `net.minecraft.client.resources`
-    - `MapDecorationTextureManager` class is removed
-    - `PaintingTextureManager` class is removed
-    - `TextureAtlasHolder` class is removed
-- `net.minecraft.client.resources.model`
-    - `AtlasIds` -> `net.minecraft.data.AtlasIds`
-    - `AtlasSet` -> `AtlasManager`, not one-to-one
-        - `forEach` - Iterates through each of the atlas sheets.
-    - `ModelManager` now takes in a `AtlasManager` instead of the `TextureManager` and the max mipmap levels integer
-        - `getAtlas` -> `MaterialSet#get`
-        - `updateMaxMipLevel` -> `AtlasManager#updateMaxMipLevel`
-
-### Double-Click Expansion
-
-`GuiEventListener#mouseClicked` now takes in whether the click was in fact a double-click as a boolean.
-
-```java
-// For some Screen subclass (or AbstractWidget or any GUI object rendering)
-
-@Override
-public boolean mouseClicked(double x, double y, int button, boolean doubleClick) {
-    // ...
-    return false;
-}
-```
-
-- `net.minecraft.client.gui.components.AbstractWidget#onClick` now takes in whether the button was double-clicked
-- `net.minecraft.client.gui.components.events.GuiEventListener`
-    - `DOUBLE_CLICK_THRESHOLD_MS` -> `MouseHandler#DOUBLE_CLICK_THRESHOLD_MS`
-    - `mouseClicked` now takes in a boolean if the button has been double-clicked
-- `net.minecraft.client.gui.screens.recipebook.RecipeBookPage#mouseClicked` now takes in a boolean if the button has been double-clicked
 
 ### Item Owner
 
@@ -1226,7 +1710,7 @@ Unless a `GameProfile` is needed, Minecraft now passes around a `NameAndId` for 
     - `MinecraftServer`
         - `getProfilePermissions` now takes in a `NameAndId` instead of a `GameProfile`
         - `isSingleplayerOwner` now takes in a `NameAndId` instead of a `GameProfile`
-        - `ANONYMOUS_PLAYER_PROFILE` is now a `NameAndId`, now private
+        - `ANONYMOUS_PLAYER_PROFILE` is now a `NameAndId`
     - `Services` now takes in a `UserNameToIdResolver` instead of a `GameProfileCache`, and a `ProfileResolver`
 - `net.minecraft.server.players`
     - `GameProfileCache` -> `UserNameToIdResolver`, `CachedUserNameToIdResolver`; not one-to-one
@@ -1400,21 +1884,23 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `SharedConstants`
         - `RESOURCE_PACK_FORMAT_MINOR`, `DATA_PACK_FORMAT_MINOR` - The minor component of the pack version.
         - `DEBUG_SHUFFLE_MODELS` - A flag that likely shuffles the model loading order.
+- `net.minecraft.advancements.critereon.MinMaxBounds`
+    - `bounds` - Returns the bounds of the value.
+    - `$FloatDegrees` - A bounds for a float representing the degree of some angle.
 - `net.minecraft.client`
-    - `KeyMapping`
-        - `shouldSetOnIngameFocus` - Returns whether the key is mapped to some value on the keyboard.
-        - `restoreToggleStatesOnScreenClosed` - Restores the toggled keys to its state during in-game actions.
     - `Minecraft`
         - `isOfflineDevelopedMode` - Returns whether the game is in offline developer mode.
         - `canSwitchGameMode` - Whether the player entity exists and has a game mode.
         - `playerSkinRenderCache` - Returns the cache holding the player's render texture.
         - `canInterruptScreen` - Whether the current screen can be closed by another screen.
+        - `packetProcessor` - Returns the processor that schedules and handles packets.
     - `Options`
         - `invertMouseX` - When true, inverts the X mouse movement.
         - `toggleAttack` - When true, sets the attack key to be toggleable.
         - `toggleUse` - When true, sets the use key to be toggleable.
         - `sprintWindow` - Time window in ticks where double-tapping the forward key activates sprint.
         - `saveChatDrafts` - Returns whether the message being typed in chat should be retained if the box is closed.
+        - `keySpectatorHotbar` - A key that pulls up the spectator hotbar menu.
     - `ToggleKeyMapping#shouldRestoreStateOnScreenClosed` - Whether the previous toggle state should be restored after screen close.
 - `net.minecraft.client.animation.definitions.CopperGolemAnimation` - The animations for the copper golem.
 - `net.minecraft.client.data.models.BlockModelGenerators`
@@ -1473,7 +1959,6 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `setMaxWidth` - Sets the max width of the string and how to handle the extra width.
         - `$TextOverflow` - What to do if the text is longer than the max width.
 - `net.minecraft.client.gui.components.events.GuiEventListener#shouldTakeFocusAfterInteraction` - When true, sets the element as focused when clicked.
-- `net.minecraft.client.gui.navigation.CommonInputs#confirm` - Returns whether the keycode is the enter button on the main keyboard or numpad.
 - `net.minecraft.client.gui.screens`
     - `ChatScreen`
         - `isDraft` - Whether there is a message that hasn't been sent in the box.
@@ -1485,6 +1970,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `LevelLoadingScreen`
         - `update` - Updates the current load tracker and reason.
         - `$Reason` - The reason for changing the level loading screen.
+    - `Overlay#tick` - Ticks the overlay.
     - `Screen`
         - `panoramaShouldSpin` - Returns whether the rendered panorama should spin its camera.
         - `setNarrationSuppressTime` - Sets until when the narration should be suppressed for.
@@ -1522,21 +2008,26 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `EndFlashState` - The render state of the end flashes.
     - `SkyRenderer#renderEndFlash` - Renders the end flashes.
 - `net.minecraft.client.resources.WaypointStyle#ICON_LOCATION_PREFIX` - The prefix for waypoint icons.
-- `net.minecraft.client.resources.sounds.DirectionalSoundInstance` - A sound that changes position based on the direction of the camera.
+- `net.minecraft.client.resources.sounds`
+    - `DirectionalSoundInstance` - A sound that changes position based on the direction of the camera.
+    - `SoundEngineExecutor#startUp` - Creates the thread to run the engine on.
 - `net.minecraft.client.server.IntegratedServer#MAX_PLAYERS` - The maximum number of players allowed in an locally hosted server.
 - `net.minecraft.core`
     - `BlockPos#betweenCornersInDirection` - An iterable that iterates through the provided bounds in the direction provided by the vector.
     - `Direction#axisStepOrder` - Returns a list of directions that the given vector should be checked in.
 - `net.minecraft.core.particles.ExplosionParticleInfo` - The particle that used as part of an explosion.
+- `net.minecraft.data.loot.BlockLootSubProvider#createCopperGolemStatueBlock` - The loot table for a copper golem statue.
 - `net.minecraft.data.loot.packs`
     - `VanillaBlockInteractLoot` - A sub provider for vanilla block loot from entity interaction.
     - `VanillaChargedCreeperExplosionLoot` - A sub provider for vanilla entity loot from charged creeper explosions.
     - `VanillaEntityInteractLoot` - A sub provider for vanilla entity loot from entity interaction.
 - `net.minecraft.data.recipes.RecipeProvider#shelf` - Constructs a shelf recipe from one item.
+- `net.minecraft.data.worldgen.BiomeDefaultFeatures#addNearWaterVegetation` - Adds the vegetation when near a body of water.
 - `net.minecraft.gametest.framework.GameTestHelper#getTestDirection` - Gets the direction that the test is facing.
 - `net.minecraft.network`
     - `FriendlyByteBuf#readLpVec3`, `writeLpVec3` - Handles syncing a compressed `Vec3`.
     - `LpVec3` - A vec3 network handler that compresses and decompresses a vector into at most two bytes and two integers.
+    - `PacketProcessor` - A processor for packets to be scheduled and handled.
 - `net.minecraft.network.chat.CommonComponents#GUI_COPY_TO_CLIPBOARD` - The message to display when copying a chat to the clipboard.
 - `net.minecraft.network.protocol.configuration`
     - `ClientboundCodeOfConductPacket` - A packet the sends the code of conduct of a server to the joining client.
@@ -1546,11 +2037,13 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.network.syncher.EntityDataSerializers`
     - `WEATHERING_COPPER_STATE` - The weather state of the copper on the golem.
     - `COPPER_GOLEM_STATE` - The logic state of the copper golem.
+    - `MANNEQUIN_PROFILE` - The player profile of the mannequin.
 - `net.minecraft.server.MinecraftServer`
     - `selectLevelLoadFocusPos` - Returns the loading center position of the server, usually the shared spawn position.
     - `getLevelLoadListener` - Returns the listener used to track level loading.
     - `getCodeOfConducts` - Returns a map of file names to their code of conduct text.
     - `enforceGameTypeForPlayers` - Sets the game type of all players.
+    - `packetProcessor` - Returns the packet processor for the server.
 - `net.minecraft.server.commands.FetchProfileCommand` - Fetches the profile of a given user.
 - `net.minecraft.server.dedicated.DedicatedServerProperties#codeOfConduct` - Whether the server has a code of conduct.
 - `net.minecraft.server.level`
@@ -1586,17 +2079,21 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `WeightedList#streamCodec` - Constructs a stream codec for the weighted list.
 - `net.minecraft.util.thread.BlockableEventLoop#shouldRunAllTasks` - Returns if there are any blocked tasks.
 - `net.minecraft.world.entity`
+    - `Avatar` - An entity that makes up the base of a player.
     - `EntityReference`
         - `getEntity` - Returns the entity given the type class and the level.
         - Static `getEntity`, `getLivingEntity`, `getPlayer` - Returns the entity given its `EntityReference` and level.
     - `EntityType`
+        - `MANNEQUIN` - The mannequin entity type.
         - `STREAM_CODEC` - The stream codec for an entity type.
         - `$Builder#notInPeaceful` - Sets the entity to not spawn in peaceful mode.
     - `Entity`
         - `canInteractWithLevel` - Whether the entity can interact with the current level.
         - `isInShallowWater` - Returns whether the player is in water but not underwater.
     - `InsideBlockEffectType#CLEAR_FREEZE` - A in-block effect that clears the frozen ticks.
-    - `LivingEntity#dropFromEntityInteractLootTable` - Drops loot from a table from an entity interaction.
+    - `LivingEntity`
+        - `dropFromEntityInteractLootTable` - Drops loot from a table from an entity interaction.
+        - `shouldTakeDrowningDamage` - Whether the entity should take damage from drowning.
     - `PositionMoveRotation#withRotation` - Creates a new object with the provided XY rotation.
     - `Relative`
         - `rotation` - Gets the set of relative rotations from the XY booleans.
@@ -1613,9 +2110,19 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `CopperGolemOxidationLevel` - A record holding the source events and textures for a given oxidation level.
     - `CopperGolemOxidationLevels` - All vanilla oxidation levels.
     - `CopperGolemState` - The current logic state the copper golem is in.
-- `net.minecraft.world.entity.player.Player#isMobilityRestricted` - Returns whether the player has the blindness effect.
+- `net.minecraft.world.entity.decoration`
+    - `HangingEntity#canCoexist` - Whether any other hanging entities are in the same position as this one. By default, makes sure that the entities are not the same entity type and not facing the same direction.
+    - `Mannequin` - An avatar that does not have a connected player.
+    - `MannequinProfile` - A non-connected game profile with its desired textures.
+- `net.minecraft.world.entity.player`
+    - `Player`
+        - `isMobilityRestricted` - Returns whether the player has the blindness effect.
+        - `handleShoulderEntities` - Handles the entities on the player's shoulders.
+        - `extractParrotVariant`, `convertParrotVariant`, `*ShoulderParrot*` - Handles the parrot on the player's shoulders.
+    - `PlayerModelPart#CODEC` - The codec for the model part.
 - `net.minecraft.world.entity.vehicle.MinecartFurnace#addFuel` - Adds fuel to the furnace to push the entity.
 - `net.minecraft.world.item`
+    - `BucketItem#getContent` - Returns the fluid held in the bucket.
     - `Item$TooltipContext#isPeaceful` - Returns true if the difficulty is set to peaceful.
     - `ToolMaterial#COPPER` - The copper tool material.
     - `WeatheringCopperItems` - A record of items that represent each of the weathering copper states.
@@ -1631,6 +2138,9 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `Level`
         - `getEntityInAnyDimension` - Gets the entity by UUID.
         - `getPlayerInAnyDimension` - Gets the player by UUID.
+        - `hasEntities` - Returns whether the provided bounds has entities matching the type and predicate.
+        - `palettedContainerFactory` - Returns the factory used to create paletted containers.
+- `net.minecraft.world.level.border.WorldBorder$Settings#toWorldBorder` - Constructs a world border from the settings.
 - `net.minecraft.world.level.block`
     - `Block#dropFromBlockInteractLootTable` - Drops the loot when interacting with a block.
     - `ChestBlock`
@@ -1657,11 +2167,17 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `WeatheringLanternBlock` - The block for weathering lanterns.
     - `WeatheringLightningRodBlock` - The block for the weathering lightning rod.
 - `net.minecraft.world.level.block.entity`
+    - `BaseContainerBlockEntity#isLocked` - Returns whether the block entity has a lock.
     - `CopperGolemStatueBlockEntity` - The block entity for the copper golem statue.
     - `ListBackedContainer` - A container that is baked by a list of items.
     - `ShelfBlockEntity` - The block entity for the shelf.
 - `net.minecraft.world.level.block.state.BlockBehaviour#shouldChangedStateKeepBlockEntity`, `$BlockStateBase#shouldChangedStateKeepBlockEntity` - Returns whether the block entity should be kept if the block is changed to a different block.
 - `net.minecraft.world.level.block.state.properties.SideChainPart` - The location of where the chain of an object is connected to.
+- `net.minecraft.world.level.chunk`
+    - `Configuration` - Configures what type of pallete should be created. 
+    - `PalettedContainerFactory` - A factory for constructing paletted containers using the provided strategies.
+    - `PalettedContainerRO#bitsPerEntry` - Returns the number of bits needed to represent an entry.
+    - `PaletteResize#noResizeExpected` - Returns a resizer that throws an exception.
 - `net.minecraft.world.level.levelgen`
     - `Beardifier#EMPTY` - An instance with no pieces or junctions.
     - `DensityFunction#invert` - Inverts the density output by putting the result one over the value.
@@ -1682,7 +2198,9 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `ENTITY_INTERACT` - An entity being interacted with.
         - `BLOCK_INTERACT` - A block being interacted with.
 - `net.minecraft.world.phys.Vec3#X_AXIS`, `Y_AXIS`, `Z_AXIS` - The unit vector in the positive direction of each axis.
-- `net.minecraft.world.phys.shapes.CollisionContext#alwaysCollideWithFluid` - Whether the collision detector should always collide with a fluid in its path.
+- `net.minecraft.world.phys.shapes.CollisionContext`
+    - `alwaysCollideWithFluid` - Whether the collision detector should always collide with a fluid in its path.
+    - `emptyWithFluidCollisions` - Returns an empty collision context while checking for any fluid collisions. 
 - `net.minecraft.world.waypoints.PartialTickSupplier` - Gets the partial tick given the provided entity.
 
 ### List of Changes
@@ -1692,7 +2210,13 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `DirectStateAccess#bufferSubData`, `mapBufferRange`, `unmapBuffer`, `flushMappedBufferRange` now take in the buffer usage bit mask
     - `GlStateManager#_texImage2D`, `_texSubImage2D` now takes in a `ByteBuffer` instead of an `IntBuffer`
     - `VertexArrayCache#bindVertexArray` can now take in a nullable `GlBuffer`
-- `com.mojang.blaze3d.systems.CommandEncoder#writeToTexture` now takes in a `ByteBuffer` instead of an `IntBuffer`
+- `com.mojang.blaze3d.platform`
+    - `ClipboardManager#getClipboard`, `setClipboard` now take in a `Window` instead of the `long` handle
+    - `MacosUtil#exitNativeFullscreen`, `clearResizableBit`, `getNsWindow` now take in a `Window` instead of the `long` handle
+    - `Window#getWindow` -> `handle`
+- `com.mojang.blaze3d.systems`
+    - `CommandEncoder#writeToTexture` now takes in a `ByteBuffer` instead of an `IntBuffer`
+    - `RenderSystem#flipFrame` now takes in a `Window` instead of the `long` handle
 - `com.mojang.blaze3d.vertex`
     - `PoseStack$Pose#set` is now public
     - `VertexConsumer#addVertexWith2DPose` no longer takes in the z component
@@ -1703,6 +2227,13 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `WorldVersion`
         - `packVersion` now returns a `PackFormat`
         - `$Simple` now takes in a `PackFormat` for the `resourcePackVersion` and `datapackVersion`
+- `net.minecraft.advancements.critereon`
+    - `MinMaxBounds` now requires its generic to be `Comparable`
+        - `min`, `max` are now default
+        - `unwrapPoint` -> `$Bounds#asPoint`
+        - `fromReader` is now public
+        - `$Doubles`, `$Ints` now take in `$Bounds` for its values
+    - `WrappedMinMaxBounds` -> `MinMaxBounds$Bounds`, not one-to-one
 - `net.minecraft.client`
     - `Minecraft`
         - `setLevel` no longer takes in the `ReceivingLevelScreen$Reason`
@@ -1712,13 +2243,8 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `forceSetScreen` -> `setScreenAndShow`
         - `getMinecraftSessionService` -> `services`, now returning a `Service` instance
             - The `MinecraftSessionService` can be obtained via `Service#sessionService`
-    - `KeyMapping`
-        - `key` is now protected
-        - `release` is now protected
     - `Options#invertYMouse` -> `invertMouseY`
-    - `ToggleKeyMapping` now has an overload that takes in an input type
     - `User` no longer takes in the user type
-- `net.minecraft.client.animation.Keyframe` now has an overload that takes in the `preTarget` and `postTarget` instead of one simple `target`
 - `net.minecraft.client.data.models.BlockModelGenerators`
     - `condition` now has an overload that takes in an enum or boolean property
     - `createLightningRod` now takes in the regular and waxed blocks
@@ -1732,7 +2258,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `removeEntryFromTop` no longer returns anything
         - `updateSizeAndPosition` can now take in an X component
         - `renderItem` now takes in the entry instead of five integers
-        - `renderSelection` now takes in an `AbstractSelectionList$Entry` instead of four integers
+        - `renderSelection` now takes in the entry instead of four integers
         - `removeEntry` no longer returns anything
         - `$Entry` now implements `LayoutElement`
         - `render`, `renderBack` -> `renderContent`
@@ -1749,6 +2275,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `$CenteredIcon` now takes in a `WidgetSprites` instead of a `ResourceLocation`, and toolip `Component`
         - `$TextAndIcon` now takes in a `WidgetSprites` instead of a `ResourceLocation`, and toolip `Component`
     - `WidgetSprites` now has an overload with a single `ResourceLocation`
+- `net.minecraft.client.gui.components.spectator.SpectatorGui#onMouseMiddleClick` -> `onHotbarActionKeyPressed`
 - `net.minecraft.client.gui.render.state`
     - `GuiElementRenderState#buildVertices` no longer takes in the `z` component
     - `GuiRenderState#forEachElement` now takes in a `Consumer<GuiElementRenderState>` instead of a `GuiRenderState$LayeredElementConsumer`
@@ -1756,6 +2283,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.client.gui.screens`
     - `ChatScreen` now takes in a boolean representing whether the message is a draft
         - `initial` is now protected
+    - `EditServerScreen` -> `ManageServerScreen`
     - `InBedChatScreen` now takes in the initial text and whether there is a draft mesage in the box
     - `LevelLoadingScreen` now takes in a `LevelLoadTracker` and `LevelLoadingScreen$Reason`
     - `PauseScreen#disconnectFromWorld` -> `Minecraft#disconnectFromWorld`
@@ -1763,6 +2291,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `Screen`
         - `renderWithTooltip` -> `renderWithTooltipAndSubtitles`
         - `$NarratableSearchResult` is now a record
+        - `isValidCharacterForName` now takes in a codepoint `int` instead of a `char`
 - `net.minecraft.client.gui.screens.achievement.StatsScreen`
     - `initLists`, `initButtons` merged into `onStatsUpdated`
     - `$ItemRow#getItem` is now protected
@@ -1796,8 +2325,14 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.client.server.IntegratedServer` now takes in a `LevelLoadListener` instead of a `ChunkProgressListenerFactory`
 - `net.minecraft.client.sounds`
     - `SoundEngine#updateCategoryVolume` no longer takes in the gain
+    - `SoundEngineExecutor#flush` -> `shutDown`, not one-to-one
     - `SoundManager#updateSourceVolume` no longer takes in the gain
+- `net.minecraft.commands.arguments.selector.EntitySelectorParser`
+    - `getDistance`, `getLevel` can now be `null`
+    - `*Rot*` methods now return or use `MinMaxBounds$FloatDegrees`
+        - Return values can be `null`
 - `net.minecraft.core.Registry#getRandomElementOf` -> `HolderGetter#getRandomElementOf`
+- `net.minecraft.data.worldgen.TerrainProvider` methods now use a `BoundedFloatFunction` generic instead of `ToFloatFunction`
 - `net.minecraft.gametest.framework`
     - `GameTestHelper`
         - `spawn` now has overloads that take in some number of entities to spawn
@@ -1807,6 +2342,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `$Builder#haltOnError` no longer takes in any parameters
 - `net.minecraft.nbt.NbtUtils#addDataVersion`, `addCurrentDataVersion` now has an overload that takes in a `Dynamic` instead of a `CompoundTag` or `ValueOutput`
 - `net.minecraft.network.VarInt#MAX_VARINT_SIZE` is now public
+- `net.minecraft.network.protocol.PacketUtils#ensureRunningOnSameThread` now takes in a `PacketProcessor` instead of a `BlockableEventLoop`
 - `net.minecraft.network.protocol.game`
     - `ClientboundAddEntityPacket#getXa`, `getYa`, `getZa` -> `getMovement`
     - `ClientboundExplodePacket` now takes in a radius, block count, and the block particles to display
@@ -1826,7 +2362,10 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `ServerEntityGetter#getNearestEntity` now has an overload that takes in a `TagKey` of entities instead of a class
     - `ServerLevel` no longer takes in the `ChunkProgressListener`
         - `waitForChunkAndEntities` -> `waitForEntities`, not one-to-one
+        - `tickCustomSpawners` no longer takes in the tick friendlies `boplean`
     - `ServerPlayerGameMode#setGameModeForPlayer` now takes in a `TriState` of how to update the flying of the player when switching to creative mode.
+- `net.minecraft.server.level.chunk`
+    - `ChunkAccess` now takes in a `PalettedContainerFactory` instead of a `Registry<Biome>`
 - `net.minecraft.server.level.progress`
     - `ChunkProgressListener` -> `LevelLoadListener`, not one-to-one
     - `ChunkProgressListenerFactory` -> `MinecraftServer#createChunkLoadStatusView`, not one-to-one
@@ -1845,9 +2384,14 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.server.packs.repository`
     - `Pack#readPackMetadata` now takes in a `PackFormat` and `PackType` instead of an integer
     - `PackCompatibility#forVersion` now takes in `PackFormat`s instead of integers
-- `net.minecraft.util.ExtraCodecs`
-    - `GAME_PROFILE_WITHOUT_PROPERTIES` -> `AUTHLIB_GAME_PROFILE`, now a `Codec` and public
-    - `GAME_PROFILE` -> `STORED_GAME_PROFILE`
+- `net.minecraft.util`
+    - `CubicSpline` methods and inner classes now use `BoundedFloatFunction` instead of `ToFloatFunction`
+    - `ExtraCodecs`
+        - `GAME_PROFILE_WITHOUT_PROPERTIES` -> `AUTHLIB_GAME_PROFILE`, now a `Codec` and public
+        - `GAME_PROFILE` -> `STORED_GAME_PROFILE`
+    - `StringUtil#isAllowedChatCharacter` now takes in an `int` codepoint instead of a `char`
+    - `ToFloatFunction` -> `BoundedFloatFunction`
+        - This still exists as a standard interface to convert some object to a `float`
 - `net.minecraft.world.entity`
     - `AgeableMob#finalizeSpawn` is now nullable
     - `Entity`
@@ -1869,6 +2413,15 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `Mob#shouldDespawnInPeaceful` -> `EntityType#isAllowedInPeaceful`, not one-to-one
 - `net.minecraft.world.entity.animal.Animal#usePlayerItem` -> `Mob#usePlayerItem`
 - `net.minecraft.world.entity.animal.armadillo.Armadillo#brushOffScute` now takes in an `Entity` and `ItemStack`
+- `net.minecraft.world.entity.player`
+    - `Player` now extends `Avatar` instead of `LivingEntity`
+        - `DATA_SHOULDER_*` -> `DATA_SHOULDER_PARROT_*`, now private
+        - `oBob`, `bob` -> `ClientAvatarState#bob0`, `bob`
+        - `*Cloak*` -> `ClientAvatarState#*Cloak*`
+        - `setEntityOnShoulder` -> `ServerPlayer#setEntityOnShoulder`
+        - `*ShoulderEntity*` -> `ServerPlayer#*ShoulderEntity*`
+        - `setMainArm` -> `Avatar#setMainArm`
+    - `PlayerModelPart` now implements `StringRepresentable`
 - `net.minecraft.world.entity.projectile.Projectile`
     - `deflect` now takes in an `EntityReference` of the owner instead of the `Entity` itself
     - `onDeflection` no longer takes in the direct `Entity`
@@ -1884,11 +2437,29 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.world.level`
     - `BaseCommandBlock` no longer implements `CommandSource`
         - `createCommandSourceStack` now takes in a `CommandSource`
+    - `BaseSpawner#getoSpin` -> `getOSpin`
+    - `CustomSpawner#tick` no longer takes in the tick friendlies `boolean`
     - `GameRules#availableRules` is now public
     - `GameType#updatePlayerAbilities` now takes in a `TriState` to determine whether the player is flying in creative
     - `Level` no longer implements `UUIDLookup`
         - `explode` now takes in a weighter list of explosion particles to display
     - `ServerExplosion#explode` now returns the number of blocks exploded
+- `net.minecraft.world.level.border`
+    - `BorderChangeListener`
+        - `onBorderSizeSet` -> `onSetSize`
+        - `onBorderSizeLerping` -> `onLerpSize`
+        - `onBorderCenterSet` -> `onSetCenter`
+        - `onBorderSetWarningTime` -> `onSetWarningTime`
+        - `onBorderSetWarningBlocks` -> `onSetWarningBlocks`
+        - `onBorderSetDamagePerBlock` -> `onSetDamagePerBlock`
+        - `onBorderSetDamageSafeZone` -> `onSetSafeZone`
+    - `WorldBorder` now extends `SavedData`
+        - `getLerpRemainingTime` -> `getLerpTime`
+        - `*DamageSafeZone` -> `*SafeZone`
+        - `DEFAULT_SETTINGS` -> `$Settings#DEFAULT`
+        - `createSettings` has been replaced with the `$Settings` constructor
+        - `$BorderExtent#getLerpRemainingTime` -> `getLerpTime`
+        - `$Settings` is now a record, meaning all getters now use the record format
 - `net.minecraft.world.level.block`
     - `BeehiveBlock#dropHoneycomb(Level, BlockPos)` -> `dropHoneyComb(ServerLevel, ItemStack, BlockState, BlockEntity, Entity, BlockPos)`
     - `CaveVines#use` entity is no longer nullable
@@ -1906,15 +2477,45 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `getAnalogOutputSignal`, `$BlockStateBase#getAnalogOutputSignal` now takes in the direction the signal is coming from
     - `$Properties#noCollission` -> `noCollision`
 - `net.minecraft.world.level.block.state.properties.BlockStateProperties#CHISELED_BOOKSHELF_SLOT_*_OCCUPIED` -> `SLOT_*_OCCUPIED`
-- `net.minecraft.world.level.chunk.PalettedContainer` constructor is now private
-    - `$Strategy#getConfiguration` now takes in an `int` instead of an `IdMap`, now protected
+- `net.minecraft.world.level.chunk`
+    - `GlobalPalette#create` -> `Configuration#createPalette`
+    - `HashMapPalette` no longer takes in the `IdMap`
+        - `create` no longer takes in the `IdMap` and `PaletteResize`
+    - `LevelChunkSection` now takes in a `PalettedContainerFactory` instead of a `Registry<Biome>`
+    - `LinearPalette` no longer takes in the `IdMap`
+        - `create` no longer takes in the `IdMap` and `PaletteResize`
+    - `Palette`
+        - `idFor`, `read`, `write`, `getSerializedSize` now takes in an `IdMap`
+        - `copy` no longer takes in the `PaletteResize`
+        - `$Factory#create` no longer takes in the `IdMap` and `PaletteResize`
+    - `PalettedContainer` no longer takes in the `IdMap`
+        - `codec*` no longer takes in the `IdMap`
+        - `unpack` is now `public`, visible for testing
+        - `$Configuration` -> `Configuration$Simple`
+        - `$Strategy` -> `Strategy`
+            - `getConfiguration` now takes in an `int` instead of an `IdMap`, now protected
+    - `PalettedContainerRO`
+        - `pack` no longer takes in the `IdMap`
+        - `$PackedData` now takes in the bits per entry `int`
+        - `$Unpacker#read` no longer takes in the `IdMap`
+    - `PaletteResize` is now `public`
+    - `ProtoChunk` now takes in a `PalettedContainerFactory` instead of a `Registry<Biome>`
+    - `SingleValuePalette` no longer takes in the `IdMap` and `PaletteResize`
+        - `create` no longer takes in the `IdMap` and `PaletteResize`
+- `net.minecraft.world.level.chunk.storage.SerializableChunkData#containerFactory` now takes in a `PalettedContainerFactory` instead of a `Registry<Biome>`
+    - `parse` now takes in a `PalettedContainerFactory` instead of a `RegistryAccess`
 - `net.minecraft.world.level.entity.UUIDLookup#getEntity` -> `lookup`
 - `net.minecraft.world.level.levelgen`
     - `Beardifier` now takes in lists instead of iterators and a nullable `BoundingBox`
+    - `DensityFunctions%Coordinate` now implements `BoundedFloatFunction` instead of `ToFloatFunction`
     - `NoiseRouter#initialDensityWithoutJaggedness` -> `preliminarySurfaceLevel`
 - `net.minecraft.world.level.levelgen.structure.pools.JigsawPlacement#addPieces` now takes in a `JigsawStructure$MaxDistance` instead of an integer
 - `net.minecraft.world.level.levelgen.structure.structures.JigsawStructure` now takes in a `JigsawStructure$MaxDistance` instead of an integer
+- `net.minecraft.world.level.storage`
+    - `PrimaryLevelData` now takes in an optional wrapped `WorldBorder$Settings`
+    - `ServerLevelData#*WorldBorder` -> `*LegacyWorldBorderSettings`, now dealing with optional wrapped `WorldBorder$Settings`
 - `net.minecraft.world.phys.shapes.EntityCollisionContext` now takes in a `boolean` instead of a `Predicate<FluidState>`
+    - `EMPTY` -> `$Empty`, not one-to-one
 - `net.minecraft.world.waypoints.TrackedWaypoint`
     - `STREAM_CODEC` is now final
     - `yawAngleToCamera` now takes in a `PartialTickSupplier`
@@ -1937,6 +2538,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `DefaultVertexFormat#BLIT_SCREEN`
     - `VertexConsumer#setWhiteAlpha`
 - `net.minecraft.SharedConstants#VERSION_STRING`
+- `net.miencraft.advancements.critereon.MinMaxBounds$BoundsFactory`, `$BoundsFromReaderFactory`
 - `net.minecraft.client`
     - `Camera#FOG_DISTANCE_SCALE`
     - `Minecraft`
@@ -1968,6 +2570,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.client.renderer.chunk.ChunkSectionLayer#outputTarget`
 - `net.minecraft.client.resources.SkinManager#getInsecureSkin`
 - `net.minecraft.gametest.framework.GameTestTicker#startTicking`
+- `net.minecraft.network.syncher.EntityDataSerializers#COMPOUND_TAG`
 - `net.minecraft.server.MinecraftServer#getSpawnRadius`
 - `net.minecraft.server.dedicated.DedicatedServer#storeUsingWhiteList`
 - `net.minecraft.server.level`
@@ -1976,16 +2579,25 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.server.packs.resources.ResourceMetadata`
     - `copySections`
     - `$Builder`
-- `net.minecraft.world.entity.Entity#spawnAtLocation(ServerLevel, ItemLike, int)`
+- `net.minecraft.world.entity.Entity`
+    - `spawnAtLocation(ServerLevel, ItemLike, int)`
+    - `getServer`
+- `net.minecraft.world.entity.decoration.HangingEntity#HANGING_ENTITY`
 - `net.minecraft.world.entity.item.ItemEntity#copy`
 - `net.minecraft.world.entity.monster`
     - `Creeper#canDropMobsSkull`, `increaseDroppedSkulls`
     - `Zombie#getSkull`
+- `net.minecraft.world.entity.player.Player`
+    - `getScoreboard`
+    - `isModelPartShown`
 - `net.minecraft.world.entity.vehicle.MinecartTNT#explode(double)`
 - `net.minecraft.world.item.Item#verifyComponentsAfterLoad`
 - `net.minecraft.world.level`
     - `BlockGetter#MAX_BLOCK_ITERATIONS_ALONG_TRAVEL`
     - `GameRules#RULE_SPAWN_CHUNK_RADIUS`
+- `net.minecraft.world.level.border`
+    - `BorderChangeListener$DelegateBorderChangeListener`
+    - `WorldBorder$Settings#read`, `write`
 - `net.minecraft.world.level.block.FletchingTableBlock`
 - `net.minecraft.world.level.block.entity.SkullBlockEntity`
     - `CHECKED_MAIN_THREAD_EXECUTOR`
