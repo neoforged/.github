@@ -5,9 +5,9 @@ The primers in this repository are meant to provide a high level, non-exhaustive
 Primers for versions 1.12-1.17 have their vanilla and Forge changes combined into one. All other primers store vanilla changes in the main section, while mod loader changes are in a subsection with its name.
 
 The primers were written by:
-* [@ChampionAsh5357](https://github.com/ChampionAsh5357)
 * [@williewillus](https://github.com/williewillus) for 1.12-1.15
 * [@50ap5ud5](https://github.com/50ap5ud5) for 1.16-1.17
+* [@ChampionAsh5357](https://github.com/ChampionAsh5357) for all other versions
 
 ## Versions
 
