@@ -10,11 +10,117 @@ If there's any incorrect or missing information, please file an issue on this re
 
 There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.9&tab=changelog).
 
-## Debug Screen Rework
+## The Debugging Overhaul
 
-The debug screen has been completely overhauled, allowing users to enable, disable, or only show in F3 specific components of the screen. This modular system allows for modders to add their own debug entries to the screen. Not all parts of this explanation is accessible without a bit more modding work, so those areas will be specifically pointed out.
+The entirety of the debug system has been completely overhauled, from exposing the internal debugging tools to the debug screen. This documentation aims to provide a high level overview for handling your own debug screen and renderer additions.
 
-### `DebugScreenEntry`
+### Debug Renderers
+
+Vanilla now allows users to see the debug renderers provided by the internal API by enabling them through the JVM properties via `-DMC_DEBUG_ENABLED` with whatever other desired flags. Users can take advantage of these exposed features to handle their own renderers through the vanilla provided pipeline. This overview will explain via patching the existing renderers and subscribers as needed, but these can generally be set up wherever needed. The benefit vanilla provides is its integration into existing objects (e.g. entities, block entities) and the general synchronization across the network. Of course, you can always use a simple `boolean` instead. After all, although the flags in `SharedConstants` are final, they are still checked every tick.
+
+#### Subscribe to Debuggers
+
+In most cases, information that you want to render and debug are stored on the server side. Sometimes, the information in question will be synced on the client, but in most cases it is usually some kind of partial state only necessary for rendering.
+
+```java
+// An example object on the server
+public record ExampleObject(Block held, int count) {}
+
+// An example on the client
+// Count is not used for rendering, only for server logic
+public class ExampleRenderState {
+    Block held;
+}
+```
+
+Therefore, if we want to see the additional data from the server, we need some method to not only synchronize it to the client, but also update it whenever the value changes. To do so, vanilla provides `DebugSubscription`s: a class that stores the information required to sync an object if it has changed. The constructor contains two fields: the `StreamCodec` to sync the object across the network, and an optional `int` that, when greater than zero, will purge the synced value from the client if there were no more updates within the specified time.
+
+To handle the logic associated with synchronization, the server makes use of `TrackingDebugSynchronizer`s to handle player listeners and sync the object when necessary, and `LevelDebugSynchronizers` to handle the general tracking and ticking of the synchronizers. This data is then sent to the `ClientDebugSubscriber` for storage and the `DebugRenderer` for rendering. Note that clients can only see the debug information if they are either the owner of a singleplayer world or is an operator of the server. Additionally, the client can only request subscriptions that are added to the set provided by `ClientDebugSubscriber#requestedSubscriptions`.
+
+`DebugSubscription`s must be registered to `BuiltInRegistries#DEBUG_SUBSCRIPTION`:
+
+```java
+public static final DebugSubscription<ExampleObject> EXAMPLE_OBJECt = Registry.register(
+    BuiltInRegistries.DEBUG_SUBSCRIPTION
+    ResourceLocation.withNamespaceAndPath("examplemod", "example_object"),
+    new DebugSubscription<>(
+        // The stream codec to sync the example object
+        StreamCodec.composite(
+            ByteBufCodecs.registry(Registries.BLOCK), ExampleObject::block,
+            ByteBufCodecs.VAR_INT, ExampleObject::count,
+            ExampleObject::new
+        ),
+        // The maximum number of ticks between updates
+        //   before the data is purged from the client
+        // Set to zero if it should never expire
+        0
+    )
+);
+```
+
+To be able to check for updates properly, the object used must correctly implement `hashCode` and `equals`, not relying on the object identity.
+
+#### Debug Sources
+
+So, how do we tell the synchronizer to track and update our `DebugSubscription`? Well, you can extend `TrackingDebugSynchronizer` or use its subclasses and implement the tracking and syncing logic yourself, either by patching `LevelDebugSynchronizers` or creating your own. However, if the data you would like to track is directly attached to a `LevelChunk`, `Entity`, or `BlockEntity` and can be updated from their associated server object, you can make use of the `DebugValueSource`.
+
+`DebugValueSource` is a way to register `DebugSubscription`s as a `TrackingDebugSynchronizer$SourceSynchronizer`. This will poll and send updates to every player tracking the source with the subscription enabled every tick. Registering a `DebugSubscription` is done via `DebugValueSource#registerDebugValues`, taking in the server level and the `$Registration` interface. The registration is then handled via `$Registration#register` by passing in the subscription and a supplier to construct the subscription value.
+
+```java
+// Assume we have some ExampleObject exampleObject in the below classes
+
+// For some BlockEntity, Entity, or LevelChunk subclass
+@Override
+public void registerDebugValues(ServerLevel level, DebugValueSource.Registration registrar) {
+    super.registerDebugValues(level, registrar);
+    // Register our subscription
+    registrar.register(
+        // The subscription
+        EXAMPLE_OBJECT,
+        // The supplied subscription object
+        () -> this.exampleObject
+    );
+}
+```
+
+#### Rendering the Debug Information
+
+Once the information has been synced to the client and stored within `ClientDebugSubscriber` (assuming you are using the above method), we now need to render that information to the screen. This is typically handled through `DebugRenderer#render`, which checks the enabled debug renderers before running the associated renderer. Technically, it doesn't particularly matter where as the data can be obtained at any point in the render process, but this will assume you are patching `render`, and `clear` if required, to call your own renderer.
+
+`render` provides the current `PoseStack` and `Frustum`, the buffer source, and the camera XYZ. In addition, vanilla constructs a `DebugValueAccess` via `Connection#createDebugValueAccess` to get the synched debug information from the `ClientDebugSubscriber`. You can choose to mix and match these parameters for your own render method, or implement `DebugRenderer$SimpleDebugRenderer` if you don't need the `Frustum`. `DebugRenderer` also provides simple methods to render text or boxes in specific locations using `render*`.
+
+The `DebugValueAccess` contains two types of methods: `get*Value` to obtain the debug object for that specific source (e.g. position, entity); and `forEach*`, which loops through all sources sending out the debug object. Which you use depends on which source you registered your `DebugSubscription` to.
+
+```java
+// We will assume that our example object was registered to an entity
+public class ExampleObjectRenderer implements DebugRenderer.SimpleDebugRenderer {
+
+    @Override
+    public void render(PoseStack poseStack, MultiBufferSource bufferSource, double x, double y, double z, DebugValueAccess access) {
+        // Loop through all blocks with our example object
+        access.forEachEntity(EXAMPLE_OBJECT, (entity, exampleObject) -> {
+            // Render the debug info
+            DebugRenderer.renderTextOverMob(
+                poseStack, bufferSource, entity,
+                // Text Y offset (entities display a lot of information)
+                100,
+                // Text to render
+                "Held Count: " + exampleObject.count(),
+                // Text color
+                0xFFFFFFFF,
+                // The scale of the text
+                1f
+            );
+        });
+    }
+}
+```
+
+## Debug Screens
+
+The debug screens allows for users to to enable, disable, or only show in F3 specific components. This modular system allows for modders to add their own debug entries to the screen. Not all parts of this explanation is accessible without a bit more modding work, so those areas will be specifically pointed out.
+
+#### `DebugScreenEntry`
 
 Every debug option has its own entry that either defines what is being displayed (e.g., fps, memory), or no-ops to be handled by a separate implementation (e.g., entity hitboxes, chunk borders). This is known as a `DebugScreenEntry`, which defines three methods.
 
@@ -83,7 +189,7 @@ DebugScreenEntries.register(
 );
 ```
 
-### External Toggles and Checks
+#### External Toggles and Checks
 
 What if you want to toggle the active status separately from the options menu? What if you want to check is an entry is enabled to display debug data in-game? This can be done by accessing the `DebugScreenEntryList` through the `Minecraft` instance.
 
@@ -108,10 +214,23 @@ if (Minecraft.getInstance().debugEntries.isCurrentlyEnabled(EXAMPLE_TOGGLE)) {
 }
 ```
 
-### Profiles
+#### Profiles
 
 Profiles are defined presets that can be configured to the user's desire. Currently, profiles are hardcoded to either default or performance. To extend the system, you need to be able to dynamically add an entry to the `DebugScreenProfile` enum, make the `DebugScreenEntries#PROFILES` map mutable to add your profile and preset, and modify the debug option screen with your profile button.
 
+- `net.minecraft.SharedConstants`
+    - `DEBUG_SHUFFLE_MODELS` - A flag that likely shuffles the model loading order.
+    - `DEBUG_FLAG_PREFIX` - A prefix put in front of every debug flag.
+    - `USE_DEBUG_FEATURES` -> `DEBUG_ENABLED`
+    - `DEBUG_RENDER` is removed
+    - `DEBUG_WORLDGENATTEMPT` is removed
+    - `debugGenerateStripedTerrainWithoutNoise` is removed
+    - `DEBUG_RESOURCE_GENERATION_OVERRIDE` is removed
+    - `DEBUG_POI` - Enables the POI debug renderer.
+    - `DEBUG_PANORAMA_SCREENSHOT` - When enabled, allows the user to take a panorama screenshot.
+    - `DEBUG_CHASE_COMMAND` - When enabled, adds the chase command.
+    - `FAKE_MS_LATENCY` -> `DEBUG_FAKE_LATENCY_MS`
+    - `FAKE_MS_JITTER` -> `DEBUG_FAKE_JITTER_MS`
 - `net.minecraft.client.Minecraft`
     - `debugEntries` - Returns a list of debug features and what should be shown on screen.
     - `fpsString`, `sectionPath`, `sectionVisibility` are removed
@@ -162,6 +281,101 @@ Profiles are defined presets that can be configured to the user's desire. Curren
 - `net.minecraft.client.renderer.debug.DebugRenderer`
     - `switchRenderChunkborder` -> `DebugScreenEntries#CHUNK_BORDERS`, not one-to-one
     - `toggleRenderOctree` -> `DebugScreenEntries#CHUNK_SECTION_OCTREE`, not one-to-one
+- `net.minecraft.client.multiplayer`
+    - `DebugSampleSubscriber` -> `ClientDebugSubscriber`, not one-to-one
+    - `ClientPacketListener#createDebugValueAccess` - Creates the access to get the current debug values.
+- `net.minecraft.client.renderer.debug`
+    - `BeeDebugRenderer#addOrUpdateHiveInfo`, `addOrUpdateBeeInfo`, `removeBeeInfo` are removed
+    - `BrainDebugRenderer`
+        - `addPoi`, `removePoi`, `$PoiInfo` are removed
+        - `setFreeTicketCount` is removed
+        - `addOrUpdateBrainDump`, `removeBrainDump` are removed
+    - `BreezeDebugRenderer`
+        - `render` now takes in a `DebugValueAccess`
+        - `clear`, `add` are removed
+    - `DebugRenderer`
+        - `worldGenAttemptRenderer` is removed
+        - `poiDebugRenderer` - A debug renderer for displaying the point of interests.
+        - `entityBlockIntersectionRenderer` - A debug renderer for displaying the blocks the entity is intersecting with.
+        - `renderTextOverBlock` - Renders the given stream above the provided block position.
+        - `renderTextOverMob` - Renders the given string over the provided entity.
+        - `$SimpleDebugRenderer#render` now takes in a `DebugValueAccess`
+    - `EntityBlockIntersectionDebugRenderer` - A debug renderer for displaying the blocks the entity is intersecting with.
+    - `GameEventListenerRenderer` no longer takes in the `Minecraft` instance
+        - `trackGameEvent`, `trackListener` are removed
+    - `GameTestDebugRenderer#addMarker` -> `highlightPos`, not one-to-one
+    - `GoalSelectorDebugRenderer#addGoalSelector`, `removeGoalSelector` are removed
+    - `NeighborsUpdateRenderer` no longer takes in the `Minecraft` instance
+        - `addUpdate` is removed
+    - `PathfindingRenderer#addPath` is removed
+    - `PoiDebugRenderer` - A debug renderer for displaying the point of interests.
+    - `RaidDebugRenderer#setRaidCenters` is removed
+    - `RedstoneWireOrientationsRenderer` no longer takes in the `Minecraft` instance
+        - `addWireOrientation` is removed
+    - `StructureRenderer` no longer takes in the `Minecraft` instance
+        - `addBoundingBox` is removed
+    - `VillagerSectionsDebugRenderer#setVillageSection`, `setNotVillageSection` are removed
+    - `WorldGenAttemptRenderer` class is removed
+- `net.minecraft.core.registries.BuiltInRegistries`, `Registries#DEBUG_SUBSCRIPTION` - A registry for subscriptions to debug handlers.
+- `net.minecraft.gametest.framework`
+    - `GameTestAssertPosException#getMessageToShowAtBlock` now returns a `Component`
+    - `GameTestRunner#clearMarkers` is removed
+- `net.minecraft.network.protocol.common.custom`
+    - All classes have been moved to `net.minecraft.util.debug`
+    - They are no longer payloads, instead just records containing the object info and an associated stream codec
+    - If the payload class had an associated object inner class, then that class was moved and the payload class removed
+    - Otherwise the payload class was added without the `*Payload` suffix, most of the time with an `*Info` suffix
+- `net.minecraft.network.protocol.game`
+    - `ClientboundDebugBlockValuePacket` - A packet sent to the client about a debug value change on a block position.
+    - `ClientboundDebugChunkValuePacket` - A packet sent to the client about a debug value change on a chunk position.
+    - `ClientboundDebugEntityValuePacket` - A packet sent to the client about a debug value change on an entity.
+    - `ClientboundDebugEventPacket` - A packet sent to the client about the debug event fired.
+    - `ClientboundGameTestHighlightPosPacket` - A packet sent to the client about the game test position to highlight.
+    - `ClientGamePacketListener`
+        - `handleDebugChunkValue` - Handles the debug chunk position packet.
+        - `handleDebugBlockValue` - Handles the debug block position packet.
+        - `handleDebugEntityValue` - Handles the debug entity packet.
+        - `handleDebugEvent` - Handles the firing debug event.
+        - `handleGameTestHighlightPos` - Handles the provided position being highlighted.
+    - `DebugPackets` class is removed
+    - `ServerboundDebugSampleSubscriptionPacket` -> `ServerboundDebugSubscriptionRequestPacket`, not one-to-one
+    - `ServerGamePacketListener#handleDebugSampleSubscription` -> `handleDebugSubscriptionRequest`, not one-to-one
+- `net.minecraft.server.MinecraftServer`
+    - `subscribeToDebugSample` is removed
+    - `debugSubscribers` - Returns a map of the tracked subscriptions to the list of players that have it enabled.
+- `net.minecraft.server.level`
+    - `ChunkMap`
+        - `isChunkTracked` is now public
+        - `getChunks` is removed
+    - `ServerLevel#debugSynchronizers` - Returns the debugger handler and synchronizer for the level.
+    - `ServerPlayer`
+        - `requestDebugSubscriptions` - Sets the debuggers that the player is listening for.
+        - `debugSubscriptions` - Returns the debuggers that the player is listening for.
+- `net.minecraft.util.debug`
+    - `DebugSubscription` - A tracked data point that can be listened or subscribed to.
+    - `DebugSubscriptions` - Vanilla debug subscriptions.
+    - `DebugValueAccess` - Accesses the values tracked by the debug subscription, used on the client for the debug renderers.
+    - `DebugValueSource` - Defines a source object that provides debug values to track, such as an entity.
+    - `LevelDebugSynchronizers` - Handles sending the subscription data across the network to the tracking clients.
+    - `ServerDebugSubscribers` - Handles the global state of players subscribed to the currently enabled subscriptions.
+    - `TrackingDebugSynchronizer` - Handles the list of players subscribed to a subscription.
+- `net.minecraft.util.debugchart`
+    - `DebugSampleSubscriptionTracker` class is removed
+    - `RemoteDebugSampleType` now takes in a `DebugSubscription`
+        - `subscription` - Returns the subscription reported by the sample type.
+    - `RemoteSampleLogger` now takes in `ServerDebugSubscribers` instead of `DebugSampleSubscriptionTracker`
+- `net.minecraft.world.entity`
+    - `Entity` now implements `DebugValueSource`
+    - `Mob#sendDebugPackets` is removed
+- `net.minecraft.world.entity.ai.village.poi`
+    - `PoiManager#getFreeTickets` -> `getDebugPoiInfo`, not one-to-one
+    - `PoiSection#getDebugPoiInfo` - Returns the debug poi info for the given position.
+- `net.minecraft.world.level.block.entity`
+    - `BlockEntity` now implements `DebugValueSource`
+    - `TestInstanceBlockEntity#markError`, `clearErrorMarkers`, `getErrorMarkers`, `$ErrorMarker` - Handles the error markers set by the test instance.
+- `net.minecraft.world.level.chunk.LevelChunk` now implements `DebugValueSource`
+- `net.minecraft.world.level.pathfinder.PathFinder#setCaptureDebug` - Sets whether the path should be captured for debugging.
+- `net.minecraft.world.level.redstone.CollectingNeighborUpdater#setDebugListener` - Sets the listener for block location changes for debugging.
 
 ## Feature Submissions: The Movie
 
@@ -188,7 +402,7 @@ Method                 | Parameters
 `submitBlockModel`     | A pose stack, the render type, block state model, RGB floats, light coordinates, overlay coordinates, and outline color
 `submitItem`           | A pose stack, item display context, light coordinates, overlay coordinates, outline color, tint layers, quads, render type, and foil type
 `submitCustomGeometry` | A pose stack, render type, and a function that takes in the current pose and `VertexConsumer` to create the mesh
-`submitParticleGroup`  | A `$ParticleGroupRenderer`
+`submitParticleGroup`  | A `SubmitNodeCollector$ParticleGroupRenderer`
 
 Technically, the `submit*` methods are provided by the `OrderedSubmitNodeCollector`, of which the `SubmitNodeCollector` extends. This is because features can be submitted to different orders, which function similarly to strata in GUIs. By default, all submit calls are pushed onto order 0. Using `SubmitNodeCollector#order` with some integer and then calling the `submit*` method, you can have an object render before or after all features on a given order. This is stored as an AVL tree, where each order's data is stored in a `SubmitNodeCollection`. With the current default feature rendering order, this is only used in very specific circumstances, such as rendering a slime's outer body or equipment layers.
 
@@ -205,9 +419,9 @@ collector.order(-1).submitShadow(...);
 collector.order(1).submitNameTag(...);
 ```
 
-The render phase is handled through the `FeatureRenderDispatcher`, which renders the object using their submitted feature renderers. What are feature renderers? Quite literally an arbitrary method that loops through the node contents its going to push to the buffer. Currently, for a given order, the features push their vertices like so: shadows, models, model parts, flame animations, entity name tags, arbitrary text, hitboxes, leashes, items, blocks, and finally custom render pipelines. Each order, starting from the smallest number to the largest, will rerun all of the feature renders until it reaches the end of the tree. All submissions are then cleared for next use.
+The render phase is handled through the `FeatureRenderDispatcher`, which renders the object using their submitted feature renderers. What are feature renderers? Quite literally an arbitrary method that loops through the node contents its going to push to the buffer. Currently, for a given order, the features push their vertices like so: shadows, models, model parts, flame animations, entity name tags, arbitrary text, hitboxes, leashes, items, blocks, custom render pipelines, and finally particles. Each order, starting from the smallest number to the largest, will rerun all of the feature renders until it reaches the end of the tree. All submissions are then cleared for next use.
 
-Most of the feature dispatchers are simply run a loop except for `ModelFeatureRenderer`, which sorts its translucent models by distance from the camera and adds them to the buffer after all opaque models.
+Most of the feature dispatchers are simply run a loop over its collection. Those that store the render type batch the render calls into one buffer. `ModelFeatureRenderer`, meanwhile, goes one step further, sorting its translucent models by distance from the camera and sends them to the buffer after all opaque models.
 
 ### Entity Models
 
@@ -464,7 +678,11 @@ As for the actual submission and rendering process, this is handled outside of `
 
 Many particles in the old system were simply made up of a single quad with a texture(s) slapped on it. These particles are `SingleQuadParticle`s, which merges both the previous `SingleQuadParticle` and `TextureSheetParticle` into one. The `SingleQuadParticle` now takes in an initial `TextureAtlasSprite` to set the first texture, which can then be updated by overriding `Particle#tick` and calling `SingleQuadParticle#setSpriteFromAge` for a `SpriteSet` or directly with `setSprite`. The tint can also be modified in the tick using `setColor` and `setAlpha`. Some also set these directly in `SingleQuadParticle#extract`, but which to use depends on if you need to override the entire tick or not.
 
-To determine the `RenderType` that is used to render the quad, `SingleQuadParticle#getLayer` must be set to the desired `$Layer`. This replaces `Particle#getRenderType`. `$Layer#TERRAIN` with use the block atlas with a translucent particle while `OPAQUE` and `TRANSLUCENT` wil the use the associated particle type with the particle atlas.
+To determine the `RenderType` that is used to render the quad, `SingleQuadParticle#getLayer` must be set to the desired `$Layer`. A `$Layer` is basically a record defining whether the quad can have translucency, what texture atlas it pulls from, and the render pipeline to use. Vanilla provides `TERRAIN`, `OPAQUE`, and `TRANSLUCENT` similar to the old `Particle#getRenderType` which it replaces. `TERRAIN` and `TRANSLUCENT` both allow transparency, and `OPAQUE` and `TRANSLUCENT` pull from the particle atlas while `TERRAIN` uses the block atlas. A custom `$Layer` can be created using the constructor.
+
+```java
+public static final SingleQuadParticle.Layer EXAMPLE_LAYER = new SingleQuadParticle.Layer(true, TextureAtlas.LOCATION_PARTICLES, RenderPipelines.WEATHER_DEPTH_WRITE);
+```
 
 In addition to all this, you can also set how the particle is rotated by overriding `SingleQuadParticle#getFacingCameraMode`. `$FacingCameraMode` is a functional interface that sets the rotation of the particle whenever it is extracted. By default, this means that the texture will always face the camera. Any other method changes and additions are in the list below.
 
@@ -493,9 +711,7 @@ public class ExampleQuadParticle extends SingleQuadParticle {
 
     @Override
     public SingleQuadParticle.Layer getLayer() {
-        // We are using a sprite set from a particle description with translucent textures
-        // This will be set to translucent
-        return SingleQuadParticle.Layer.TRANSLUCENT;
+        return EXAMPLE_LAYER;
     }
 
     // Create the provider
@@ -526,7 +742,7 @@ What about rendering some more complex or custom? Well, in those instances, we n
 
 So, what is a `ParticleGroup`? Well, as the name implies, a particle group holds a group of particles and is responsible for keeping track of, ticking, and extracting the render state of its particles. The generic represents the type of `Particle` it can keep track of up to the maximum of 16,384 per group (though individual particles can set their own subgroup limit via `Particle#getParticleLimit`). All `SingleQuadParticle`s are part of the `QuadParticleGroup`. To extract the render state, the `ParticleEngine` calls `ParticleGroup#extractRenderState`, which takes in the current frustum, camera, and partial tick to return a `ParticleGroupRenderState`.
 
-`ParticleGroupRenderState` is sort of a mix between a render state, submission handler, and cache. It contains two methods: `submit`, which takes in the `SubmitNodeCollector` and submits the group; and `clear`, which clears all previous particle states. Only `QuadParticleRenderState` makes use of the cache as the render states are currently cleared immediately after rendering.
+`ParticleGroupRenderState` is sort of a mix between a render state, submission handler, and cache. It contains two methods: `submit`, which takes in the `SubmitNodeCollector` and submits the group; and `clear`, which clears all previous cached particle states. Technically, anything can be submitted using the collector, but particles have `SubmitNodeCollector$ParticleGroupRenderer`: an additional utility to help with caching and rendering. The group renderer contains two methods: `prepare`, to write the mesh data to a ring buffer; and `render`, which typically uses the cached buffer to write the data to the shared sequential buffer using the provided `RenderPass` and draw it to the screen.  Only `QuadParticleRenderState` makes use of the cache and `ParticleGroupRenderer` as the render states are currently cleared immediately after rendering.
 
 To link the `ParticleGroup` to a `Particle` for use, we must set the `ParticleRenderType` using `Particle#getGroup`. `ParticleRenderType`, unlike the previous version, is simply a key for a `ParticleGroup`. This key is mapped to the group via `ParticleEngine#createParticleGroup`, and the submission/render order is determined by `ParticleEngine#RENDER_ORDER`. Both the method and the list must be patched for the particle to be properly managed by your group and extracted for submission.
 
@@ -733,12 +949,15 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
     - `GuiGraphics`
         - `renderOutline` -> `submitOutline`
         - `renderDeferredTooltip` -> `renderDeferredElements`, not one-to-one
+        - `submitBannerPatternRenderState` now takes in a `BannerFlagModel` instead of a `ModelPart`
     `GuiSpriteManager` class is removed
 - `net.minecraft.client.gui.render.GuiRenderer` now takes in the `SubmitNodeCollector` and `FeatureRenderDispatcher`
     - `MIN_GUI_Z` is now public
 - `net.minecraft.client.gui.render.pip`
     - `GuiBannerResultRenderer` now takes in a `MaterialSet`
     - `GuiSignRenderer` now takes in a `MaterialSet`
+- `net.minecraft.client.gui.render.state.TiledBlitRenderState` - A render state for building a sprite using tiling, usually for tile or nine slice textures.
+- `net.minecraft.client.gui.render.state.pip.GuiBannerResultRenderState` now takes in a `BannerFlagModel` instead of a `ModelPart`
 - `net.minecraft.client.model`
     - `AbstractPiglinModel#createArmorMeshSet` - Creates the model meshes for each of the humanoid armor slots.
     - `ArmedModel` now has a generic of the `EntityRenderState`
@@ -915,7 +1134,11 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
     - `RenderPipelines`
         - `GUI_TEXT` - The pipeline for text in a gui.
         - `GUI_TEXT_INTENSITY` - The pipeline for text intensity when not colored in a gui.
-    - `RenderType#pipeline` - The `RenderPipeline` the type uses.
+    - `RenderStateShard#TRANSLUCENT_TARGET`, `PARTICLES_TARGET` are removed
+    - `RenderType`
+        - `pipeline` - The `RenderPipeline` the type uses.
+        - `opaqueParticle`, `translucentParticle` are removed
+        - `sunriseSunset`, `celestial` are removed
     - `ScreenEffectRenderer` now takes in a `MaterialSet`
         - `renderScreenEffect` now takes in a `SubmitNodeCollector`
     - `ShapeRenderer`
@@ -926,6 +1149,11 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
         - `BLOCK_ENTITIES_MAPPER` - A mapper for block textures onto block entities.
         - `*COPPER*` - Materials for copper chests.
         - `chooseMaterial` now takes in a `ChestRenderState$ChestMaterialType` instead of a `BlockEntity` and `boolean`
+    - `SkyRenderer`
+        - `END_SKY_LOCATION` is now private
+        - `renderSunMoonAndStars` no longer takes in the buffer source
+        - `renderEndFlash` no longer takes in the buffer source
+        - `renderSunriseAndSunset` no longer takes in the buffer source
     - `SpecialBlockModelRenderer`
         - `vanilla` now takes in a `SpecialModelRenderer$BakingContext` instead of an `EntityModelSet`
         - `renderByBlock` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource`
@@ -946,7 +1174,8 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
         - `renderSign` -> `submitSign`, now takes in a `Model$Simple` and no longer takes in a tint color
     - `BannerRenderer` has an overload that takes in a `SpecialModelRenderer$BakingContext`
         - The `EntityModelSet` constructor now takes in the `MaterialSet`
-        - `renderPatterns` -> `submitPatterns` now takes in the `MaterialSet` and `ModelFeatureRenderer$CrumblingOverlay`
+        - `renderPatterns` -> `submitPatterns` now takes in the `MaterialSet` and `ModelFeatureRenderer$CrumblingOverlay`, and `ModelPart` has been replaced with the `Model` and its render state
+            - The overload with two additional `boolean`s has been removed
     - `BeaconRenderer#renderBeaconBeam` -> `submitBeaconBeam`, no longer takes in the game time `long`
     - `BedRenderer` has an overload that takes in a `SpecialModelRenderer$BakingContext`
         - The `EntityModelSet` constructor now takes in the `MaterialSet`
@@ -973,6 +1202,7 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
         - `createSignModel` now returns a `Model$Simple`
         - `renderInHand` now takes in a `MaterialSet`
     - `SkullBlockRenderer#submitSkull` - Submits the skull model to the collector.
+    - `TestInstanceREnderer` now takes in the `BlockEntityRendererProvider$Context`
 - `net.minecraft.client.renderer.blockentity.state`
     - `BannerRenderState` - The render state for the banner block entity.
     - `BeaconRenderState` - The render state for the beacon block entity.
@@ -1132,7 +1362,9 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
 - `net.minecraft.client.resources`
     - `MapDecorationTextureManager` class is removed
     - `PaintingTextureManager` class is removed
-    - `PlayerSkin$Model` -> `PlayerModelType`
+    - `PlayerSkin$Model` -> `PlayerModelType`, not one-to-one
+        - The constructor not takes in the legacy service name
+        - `byName` -> `byLegacyServicesName`
     - `SkinManager` now takes in `Services` instead of a `MinecraftSessionService`, and a `SkinTextureDownloader`
         - `lookupInsecure` -> `createLookup`, now taking in a boolean of whether to check for insecure skins
         - `getOrLoad` -> `get`
@@ -1360,7 +1592,7 @@ public record WeatherDto(String weather, int duration) {
             Codec.STRING.fieldOf("weather").forGetter(WeatherDto::weather),
             Codec.INT.fieldOf("duration").forGetter(WeatherDto::duration),
         )
-        .apply(instance, WeatherDtoe::new)
+        .apply(instance, WeatherDto::new)
     );
 
     // Create the incoming method handler
@@ -1447,6 +1679,7 @@ managementServer.forEachConnection(connection -> connection.sendNotification(SOM
         - `setPvpAllowed` replaced by `GameRules#RULE_PVP`
         - `setFlightAllowed` replaced by `DedicatedServerProperties#allowFlight`
         - `isCommandBlockEnabled` is no longer abstract
+        - `isSpawnerBlockEnabled` - Returns whether spawner blocks can spawn entities.
         - `getPlayerIdleTimeout` -> `playerIdleTimeout`
         - `kickUnlistedPlayers` no longer takes in the `CommandSourceStack`
         - `pauseWhileEmptySeconds` -> `pauseWhenEmptySeconds`
@@ -1475,11 +1708,16 @@ managementServer.forEachConnection(connection -> connection.sendNotification(SOM
         - `allowFlight`, `motd`, `forceGameMode`, `enforceWhitelist`, `difficulty`, `gameMode`, `spawnProtection`, `opPermissionLevel`,  `viewDistance`, `simulationDistance`, `enableStatus`, `hideOnlinePlayers`, `entityBroadcastRangePercentage`, `pauseWhenEmptySeconds`, `acceptsTransfers` are now mutable properties
         - `allowNether` replaced by `GameRules#RULE_ALLOW_NETHER`
         - `spawnMonsters` replaced by `GameRules#RULE_SPAWN_MONSTERS`
-        - `enabledCommandBlock` replaced by `GameRules#ENABLE_COMMAND_BLOCKS`
+        - `enabledCommandBlock` replaced by `GameRules#RULE_COMMAND_BLOCKS_ENABLED`
         - `managementServerEnabled` - Returns whether a management server is enabled.
         - `managementServerHost` - Returns the host the management server is communicating on.
         - `managementServerPort` - Returns the port the management server is communicating on.
         - `statusHeartbeatInterval` - Returns the heartbeat interval the management server sends to make sure the minecraft server is still alive.
+        - `MANAGEMENT_SERVER_TLS_ENABLED_KEY`, `MANAGEMENT_SERVER_TLS_KEYSTORE_KEY`, `MANAGEMENT_SERVER_TLS_KEYSTORE_PASSWORD_KEY` - TLS keystore setup for communication with the management server.
+        - `managementServerSecret` - The authorization token secret.
+        - `managementServerTlsEnabled` - If TLS should be used as the communication protocol.
+        - `managementServerTlsKeystore` - Specifies the filepath used for the TLS keystore.
+        - `managementServerTlsKeystorePassword` - Specifies the password for the keystore file.
     - `Settings#getMutable` - Gets a mutable property for the settings key and default.
 - `net.minecraft.server.jsonrpc`
     - `Connection` - The inbound handler for json elements sent by the management server.
@@ -1504,14 +1742,24 @@ managementServer.forEachConnection(connection -> connection.sendNotification(SOM
     - `TypeRefSchema` - Defines the json schema for an item either referencing another or some type.
 - `net.minecraft.server.jsonrpc.dataprovider.JsonRpcApiSchema` - A data provider that generates the json schema from the discovery service.
 - `net.minecraft.server.jsonrpc.internalapi`
+    - `GameRules` - An api that gets the current game rule value.
     - `MinecraftAllowListService` - A minecraft middle layer that handles communication from the management server about the allow list.
+    - `MinecraftAllowListServiceImpl` - The allow list implementation.
     - `MinecraftApi` - A minecraft api that handles all the services that communicate with the management server.
     - `MinecraftBanListService` - A minecraft middle layer that handles communication from the management server about the ban list.
+    - `MinecraftBanListServiceImpl` - The ban list implementation.
+    - `MinecraftExecutorService` - A minecraft middle layer that submits an arbitrary runnable or supplier to execute on the server.
+    - `MinecraftExecutorServiceImpl` - The executor implementation.
     - `MinecraftGameRuleService` - A minecraft middle layer that handles communication from the management server about the game rules.
+    - `MinecraftExecutorServiceImpl` - The executor implementation.
     - `MinecraftOperatorListService` - A minecraft middle layer that handles communication from the management server about the operator commands.
+    - `MinecraftOperatorListServiceImpl` - The operator list implementation.
     - `MinecraftPlayerListService` - A minecraft middle layer that handles communication from the management server about the player list.
+    - `MinecraftPlayerListServiceImpl` - The player list implementation.
     - `MinecraftServerSettingsService` - A minecraft middle layer that handles communication from the management server about the server settings.
+    - `MinecraftServerSettingsServiceImpl` - The server settings implementation.
     - `MinecraftServerStateService` - A minecraft middle layer that handles communication from the management server about the current server state and send messages.
+    - `MinecraftServerStateServiceImpl` - The server state implementation.
 - `net.minecraft.server.jsonrpc.methods`
     - `AllowlistService` - A service that handles communication from the management server about the allow list.
     - `BanlistService` - A service that handles communication from the management server about the player ban list.
@@ -1519,14 +1767,20 @@ managementServer.forEachConnection(connection -> connection.sendNotification(SOM
     - `DiscoveryService` - A service that displays the schemas of all services supported by the management server.
     - `EncodeJsonRpcException` - An exception thrown when attempting to encode the json packet.
     - `GameRulesService` - A service that handles communication from the management server about the game rules.
-    - `InvalidParameterJsonRpcException` - An exception thrown when the parameters to the method are invalid
+    - `InvalidParameterJsonRpcException` - An exception thrown when the parameters to the method are invalid.
+    - `InvalidRequestJsonRpcException` - An exception thrown when the request is invalid.
     - `IpBanlistService` - A service that handles communication from the management server about the ip ban list.
     - `Message` - A data transfer object representing a literal or translatable component.
+    - `MethodNotFoundJsonRpcException` - An exception thrown when a 404 error occurs, indicating that the method doesn't exist.
     - `OperatorService` - A service that handles communication from the management server about the operator commands.
     - `PlayerService` - A service that handles communication from the management server about the player list.
     - `RemoteRpcErrorException` - An exception thrown when something goes wrong on the management server.
     - `ServerSettingsService` - A service that handles communication from the management server about the server settings.
     - `ServerStateService` - A service that handles communication from the management server about the current server state and send messages.
+- `net.minecraft.server.jsonrpc.security`
+    - `AuthenticationHandler` - Handles the validation of the authentication token bearer in the request.
+    - `JsonRpcSslContextProvider` - Provides the keystore context for the TLS communication.
+    - `SecurityConfig` - Handles the secret key, from checking basic validaty to generating a new one.
 - `net.minecraft.server.jsonrpc.websocket`
     - `JsonToWebSocketEncoder` - A message to message encoder for a json.
     - `WebSocketToJsonCodec` - A message to message decoder for a json.
@@ -1535,7 +1789,9 @@ managementServer.forEachConnection(connection -> connection.sendNotification(SOM
     - `NotificationManager` - A manager for handling multiple notification services.
     - `NotificationService` - A service that defines prospective actions taken by a listener, like a management server.
 - `net.minecraft.server.players`
-    - `BanListEntry#getReason` can now be `null`
+    - `BanListEntry`
+        - `getReason` can now be `null`
+        - `getReasonMessage` - Returns the translatable component of the ban reason.
     - `IpBanList` now takes in the `NotificationService`
         - `add`, `remove` - Handles entries on the list.
     - `PlayerList` now takes in the `NotificationService` instead of the max players
@@ -1563,7 +1819,11 @@ There are two types of events: `KeyEvent`s for key presses, and `MouseButtonEven
 
 ### Key Mapping Categories
 
-Key mappings have changed slightly, no longer taking in a raw string for its category, and instead using a value from the `KeyMapping$Category` enum. This means that it will be a little bit harder to add custom categories, as you will need to modify or extend the enum at runtime, or directly patch into the `KeyBindsList` constructor for a custom id as the category description string is only used for adding the entry to the selection list.
+Key mappings have changed slightly, no longer taking in a raw string for its category, and instead using a `KeyMapping$Category` record, which is essentially a namspaced string. Categories can be created using `KeyMapping$Category#register`; otherwise, an error will be through whenever the mapping is used as part of a comparator. 
+
+```java
+public static final KeyMapping.Category EXAMPLE = KeyMapping.Category.register(ResourceLocation.withNamespaceAndPath("examplemod", "example"));
+```
 
 ### Double-Click Expansion
 
@@ -1594,14 +1854,15 @@ public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         - `key` is now protected
         - `release` is now protected
         - `CATEGORY_*` -> `$Category#*`
-            - Strings can be obtained via `$Category#descriptionId`
+            - Key can be obtained via `$Category#id`
+            - Component is available through `$Category#label`
         - `getCategory` now returns a `$Category` instead of a `String`
         - `matches` now takes in a `KeyEvent` instead of the key and scancode `int`s
         - `matchesMouse` now takes in a `MouseButtonEvent` instead of the button `int`
     - `Minecraft#ON_OSX` -> `InputQuirks#ON_OSX`
     - `MouseHandler#setup` now takes in a `Window` instead of the `long` handle
     - `ToggleKeyMapping` now has an overload that takes in an input type
-        - The constructor now takes in a `KeyMapping$Category` instead of a `String`
+        - The constructor now takes in a `KeyMapping$Category` instead of a `String`, and a `boolean` that represents if the previous state of the key binding should be restored
 - `net.minecraft.client.gui.components`
     - `AbstractButton#onPress` now takes in an `InputWithModifiers`
     - `AbstractScrollArea#updateScrolling` now takes in a `MouseButtonEvent` instead of the button info and XY positions
@@ -1642,6 +1903,7 @@ public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
 - `net.minecraft.client.gui.screens.inventory.AbstractContainerScreen`
     - `hasClickedOutside` no longer takes in the button `int`
     - `checkHotbarKeyPressed` now takes in a `KeyEvent` instead of the key and modifiers `int` 
+- `net.minecraft.client.gui.screens.options.controls.KeyBindsList$CategoryEntry` now takes in a `KeyMapping$Category` instead of the `Component`
 - `net.minecraft.client.gui.screens.recipebook`
     - `hasClickedOutside` no longer takes in the button `int`
     - `RecipeBookPage#mouseClicked` now takes in a `MouseButtonEvent` instead of the button info and XY positions, and whether the button was double-clicked
@@ -1880,10 +2142,8 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 
 ### List of Additions
 
-- `net.minecraft`
-    - `SharedConstants`
-        - `RESOURCE_PACK_FORMAT_MINOR`, `DATA_PACK_FORMAT_MINOR` - The minor component of the pack version.
-        - `DEBUG_SHUFFLE_MODELS` - A flag that likely shuffles the model loading order.
+- `com.mojang.blaze3d.opengl.GlStateManager#incrementTrackedBuffers` - Increments the number of buffers used by the game.
+- `net.minecraft.SharedConstants#RESOURCE_PACK_FORMAT_MINOR`, `DATA_PACK_FORMAT_MINOR` - The minor component of the pack version.
 - `net.minecraft.advancements.critereon.MinMaxBounds`
     - `bounds` - Returns the bounds of the value.
     - `$FloatDegrees` - A bounds for a float representing the degree of some angle.
@@ -2008,10 +2268,11 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `EndFlashState` - The render state of the end flashes.
     - `SkyRenderer#renderEndFlash` - Renders the end flashes.
 - `net.minecraft.client.resources.WaypointStyle#ICON_LOCATION_PREFIX` - The prefix for waypoint icons.
-- `net.minecraft.client.resources.sounds`
+- `net.minecraft.client.server.IntegratedServer#MAX_PLAYERS` - The maximum number of players allowed in an locally hosted server.
+- `net.minecraft.client.sounds`
     - `DirectionalSoundInstance` - A sound that changes position based on the direction of the camera.
     - `SoundEngineExecutor#startUp` - Creates the thread to run the engine on.
-- `net.minecraft.client.server.IntegratedServer#MAX_PLAYERS` - The maximum number of players allowed in an locally hosted server.
+    - `SoundPreviewHandler` - A utility for previewing how some event would sound like with the given settings.
 - `net.minecraft.core`
     - `BlockPos#betweenCornersInDirection` - An iterable that iterates through the provided bounds in the direction provided by the vector.
     - `Direction#axisStepOrder` - Returns a list of directions that the given vector should be checked in.
@@ -2048,10 +2309,15 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.server.dedicated.DedicatedServerProperties#codeOfConduct` - Whether the server has a code of conduct.
 - `net.minecraft.server.level`
     - `ChunkLoadCounter` - Keeps track of chunk loading when a level is loading or the player spawns.
-    - `ChunkMap#getLatestStatus` - Returns the latest status for the given chunk position.
+    - `ChunkMap`
+        - `getLatestStatus` - Returns the latest status for the given chunk position.
+        - `isTrackedByAnyPlayer` - Checks whether the entity is tracked by any player.
+        - `forEachEntityTrackedBy` - Loops through each entity tracked by the given player.
+        - `forEachReadyToSendChunk` - Loops through each chunk that is ready to be sent to the client.
     - `ServerChunkCache`
         - `hasActiveTickets` - Checks whether the current level has any active tickets keeping it loaded.
         - `addTicketAndLoadWithRadius` - Adds a ticket to some location and loads the chunk and radius around that location.
+    - `ServerEntity$Synchronizer` - Handles sending packets to tracking entities.
     - `ServerPlayer$SavedPosition` - Holds the current position of the player on disk.
 - `net.minecraft.server.level.progress.ChunkLoadStatusView` - A status view for the loading chunks.
 - `net.minecraft.server.network.ConfigurationTask#tick` - Calls the task every tick until it returns true, then finishes the task.
@@ -2090,15 +2356,19 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `Entity`
         - `canInteractWithLevel` - Whether the entity can interact with the current level.
         - `isInShallowWater` - Returns whether the player is in water but not underwater.
+        - `getAvailableSpaceBelow` - Returns the amount of space in the Y direction between the entity and the collider, offset by the given value.
+        - `collectAllColliders` - Returns all entity collisions.
     - `InsideBlockEffectType#CLEAR_FREEZE` - A in-block effect that clears the frozen ticks.
     - `LivingEntity`
         - `dropFromEntityInteractLootTable` - Drops loot from a table from an entity interaction.
         - `shouldTakeDrowningDamage` - Whether the entity should take damage from drowning.
+    - `Mob#WEARING_ARMOR_UPGRADE_MATERIAL_CHANCE`, `WEARING_ARMOR_UPGRADE_MATERIAL_ATTEMPTS` - Constants for the armor material upgrade.
     - `PositionMoveRotation#withRotation` - Creates a new object with the provided XY rotation.
     - `Relative`
         - `rotation` - Gets the set of relative rotations from the XY booleans.
         - `position` - Gets the set of relative positions from the XYZ booleans.
         - `direction` - Gets the set of relative deltas from the XYZ booleans.
+- `net.minecraft.world.entity.ai.Brain#isBrainDead` - Returns whether the brain does not have any memories, snesors, or behaviors.
 - `net.minecraft.world.entity.ai.behavior.TransportItemsBetweenContainers` - A behavior where an entity will move items between visited containers.
 - `net.minecraft.world.entity.ai.memory.MemoryModuleType`
     - `VISITED_BLOCK_POSITIONS` - Important block positions visited.
@@ -2120,6 +2390,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `handleShoulderEntities` - Handles the entities on the player's shoulders.
         - `extractParrotVariant`, `convertParrotVariant`, `*ShoulderParrot*` - Handles the parrot on the player's shoulders.
     - `PlayerModelPart#CODEC` - The codec for the model part.
+- `net.minecraft.world.entity.raid.Raids#getRaidCentersInChunk` - Returns the number of raid centers in the given chunk.
 - `net.minecraft.world.entity.vehicle.MinecartFurnace#addFuel` - Adds fuel to the furnace to push the entity.
 - `net.minecraft.world.item`
     - `BucketItem#getContent` - Returns the fluid held in the bucket.
@@ -2135,6 +2406,8 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `$Partial` - Represents part of the game profile depending on whatever information is provided to the component.
 - `net.minecraft.world.level`
     - `BaseCommandBlock$CloseableCommandBlockSource` - A command source typically for a command block.
+    - `ChunkPos#contains` - Whether the given block position is in the chunk.
+    - `GameRules#RULE_SPAWNER_BLOCKS_ENABLED` - Whether spawner blocks should spawn entities.
     - `Level`
         - `getEntityInAnyDimension` - Gets the entity by UUID.
         - `getPlayerInAnyDimension` - Gets the player by UUID.
@@ -2171,6 +2444,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `CopperGolemStatueBlockEntity` - The block entity for the copper golem statue.
     - `ListBackedContainer` - A container that is baked by a list of items.
     - `ShelfBlockEntity` - The block entity for the shelf.
+- `net.minecraft.world.level.block.entity.vault.VaultConfig#playerDetector` - Returns the detector used to detect specific entities.
 - `net.minecraft.world.level.block.state.BlockBehaviour#shouldChangedStateKeepBlockEntity`, `$BlockStateBase#shouldChangedStateKeepBlockEntity` - Returns whether the block entity should be kept if the block is changed to a different block.
 - `net.minecraft.world.level.block.state.properties.SideChainPart` - The location of where the chain of an object is connected to.
 - `net.minecraft.world.level.chunk`
@@ -2185,8 +2459,11 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `NoiseChunk#maxPreliminarySurfaceLevel` - Returns the largest preliminary surface level.
     - `NoiseRouterData#NOISE_ZERO` - A constant containing the base noise level for layer zero in the overworld.
 - `net.minecraft.world.level.levelgen.blending.Blender#isEmpty` - Returns whether there is no blending data present.
-- `net.minecraft.world.level.levelgen.structure.BoundingBox#encapsulating` - Returns the smallest box that includes the given boxes.
+- `net.minecraft.world.level.levelgen.structure.BoundingBox`
+    - `encapsulating` - Returns the smallest box that includes the given boxes.
+    - `STREAM_CODEC` - The stream codec for the bounding box.
 - `net.minecraft.world.level.levelgen.structure.structures.JigsawStructure$MaxDistance` - The maximum horizontal and vertical distance the jigsaw can expand to.
+- `net.minecraft.world.level.pathfinder.Path#STREAM_CODEC` - The stream codec of the path.
 - `net.minecraft.world.level.storage.loot.LootContext$EntityTarget`
     - `TARGET_ENTITY` - The entity being targeted by another, typically the object dropping the loot.
     - `INTERACTING_ENTITY` - The entity interacting with the object dropping the loot.
@@ -2217,6 +2494,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `com.mojang.blaze3d.systems`
     - `CommandEncoder#writeToTexture` now takes in a `ByteBuffer` instead of an `IntBuffer`
     - `RenderSystem#flipFrame` now takes in a `Window` instead of the `long` handle
+    - `TimerQuery#getInstance` now returns the raw instance rather than an optional-wrapped instance
 - `com.mojang.blaze3d.vertex`
     - `PoseStack$Pose#set` is now public
     - `VertexConsumer#addVertexWith2DPose` no longer takes in the z component
@@ -2320,7 +2598,11 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `CLOSE_DELAY_MS` -> `LEVEL_LOAD_CLOSE_DELAY_MS`, now public
     - `TransferState` now takes in a map of seen players and whether the insecure chat warning has been shown
 - `net.minecraft.client.multiplayer.chat.ChatListener#clearQueue` -> `flushQueue`
-- `net.minecraft.client.renderer.DimensionSpecialEffects#forceBrightLightmap` -> `hasEndFlashes`, not one-to-one
+- `net.minecraft.client.renderer`
+    - `DimensionSpecialEffects#forceBrightLightmap` -> `hasEndFlashes`, not one-to-one
+    - `LevelRenderer`
+        - `prepareCullFrustum` is now private
+        - `renderLevel` now takes in an additional `Matrix4f` for the frustum
 - `net.minecraft.client.resources.WaypointStyle#validate` is now public
 - `net.minecraft.client.server.IntegratedServer` now takes in a `LevelLoadListener` instead of a `ChunkProgressListenerFactory`
 - `net.minecraft.client.sounds`
@@ -2341,7 +2623,9 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `GameTestRunner` now takes in whether the level should be cleared for more space to spawn between batches
         - `$Builder#haltOnError` no longer takes in any parameters
 - `net.minecraft.nbt.NbtUtils#addDataVersion`, `addCurrentDataVersion` now has an overload that takes in a `Dynamic` instead of a `CompoundTag` or `ValueOutput`
-- `net.minecraft.network.VarInt#MAX_VARINT_SIZE` is now public
+- `net.minecraft.network`
+    - `FriendlyByteBuf#readSectionPos`, `writeSectionPos` -> `SectionPos#STREAM_CODEC`
+    - `VarInt#MAX_VARINT_SIZE` is now public
 - `net.minecraft.network.protocol.PacketUtils#ensureRunningOnSameThread` now takes in a `PacketProcessor` instead of a `BlockableEventLoop`
 - `net.minecraft.network.protocol.game`
     - `ClientboundAddEntityPacket#getXa`, `getYa`, `getZa` -> `getMovement`
@@ -2354,16 +2638,20 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `createLevels` no longer takes in a `ChunkProgressListener`
         - `getSessionService`, `getProfileKeySignatureValidator`, `getProfileRepository`, `getProfileCache` -> `services`, not one-to-one
             - `getProfileCache` is now `nameToIdCache`, not one-to-one
+        - `updateMobSpawningFlags` is now public
 - `net.minecraft.server.level`
     - `ChunkMap` no longer takes in the `ChunkProgressListener`
         - `getTickingGenerated` -> `allChunksWithAtLeastStatus`, not one-to-one
+        - `broadcast`, `broadcastAndSend` -> `sendToTrackingPlayers`, `sendToTrackingPlayersFiltered`, `sendToTrackingPlayersAndSelf`; not one-to-one
     - `PlayerRespawnLogic` -> `PlayerSpawnFinder`, not one-to-one
     - `ServerChunkCache` no longer takes in the `ChunkProgressListener`
+        - `broadcastAndSend` -> `sendToTrackingPlayersAndSelf`, not one-to-one
+        - `broadcast` -> `sendToTrackingPlayers`, not one-to-one
+    - `ServerEntity` now takes in a `$Synchronizer` instead of the brodcast method references
     - `ServerEntityGetter#getNearestEntity` now has an overload that takes in a `TagKey` of entities instead of a class
     - `ServerLevel` no longer takes in the `ChunkProgressListener`
         - `waitForChunkAndEntities` -> `waitForEntities`, not one-to-one
         - `tickCustomSpawners` no longer takes in the tick friendlies `boplean`
-    - `ServerPlayerGameMode#setGameModeForPlayer` now takes in a `TriState` of how to update the flying of the player when switching to creative mode.
 - `net.minecraft.server.level.chunk`
     - `ChunkAccess` now takes in a `PalettedContainerFactory` instead of a `Registry<Biome>`
 - `net.minecraft.server.level.progress`
@@ -2389,6 +2677,8 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `ExtraCodecs`
         - `GAME_PROFILE_WITHOUT_PROPERTIES` -> `AUTHLIB_GAME_PROFILE`, now a `Codec` and public
         - `GAME_PROFILE` -> `STORED_GAME_PROFILE`
+    - `StringRepresentable#createNameLookup` now can take in an arbitrary object and return a string
+        - The base overload that takes in the object array uses `getSerializedName`
     - `StringUtil#isAllowedChatCharacter` now takes in an `int` codepoint instead of a `char`
     - `ToFloatFunction` -> `BoundedFloatFunction`
         - This still exists as a standard interface to convert some object to a `float`
@@ -2411,6 +2701,9 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `dropFromLootTable` now has overloads to take in a specific loot table key and how the items should be dispensed
         - `getSlotForHand` -> `InteractionHand#asEquipmentSlot`
     - `Mob#shouldDespawnInPeaceful` -> `EntityType#isAllowedInPeaceful`, not one-to-one
+- `net.minecraft.world.entity.ai.village.poi`
+    - `PoiManager#add` now returns a `PoiRecord`
+    - `PoiSection#add` now returns a `PoiRecord`
 - `net.minecraft.world.entity.animal.Animal#usePlayerItem` -> `Mob#usePlayerItem`
 - `net.minecraft.world.entity.animal.armadillo.Armadillo#brushOffScute` now takes in an `Entity` and `ItemStack`
 - `net.minecraft.world.entity.player`
@@ -2439,10 +2732,13 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `createCommandSourceStack` now takes in a `CommandSource`
     - `BaseSpawner#getoSpin` -> `getOSpin`
     - `CustomSpawner#tick` no longer takes in the tick friendlies `boolean`
-    - `GameRules#availableRules` is now public
-    - `GameType#updatePlayerAbilities` now takes in a `TriState` to determine whether the player is flying in creative
+    - `GameRules`
+        - `availableRules` is now public
+        - `$BooleanValue#create` is now public
+        - `$IntegerValue#create` is now public
     - `Level` no longer implements `UUIDLookup`
         - `explode` now takes in a weighter list of explosion particles to display
+        - `neighborUpdater` is now a `CollectingNeighborUpdater`
     - `ServerExplosion#explode` now returns the number of blocks exploded
 - `net.minecraft.world.level.border`
     - `BorderChangeListener`
@@ -2505,12 +2801,16 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.world.level.chunk.storage.SerializableChunkData#containerFactory` now takes in a `PalettedContainerFactory` instead of a `Registry<Biome>`
     - `parse` now takes in a `PalettedContainerFactory` instead of a `RegistryAccess`
 - `net.minecraft.world.level.entity.UUIDLookup#getEntity` -> `lookup`
+- `net.minecraft.world.level.gameevent`
+    - `BlockPositionSource` is now a record
+    - `EntityPositionSource#getUuid` is now public
 - `net.minecraft.world.level.levelgen`
     - `Beardifier` now takes in lists instead of iterators and a nullable `BoundingBox`
     - `DensityFunctions%Coordinate` now implements `BoundedFloatFunction` instead of `ToFloatFunction`
     - `NoiseRouter#initialDensityWithoutJaggedness` -> `preliminarySurfaceLevel`
 - `net.minecraft.world.level.levelgen.structure.pools.JigsawPlacement#addPieces` now takes in a `JigsawStructure$MaxDistance` instead of an integer
 - `net.minecraft.world.level.levelgen.structure.structures.JigsawStructure` now takes in a `JigsawStructure$MaxDistance` instead of an integer
+- `net.minecraft.world.level.pathfinder.Path` is now final
 - `net.minecraft.world.level.storage`
     - `PrimaryLevelData` now takes in an optional wrapped `WorldBorder$Settings`
     - `ServerLevelData#*WorldBorder` -> `*LegacyWorldBorderSettings`, now dealing with optional wrapped `WorldBorder$Settings`
@@ -2537,7 +2837,9 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `com.mojang.blaze3d.vertex`
     - `DefaultVertexFormat#BLIT_SCREEN`
     - `VertexConsumer#setWhiteAlpha`
-- `net.minecraft.SharedConstants#VERSION_STRING`
+- `net.minecraft`
+    - `SharedConstants#VERSION_STRING`
+    - `Util#getVmArguments`
 - `net.miencraft.advancements.critereon.MinMaxBounds$BoundsFactory`, `$BoundsFromReaderFactory`
 - `net.minecraft.client`
     - `Camera#FOG_DISTANCE_SCALE`
