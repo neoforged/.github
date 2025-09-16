@@ -85,9 +85,9 @@ public void registerDebugValues(ServerLevel level, DebugValueSource.Registration
 
 #### Rendering the Debug Information
 
-Once the information has been synced to the client and stored within `ClientDebugSubscriber` (assuming you are using the above method), we now need to render that information to the screen. This is typically handled through `DebugRenderer#render`, which checks the enabled debug renderers before running the associated renderer. Technically, it doesn't particularly matter where as the data can be obtained at any point in the render process, but this will assume you are patching `render`, and `clear` if required, to call your own renderer.
+Once the information has been synced to the client and stored within `ClientDebugSubscriber` (assuming you are using the above method), we now need to render that information to the screen. This is typically handled through `DebugRenderer#render`, which checks the enabled debug renderers via `refreshRendererList` before running the associated renderers. Technically, it doesn't particularly matter where as the data can be obtained at any point in the render process, but this will assume you are patching `refreshRendererList` to add your own renderer to either the opaque or translucent renderers.
 
-`render` provides the current `PoseStack` and `Frustum`, the buffer source, and the camera XYZ. In addition, vanilla constructs a `DebugValueAccess` via `Connection#createDebugValueAccess` to get the synched debug information from the `ClientDebugSubscriber`. You can choose to mix and match these parameters for your own render method, or implement `DebugRenderer$SimpleDebugRenderer` if you don't need the `Frustum`. `DebugRenderer` also provides simple methods to render text or boxes in specific locations using `render*`.
+All renderers implement `DebugRenderer$SimpleDebugRenderer` to call `render`, which provides the current `PoseStack`, buffer source, camera XYZ, and `Frustum`. In addition, vanilla passes in a `DebugValueAccess` via `Connection#createDebugValueAccess` to get the synched debug information from the `ClientDebugSubscriber`. `DebugRenderer` provides simple methods to render text or boxes in specific locations using `render*`.
 
 The `DebugValueAccess` contains two types of methods: `get*Value` to obtain the debug object for that specific source (e.g. position, entity); and `forEach*`, which loops through all sources sending out the debug object. Which you use depends on which source you registered your `DebugSubscription` to.
 
@@ -96,7 +96,7 @@ The `DebugValueAccess` contains two types of methods: `get*Value` to obtain the 
 public class ExampleObjectRenderer implements DebugRenderer.SimpleDebugRenderer {
 
     @Override
-    public void render(PoseStack poseStack, MultiBufferSource bufferSource, double x, double y, double z, DebugValueAccess access) {
+    public void render(PoseStack poseStack, MultiBufferSource bufferSource, double x, double y, double z, DebugValueAccess access, Frustum frustum) {
         // Loop through all blocks with our example object
         access.forEachEntity(EXAMPLE_OBJECT, (entity, exampleObject) -> {
             // Render the debug info
@@ -231,9 +231,12 @@ Profiles are defined presets that can be configured to the user's desire. Curren
     - `DEBUG_CHASE_COMMAND` - When enabled, adds the chase command.
     - `FAKE_MS_LATENCY` -> `DEBUG_FAKE_LATENCY_MS`
     - `FAKE_MS_JITTER` -> `DEBUG_FAKE_JITTER_MS`
+    - `DEBUG_VERBOSE_COMMAND_ERRORS` - When enabled, outputs verbose errors through the chat box.
+    - `DEBUG_DEV_COMMANDS` - When enabled, adds the commands used for debugging the game.
 - `net.minecraft.client.Minecraft`
     - `debugEntries` - Returns a list of debug features and what should be shown on screen.
     - `fpsString`, `sectionPath`, `sectionVisibility` are removed
+    - `debugRenderer` -> `LevelRenderer#debugRenderer`
 - `net.minecraft.client.gui.Gui`
     - `renderDebugOverlay` is now public
     - `shouldRenderDebugCrosshair` is removed
@@ -278,6 +281,7 @@ Profiles are defined presets that can be configured to the user's desire. Curren
 - `net.minecraft.client.renderer.LevelRenderer`
     - `getSectionStatistics` is now nullable
     - `getEntityStatistics` is now nullable
+    - `gameTestBlockHighlightRenderer` - The renderer for the block highlight within a game test.
 - `net.minecraft.client.renderer.debug.DebugRenderer`
     - `switchRenderChunkborder` -> `DebugScreenEntries#CHUNK_BORDERS`, not one-to-one
     - `toggleRenderOctree` -> `DebugScreenEntries#CHUNK_SECTION_OCTREE`, not one-to-one
@@ -290,23 +294,28 @@ Profiles are defined presets that can be configured to the user's desire. Curren
         - `addPoi`, `removePoi`, `$PoiInfo` are removed
         - `setFreeTicketCount` is removed
         - `addOrUpdateBrainDump`, `removeBrainDump` are removed
-    - `BreezeDebugRenderer`
+    - `BreezeDebugRenderer` now implements `DebugRenderer$SimpleDebugRenderer`
         - `render` now takes in a `DebugValueAccess`
         - `clear`, `add` are removed
-    - `DebugRenderer`
+    - `DebugRenderer` no longer takes in the `Minecraft` instance
+        - All field renderers have been removed from public access, instead being store in on of the `*Renderers` lists
         - `worldGenAttemptRenderer` is removed
-        - `poiDebugRenderer` - A debug renderer for displaying the point of interests.
-        - `entityBlockIntersectionRenderer` - A debug renderer for displaying the blocks the entity is intersecting with.
         - `renderTextOverBlock` - Renders the given stream above the provided block position.
         - `renderTextOverMob` - Renders the given string over the provided entity.
-        - `$SimpleDebugRenderer#render` now takes in a `DebugValueAccess`
+        - `refreshRendererList` - Populates the renderer lists with the enabled debug renderers.
+        - `render`, `renderAfterTranslucents` have been merged into `render`, where a `boolean` determines whether to render the translucent or opaque renderers
+        - `$SimpleDebugRenderer`
+            - `render` now takes in a `DebugValueAccess` and `Frustum`
+            - `clear` is removed
     - `EntityBlockIntersectionDebugRenderer` - A debug renderer for displaying the blocks the entity is intersecting with.
     - `GameEventListenerRenderer` no longer takes in the `Minecraft` instance
         - `trackGameEvent`, `trackListener` are removed
-    - `GameTestDebugRenderer#addMarker` -> `highlightPos`, not one-to-one
+    - `GameTestDebugRenderer` -> `GameTestBlockHighlightRenderer`, not one-to-one
+        - `addMarker` -> `highlightPos`, not one-to-one
     - `GoalSelectorDebugRenderer#addGoalSelector`, `removeGoalSelector` are removed
     - `NeighborsUpdateRenderer` no longer takes in the `Minecraft` instance
         - `addUpdate` is removed
+    - `OctreeDebugRenderer` now implements `DebugRenderer$SimpleDebugRenderer`
     - `PathfindingRenderer#addPath` is removed
     - `PoiDebugRenderer` - A debug renderer for displaying the point of interests.
     - `RaidDebugRenderer#setRaidCenters` is removed
@@ -391,7 +400,7 @@ Method                 | Parameters
 :---------------------:|:----------
 `submitHitbox`         | A pose stack, render state of the entity, and the hitboxes render state
 `submitShadow`         | A pose stack, the shadow radius, and the shadow pieces
-`submitNameTag`        | A pose stack, an optional position offset, the text component, if the text should be seethrough (like when sneaking), light coordinates, and square distance to the camera
+`submitNameTag`        | A pose stack, an optional position offset, the text component, if the text should be seethrough (like when sneaking), light coordinates, and the camera render state
 `submitText`           | A pose stack, the XY offset, the text sequence, whether to add a drop shadow, the font display mode, light coordinates, color,  background color, and outline color
 `submitFlame`          | A pose stack, render state of the entity, and a rotation quaternion
 `submitLeash`          | A pose stack and the leash state
@@ -502,7 +511,7 @@ CREEPER_ARMOR.putFrom(creeperArmorLayers, builder);
 
 With the change to submission, the `EntityRenderer` and its associated `RenderLayer`s have also changed. Basically, you can assume almost every method that has the word `render` has been changed to `submit`, and `MultiBufferSource` and light coordinates integer have generally been replaced by `SubmitNodeCollector` and the associated entity render state.
 
-The new `submit` method that replaces `render` in `EntityRenderer` now takes in the render state of the entity, the `PoseStack`, and the `SubmitNodeCollector`. When submitting any element, the location in 3D space is taken by getting the last pose on the `PoseStack` and storing that for future use.
+The new `submit` method that replaces `render` in `EntityRenderer` now takes in the render state of the entity, the `PoseStack`, the `SubmitNodeCollector`, and the `CameraRenderState`. When submitting any element, the location in 3D space is taken by getting the last pose on the `PoseStack` and storing that for future use.
 
 ```java
 // A basic entity renderer
@@ -515,8 +524,8 @@ public class ExampleEntityRenderer extends MobRenderer<ExampleEntity, ExampleEnt
     }
 
     @Override
-    public void submit(ExampleEntityRenderState renderState, PoseStack poseStack, SubmitNodeCollector collector) {
-        super.submit(renderState, poseStack, collector);
+    public void submit(ExampleEntityRenderState renderState, PoseStack poseStack, SubmitNodeCollector collector, CameraRenderState cameraState) {
+        super.submit(renderState, poseStack, collector, cameraState);
 
         // An example of submitting something
         collector.submitCustomGeometry(
@@ -597,7 +606,7 @@ public CreeperRenderer(EntityRendererProvider.Context ctx) {
 
 The `BlockEntityRenderState`, by default, contains information about its position, block state, type, light coordinates, and the current break progress as a `ModelFeatureRenderer$CrumblingOverlay`. These are all populated through `BlockEntityRenderState#extractBase`, which is called in `BlockEntityRenderer#extractRenderState`. Like entities, the render state is first constructed via `BlockEntityRenderer#createRenderState` before the values are extracted from the block entity. `extractRenderState` does contain the partial tick and camera position, but this is not passed to the `BlockEntityRenderState` by default.
 
-As such, the `submit` method that takes over the `render` method takes in the render state, a `PoseStack` for the location in 3D space, and the `SubmitNodeCollector` for pushing the elements to render.
+As such, the `submit` method that takes over the `render` method takes in the render state, a `PoseStack` for the location in 3D space, the `SubmitNodeCollector` for pushing the elements to render, and the `CameraRenderState`.
 
 ```java
 // We will assume all the classes not specified here exist
@@ -632,7 +641,7 @@ public class ExampleBlockEntityRenderer implements BlockEntityRenderer<ExampleBl
 
 
     @Override
-    public void submit(ExampleRenderState renderState, PoseStack poseStack, SubmitNodeCollector collector) {
+    public void submit(ExampleRenderState renderState, PoseStack poseStack, SubmitNodeCollector collector, CameraRenderState cameraState) {
         // An example of submitting something
         collector.submitModel(..., renderState.breakProgress);
     }
@@ -1112,6 +1121,7 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
     - `getDeltaMovementLerped` -> `addWalkedDistance`, not one-to-one
     - `updateBob` - Updates the bobbing motion of the camera.
 - `net.minecraft.client.renderer`
+    - `EndFlashState` - The render state of the end flashes.
     - `GameRenderer` now takes in the `BlockRenderDispatcher`
         - `getSubmitNodeStorage` - Gets the node submission for feature-like objects.
         - `getFeatureRenderDispatcher` - Gets the dispatcher for rendering feature-like objects.
@@ -1121,7 +1131,8 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
         - `renderHandsWithItems` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource$BufferSource`
     - `LevelRenderer` now takes in the `LevelRenderState` and `FeatureRenderDispatcher`
         - `getSectionRenderDispatcher` is now nullable
-    - `LevelRenderState` - The render state of the dynamic features in a level.
+        - `tickParticles` is removed
+        - `addParticle` is removed
     - `MapRenderer` now takes in an `AtlasManager` instead of a `MapDecorationTextureManager`
         - `render` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource`
     - `OrderedSubmitNodeCollector` - A submission handler for holding elements to be drawn in a given order to the screen whenever the features are dispatched.
@@ -1129,7 +1140,6 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
         - `setColor` now takes in a single integer
     - `ParticleGroupRenderState` - The render state for a group of particles.
     - `ParticlesRenderState` - The render state for all particles.
-    - `PlayerSkinRenderCache` - A render cache for the player skins.
     - `QuadParticleRenderState` - The render group state for all single quad particles.
     - `RenderPipelines`
         - `GUI_TEXT` - The pipeline for text in a gui.
@@ -1160,6 +1170,18 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
     - `SubmitNodeCollection` - An implementation of `OrderedSubmitNodeCollector` that holds the submitted features in separate lists.
     - `SubmitNodeCollector` - An `OrderedSubmitNodeCollector` that provides a method to change the current order that an element will be rendered in.
     - `SubmitNodeStorage` - A storage of collections held by some order.
+    - `SkyRenderer`
+        - `renderEndFlash` - Renders the end flashes.
+        - `initTextures` - Gets the texture for the used elements.
+        - `extractRenderState` - Extracts the `SkyRenderState` from the current level.
+    - `WeatherEffectRenderer`
+        - `render` now takes in the `WeatherRenderState` instead of an `int`, `float`, and `Level`
+            - Those fields have moved to `extractRenderState`
+        - `extractRenderState` - Extracts the `WeatherRenderState` from the current level.
+        - `$ColumnInstance` is now public
+    - `WorldBorderRenderer`
+        - `render` now takes in the `WorldBorderRenderState` instead of the `WorldBorder`
+        - `extract` - Extracts the `WorldBorderRenderState` from the current world border.
 - `net.minecraft.client.renderer.block`
     - `BlockRenderDispatcher` now takes in a `MaterialSet`
     - `MovingBlockRenderState` - A render state for a moving block that implements `BlockAndTintGetter`.
@@ -1180,11 +1202,14 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
     - `BedRenderer` has an overload that takes in a `SpecialModelRenderer$BakingContext`
         - The `EntityModelSet` constructor now takes in the `MaterialSet`
     - `BlockEntityRenderDispatcher` now takes in the `MaterialSet` and `PlayerSkinRenderCache`
-        - `render` -> `submit`, now takes in the `BlockEntityRenderState` instead of a `BlockEntity`, and no longer takes in the partial tick `float`
+        - `render` -> `submit`, now takes in the `BlockEntityRenderState` instead of a `BlockEntity`, no longer takes in the partial tick `float`, and takes in the `CameraRenderState`
         - `getRenderer` now has an overload that can get the renderer from its `BlockEntityRenderState`
         - `tryExtractRenderState` - Gets the `BlockEntityRenderState` from its `BlockEntity`
+        - `level`, `camera`, `cameraHitResult` is removed
+        - `prepare` now only takes in the `Camera`
+        - `setLevel` is removed
     - `BlockEntityRenderer` now has another generic `S` representing the `BlockEntityRenderState`
-        - `render` -> `submit`, taking in the `BlockEntityRenderState`, the `PoseStack`, and the `SubmitNodeCollector`
+        - `render` -> `submit`, taking in the `BlockEntityRenderState`, the `PoseStack`, the `SubmitNodeCollector`, and the `CameraRenderState`
         - `createRenderState` - Creates the render state object.
         - `extractRenderState` - Extracts the render state from the block entity.
     - `BlockEntityRendererProvider$Context` is now a record, taking in a `MaterialSet` and `PlayerSkinRenderCache`
@@ -1202,6 +1227,7 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
         - `createSignModel` now returns a `Model$Simple`
         - `renderInHand` now takes in a `MaterialSet`
     - `SkullBlockRenderer#submitSkull` - Submits the skull model to the collector.
+    - `SpawnerRenderer#renderEntityInSpawner` -> `submitEntityInSpawner`, now takes in the `CameraRenderState`
     - `TestInstanceREnderer` now takes in the `BlockEntityRendererProvider$Context`
 - `net.minecraft.client.renderer.blockentity.state`
     - `BannerRenderState` - The render state for the banner block entity.
@@ -1247,13 +1273,14 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
         - `prepare` no longer takes in the `Level`
         - `setRenderShadow`, `setRenderHitBoxes`, `shouldRenderHitBoxes` are removed
         - `extractEntity` - Creates the render state from the entity and the partial tick.
-        - `render` -> `submit`
+        - `render` -> `submit`, now takes in the `CameraRenderState`
         - `setLevel` -> `resetCamera`, not one-to-one
         - `getPlayerRenderer` - Gets the `AvatarRenderer` from the given client player.
+        - `overrideCameraOrientation`, `distanceToSqr`, `cameraOrientation` are removed
     - `EntityRenderer`
         - `NAMETAG_SCALE` is now public
-        - `render(S, PoseStack, MultiBufferSource, int)` -> `submit(S, PoseStack, SubmitNodeCollector)`
-        - `renderNameTag` ->` submitNameTag`
+        - `render(S, PoseStack, MultiBufferSource, int)` -> `submit(S, PoseStack, SubmitNodeCollector, CameraRenderState)`
+        - `renderNameTag` -> `submitNameTag`, now takes in a `CameraRenderState`
         - `finalizeRenderState` - Extracts the information of the render state as a last step after `extractRenderState`, such as shadows.
     - `EntityRendererProvider$Context` now takes in the `PlayerSkinRenderCache` and `AtlasManager`
         - `getModelManager` is removed
@@ -1267,6 +1294,7 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
     - `ItemRenderer` no longer takes in the `ItemModelResolver`
         - `getArmorFoilBuffer` -> `getFoilRenderTypes`, not one-to-one
         - `renderStatic` methods are removed
+    - `MobRenderer#checkMagicName` - Returns whether the custom name matches the given string.
     - `PiglinRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
     - `TntMinecartRenderer#renderWhiteSolidBlock` -> `submitWhiteSolidBlock`, now takes in an outline color
     - `ZombieRenderer` takes in a `ArmorModelSet` instead of a `ModelLayerLocation`
@@ -1299,16 +1327,22 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
     - `render*Hand` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource`
 - `net.minecraft.client.renderer.entity.state`
     - `CopperGolemRenderState` - The render state for the copper golem entity.
+    - `DisplayEntityRenderState#cameraYRot`, `cameraXRot` - The rotation of the camera.
     - `EntityRenderState`
         - `NO_OUTLINE` - A constant that represents the color for no outline.
         - `outlineColor` - The outline color of the entity.
         - `lightCoords` - The packed light coordinates used to light the entity.
         - `shadowPieces`, `$ShadowPiece` - Represents the relative coordinates of the shadow(s) the entity is casting.
     - `FallingBlockRenderState` fields and implementations have all been moved to `MovingBlockRenderState`
-    - `LivingEntityRenderState#appearsGlowing` -> `EntityRenderState#appearsGlowing`, now a method
+    - `LivingEntityRenderState`
+        - `appearsGlowing` -> `EntityRenderState#appearsGlowing`, now a method
+        - `customName` is removed
     - `PaintingRenderState#lightCoords` -> `lightCoordsPerBlock`
     - `PlayerRenderState` -> `AvatarRenderState`
         - `useItemRemainingTicks`, `swinging` are removed
+    - `SheepRenderState`
+        - `id` is removed
+        - `isJebSheep` is now a field instead of a method
     - `WitherSkullRenderState#xRot`, `yRot` -> `modeState`, not one-to-one
 - `net.minecraft.client.renderer.feature`
     - `BlockFeatureRenderer` - Renders the submitted blocks, block models, or falling blocks.
@@ -1320,8 +1354,8 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
     - `LeashFeatureRenderer` - Renders the submitted leash attached to entities.
     - `ModelFeatureRenderer` - Renders the submitted `Model`s.
     - `ModelPartFeatureRenderer` - Renders the submitted `ModelPart`s.
-    - `ParticleFeatureRenderer` - Renders the submitted particles.
     - `NameTagFeatureRenderer` - Renders the submitted name tags.
+    - `ParticleFeatureRenderer` - Renders the submitted particles.
     - `ShadowFeatureRenderer` - Render the submitted entity shadow.
     - `TextFeatureRenderer` - Renders the submitted text.
 - `net.minecraft.client.renderer.item`
@@ -1343,6 +1377,17 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
         - `$Unbaked#bake` now takes in a `SpecialModelRenderer$BakingContext` instead of an `EntityModelSet`
     - `SpecialModelRenderers#createBlockRenderers` now takes in a `SpecialModelRenderer$BakingContext` instead of an `EntityModelSet`
     - `StandingSignSpecialRenderer` now takes in a `MaterialSet` and a `Model$Simple` instead of a `Model`
+- `net.minecraft.client.renderer.state`
+    - `BlockBreakingRenderState` - The render state for how far the current block has been broken.
+    - `BlockOutlineRenderState` - The render state for the outline of a block via its `VoxelShape`s.
+    - `CameraRenderState` - The render state of the camera.
+    - `LevelRenderState` - The render state of the dynamic features in a level.
+    - `ParticleGroupRenderState` - The render state for a group of particles.
+    - `ParticlesRenderState` - The render state for all particles.
+    - `QuadParticleRenderState` - The render group state for all single quad particles.
+    - `SkyRenderState` - The render state of the sky, including the moon and stars.
+    - `WeatherRenderState` - The render state of the current weather.
+    - `WorldBorderRenderState` - The render state of the world border.
 - `net.minecraft.client.renderer.texture`
     - `SkinTextureDownloader` is now an instance class rather than a static method holder, taking in a `Proxy`, `TextureManager`, and the main thread `Executor`
         - Most methods that were previously static are now instance methods
@@ -1549,7 +1594,7 @@ There are two types of RPC methods supported by the system: `IncomingRpcMethod`s
 
 ### Schemas
 
-`Schema`s, as the name implies, are the specification of the JSON objects. They are constructed in a similar fashion `JsonElement`s and registered to a general `Schema#SCHEMA_REGISTRY` for reference resolving. Most are constructed as `Schema#record`s, with their field and types being populated via `withField` (usually by calling `Schema#flatten`), before being populated into a `SchemaComponent`, which maps a reference name to the schema. Then the `Schema`s can be obtained via `asRef` or `asArray` to get the object or array implementation, respectively.
+`Schema`s, as the name implies, are the specification of the JSON objects. They are constructed in a similar fashion `JsonElement`s. Most are constructed as `Schema#record`s, with their field and types being populated via `withField` (usually by calling `Schema#flatten`), before being populated into a `SchemaComponent`, which maps a reference name to the schema. Then the `Schema`s can be obtained via `asRef` or `asArray` to get the object or array implementation, respectively. The `SchemaComponent`s themselves and registered to the list `Schema#SCHEMA_REGISTRY` for reference resolving.
 
 ```json5
 // An example json for changing the weather:
@@ -1572,11 +1617,11 @@ public static final SchemaComponent WEATHER_SCHEMA = new SchemaComponent(
         .withField("duration", Schema.INT_SCHEMA.flatten())
 );
 
-// Register the schema ot the registry
-Schema.getSchemaRegistry().put(WEATHER_SCHEMA.ref(), WEATHER_SCHEMA.schema());
+// Register the schema to the registry
+Schema.getSchemaRegistry().add(WEATHER_SCHEMA);
 ```
 
-Note that schemas currently cannot specify whether its property is optional or not.
+Note that schemas currently cannot specify whether an individual property is optional or not.
 
 ### `IncomingRpcMethod`
 
@@ -1649,14 +1694,14 @@ IncomingRpcMethod.method(
 
 ### `OutgoingRpcMethod`
 
-`OutgoingRpcMethod`s are constructed and registered through the `notification` or `request` builder. Notifications typically only send parameters with no returned result, while requests provide a result as well. In either case, they just take in codecs for the params or result when present. `$OutgoingRpcMethod#response` and `param` define the parameters and response sent by the minecraft server. `description` is used by the discovery service for the schemas. Once the desired methods are called, then either `build` or `register` can be used to construct the object, taking in the route endpoint as a namespace and path.
+`OutgoingRpcMethod`s are constructed and registered through the `notification` or `request` builder. Notifications typically only send parameters with no returned result, while requests provide a result as well. In either case, they just take in codecs for the params or result when present. `$OutgoingRpcMethod#response` and `param` define the parameters and response sent by the minecraft server. `description` is used by the discovery service for the schemas. Once the desired methods are called, then `register` can be used to construct the object, taking in the route endpoint as a namespace and path and wrapping it in a `Holder$Reference`.
 
 Currently, vanilla only broadcasts notifications through the `NotificationService`: a remote logger for specific method actions, like player join or changing game rule. While there are results, they must be read via `Connection#sendRequest` and handled asynchronously.
 
 ```java
 // Construct the outgoing method
 // Since the minecraft server will be sending these, we need to hold the object
-public static final OutgoingRpcMethod.ParmeterlessNotification SOMETHING_HAPPENED = OutgoingRpcMethod.notification()
+public static final Holder.Reference<OutgoingRpcMethod.ParmeterlessNotification> SOMETHING_HAPPENED = OutgoingRpcMethod.notification()
         .description("Something happened!")
         .register("examplemod", "something");
 
@@ -1736,6 +1781,7 @@ managementServer.forEachConnection(connection -> connection.sendNotification(SOM
     - `MethodInfo` - Defines a method that is handled by the management server, either inbound or outbound.
     - `ParamInfo` - Defines the parameters a specific method takes in.
     - `PlayerDto` - A data transfer object representing the player.
+    - `ReferenceUtil` - A utility for creating a local reference URI.
     - `ResultInfo` - Defines the response a specific method returns.
     - `Schema` - An implementation of the json schema used the discovery service, parameters, and results.
     - `SchemaComponent` - A reference definition of some component within a schema.
@@ -2088,12 +2134,62 @@ public static final TicketType EXAMPLE = new TicketType(
     - `removeTicketIf` now takes a `$TicketPredicate` instead of a `BiPredicate`
     - `$TicketPredicate` - Tests the ticket at a given chunk position.
 
+### Respawn Data
+
+The respawn logic has been consolidated into a single object known as `LevelData$RespawnData`. The respawn data holds the global position (a level key and block position) and the rotation of the entity. All calls to the original angle and position methods have been replaced by `Level#setRespawnData` or `getRespawnData`, which delegates to the `MinecraftServer` and eventually the level data.
+
+- `net.minecraft.client.multiplayer.ClientLevel#setDefaultSpawnPos` -> `Level#setRespawnData`
+- `net.minecraft.network.protocol.game.ClientboundSetDefaultSpawnPositionPacket` is now a record
+    - The parameters have been replaced with a `LevelData$RespawnData` object
+- `net.minecraft.server.MinecraftServer`
+    - `findRespawnDimension` - Gets the default `ServerLevel` that the player should respawn in.
+    - `setRespawnData` - Sets the default spawn position.
+    - `getRespawnData` - Gets the default spawn position.
+- `net.minecraft.server.level`
+    - `ServerLevel#setDefaultSpawnPos` -> `Level#setRespawnData`
+    - `ServerPlayer$RespawnConfig` now takes in a `LevelData$RespawnData` instead of the dimension, position, and angle
+        - Fields are still accessible from the respawn data
+- `net.minecraft.world.level.Level#getSharedSpawnPos`, `getSharedSpawnAngle` -> `getRespawnData`, `getWorldBorderAdjustedRespawnData`, not one-to-one
+- `net.minecraft.world.level.storage`
+    - `LevelData`
+        - `getSpawnPos`, `getSpawnAngle` -> `getRespawnData`, not one-to-one
+        - `$RespawnData` - Defines the global position, yaw, and pitch of where to respawn the players by default.
+    - `WritableLevelData#setSpawn` now only takes in the `LevelData$RespawnData`
+
 ### The 'On Shelf' Transform
 
 Models now have a new transform for determining how an item sits on a shelf called `on_shelf`.
 
 - `net.minecraft.client.renderer.block.model.ItemTransforms#fixedFromBottom` - A transform that expects the item to be sitting on some fixed bottom, like a shelf.
 - `net.minecraft.world.item.ItemDisplayContext#ON_SHELF` - When an item is placed on a shelf.
+
+### Client Asset Split
+
+`ClientAsset` has been reworked to better specify what the asset is referencing. Currently, vanilla adds `ClientAsset$Texture` to specify that the asset is a texture, which further subclasses to `$DownloadedTexture` for textures downloaded from the internet, and `$ResourceTexture` for textures accessible from some existing resource on the disk.
+
+- `net.minecraft.advancements.DisplayInfo` now takes in an optional `ClientAsset$ResourceTexture` for the background instead of a `ClientAsset`
+- `net.miencraft.client.renderer.texture.SkinTextureDownloader#downloadAndRegisterSkin` now returns a future for the `ClientAsset$Texture` instead of a `ResourceLocation`
+- `net.minecraft.client.resources`
+    - `PlayerSkin` -> `net.minecraft.world.entity.player.PlayerSkin`
+        - The constructor now takes in `ClientAsset$Texture`s instead of `ResourceLocation` and `String`s
+        - `texture`, `textureUrl` -> `body`
+        - `capeTexture` -> `cape`
+        - `elytraTexture` -> `elytra`
+        - `insecure` - Constructs a `PlayerSkin` with `insecure` set to false.
+        - `with` - Builds a `PlayerSkin` from its `$Patch`.
+        - `$Patch` - A packed object representing the skin in other files or when sending across the network.
+    - `SkinManager$TextureCache#getOrLoad` now returns a future for the `ClientAsset$Texture` instead of a `ResourceLocation`
+- `net.minecraft.core.ClientAsset` is now an interface instead of a record
+    - Original implementation moved to `$ResourceTexture`
+    - `id` still exists as a method
+    - `texturePath` -> `$Texture#texturePath`
+    - `CODEC`, `DEFAULT_FIELD_CODEC`, `STREAM_CODEC` -> `$ResourceTexture#*`
+    - `$DownloadedTexture` - A texture downloaded from the internet.
+    - `$Texture` - A client asset which defines a texture.
+- `net.minecraft.world.entity.animal.CatVariant#assetInfo` now takes in a `ClientAsset$ResourceTexture` instead of a `ClientAsset`
+- `net.minecraft.world.entity.animal.frog.FrogVariant#assetInfo` now takes in a `ClientAsset$ResourceTexture` instead of a `ClientAsset`
+- `net.minecraft.world.entity.animal.wolf.WolfVariant$AssetInfo#*` now take in a `ClientAsset$ResourceTexture` instead of a `ClientAsset`
+- `net.minecraft.world.entity.variant.ModelAndTexture#asset` now takes in a `ClientAsset$ResourceTexture` instead of a `ClientAsset`
 
 ### Cursor Types
 
@@ -2142,6 +2238,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 
 ### List of Additions
 
+- `com.mojang.blaze3d.GraphicsWorkarounds#isGlOnDx12` - Returns whether the renderer is using DirectX 12.
 - `com.mojang.blaze3d.opengl.GlStateManager#incrementTrackedBuffers` - Increments the number of buffers used by the game.
 - `net.minecraft.SharedConstants#RESOURCE_PACK_FORMAT_MINOR`, `DATA_PACK_FORMAT_MINOR` - The minor component of the pack version.
 - `net.minecraft.advancements.critereon.MinMaxBounds`
@@ -2256,6 +2353,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `seenPlayers` - All players that have been seen, regardless of if they are currently online, by this player.
         - `seenInsecureChatWarning` - If the player has seen the insecure chat warning.
         - `$CommonDialogAccess` - A dialog access used by the client network.
+    - `ClientConfigurationPacketListenerImpl#DISCONNECTED_MESSAGE` - The message to display on disconnect because of not accepting the code of conduct.
     - `ClientExplosionTracker` - Tracks the explosions made on the client, specifically to handle particles.
     - `ClientLevel`
         - `endFlashState` - Handles the state of the flashes of light that appear in the end.
@@ -2264,9 +2362,6 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `getSeenPlayers` - Returns all players seen by this player.
         - `getPlayerInfoIgnoreCase` - Gets the player info for the provided profile name.
 - `net.minecraft.client.player.LocalPlayerResolver` - A profile resolver for the local player.
-- `net.minecraft.client.renderer`
-    - `EndFlashState` - The render state of the end flashes.
-    - `SkyRenderer#renderEndFlash` - Renders the end flashes.
 - `net.minecraft.client.resources.WaypointStyle#ICON_LOCATION_PREFIX` - The prefix for waypoint icons.
 - `net.minecraft.client.server.IntegratedServer#MAX_PLAYERS` - The maximum number of players allowed in an locally hosted server.
 - `net.minecraft.client.sounds`
@@ -2298,7 +2393,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.network.syncher.EntityDataSerializers`
     - `WEATHERING_COPPER_STATE` - The weather state of the copper on the golem.
     - `COPPER_GOLEM_STATE` - The logic state of the copper golem.
-    - `MANNEQUIN_PROFILE` - The player profile of the mannequin.
+    - `RESOLVABLE_PROFILE` - The resovlable profile of an entity.
 - `net.minecraft.server.MinecraftServer`
     - `selectLevelLoadFocusPos` - Returns the loading center position of the server, usually the shared spawn position.
     - `getLevelLoadListener` - Returns the listener used to track level loading.
@@ -2344,6 +2439,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `Weighted#streamCodec` - Constructs a stream codec for the weighted entry.
     - `WeightedList#streamCodec` - Constructs a stream codec for the weighted list.
 - `net.minecraft.util.thread.BlockableEventLoop#shouldRunAllTasks` - Returns if there are any blocked tasks.
+- `net.minecraft.world.Nameable#getPlainTextName` - Returns the string of the name component.
 - `net.minecraft.world.entity`
     - `Avatar` - An entity that makes up the base of a player.
     - `EntityReference`
@@ -2374,6 +2470,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `VISITED_BLOCK_POSITIONS` - Important block positions visited.
     - `TRANSPORT_ITEMS_COOLDOWN_TICKS` - How many ticks to wait before transporting items.
     - `UNREACHABLE_TRANSPORT_BLOCK_POSITIONS` - Holds a list of positions that are impossible to get to.
+- `net.minecraft.world.entity.ai.navigation.GroundPathNavigation#setCanPathToTargetsBelowSurface` - Sets whether the entity can target other entities that are underneath a non-air block below the starting position.
 - `net.minecraft.world.entity.animal.coppergolem`
     - `CopperGolem` - The copper golem entity.
     - `CopperGolemAi` - The brain logic for the copper golem.
@@ -2383,7 +2480,6 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.world.entity.decoration`
     - `HangingEntity#canCoexist` - Whether any other hanging entities are in the same position as this one. By default, makes sure that the entities are not the same entity type and not facing the same direction.
     - `Mannequin` - An avatar that does not have a connected player.
-    - `MannequinProfile` - A non-connected game profile with its desired textures.
 - `net.minecraft.world.entity.player`
     - `Player`
         - `isMobilityRestricted` - Returns whether the player has the blindness effect.
@@ -2401,6 +2497,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `ArmorMaterials#COPPER` - The copper armor material.
     - `EquipmentAssets#COPPER` - The key reference to the copper equipment asset.
     - `ResolvableProfile`
+        - `skinPatch` - Returns the player skin reference.
         - `$Static` - Uses the already resolved game profile.
         - `$Dynamic` - Dynamically resolves the game profile on use.
         - `$Partial` - Represents part of the game profile depending on whatever information is provided to the component.
@@ -2464,9 +2561,13 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `STREAM_CODEC` - The stream codec for the bounding box.
 - `net.minecraft.world.level.levelgen.structure.structures.JigsawStructure$MaxDistance` - The maximum horizontal and vertical distance the jigsaw can expand to.
 - `net.minecraft.world.level.pathfinder.Path#STREAM_CODEC` - The stream codec of the path.
-- `net.minecraft.world.level.storage.loot.LootContext$EntityTarget`
-    - `TARGET_ENTITY` - The entity being targeted by another, typically the object dropping the loot.
-    - `INTERACTING_ENTITY` - The entity interacting with the object dropping the loot.
+- `net.minecraft.world.level.portal.TeleportTransition#createDefault` - Creates the default teleport transition.
+- `net.minecraft.world.level.storage.loot.LootContext`
+    - `$BlockEntityTarget` - Specifies targets when interacting with a block entity.
+    - `$EntityTarget`
+        - `TARGET_ENTITY` - The entity being targeted by another, typically the object dropping the loot.
+        - `INTERACTING_ENTITY` - The entity interacting with the object dropping the loot.
+    - `$ItemStackTarget` - Specifies targets when interacting or using an item stack.
 - `net.minecraft.world.level.storage.loot.parameters`
     - `LootContextParams`
         - `TARGET_ENTITY` - The entity being targeted by another, typically the object dropping the loot.
@@ -2484,7 +2585,9 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 
 - `com.mojang.blaze3d.buffers.GpuBuffer#size` is now private
 - `com.mojang.blaze3d.opengl`
-    - `DirectStateAccess#bufferSubData`, `mapBufferRange`, `unmapBuffer`, `flushMappedBufferRange` now take in the buffer usage bit mask
+    - `DirectStateAccess`
+        - `bufferSubData`, `mapBufferRange`, `unmapBuffer`, `flushMappedBufferRange` now take in the buffer usage bit mask
+        - `create` now takes in the `GraphicsWorkarounds`
     - `GlStateManager#_texImage2D`, `_texSubImage2D` now takes in a `ByteBuffer` instead of an `IntBuffer`
     - `VertexArrayCache#bindVertexArray` can now take in a nullable `GlBuffer`
 - `com.mojang.blaze3d.platform`
@@ -2573,6 +2676,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.client.gui.screens.achievement.StatsScreen`
     - `initLists`, `initButtons` merged into `onStatsUpdated`
     - `$ItemRow#getItem` is now protected
+- `net.minecraft.client.gui.screens.dialog.DialogScreen$WarningScreen#create` now takes in a `DialogConnectionAccess`
 - `net.minecraft.client.gui.screens.inventory.tooltip.ClientActivePlayersTooltip$ActivePlayersTooltip#profiles` now is a list of `PlayerSkinRenderCache$RenderInfo`s instead of `ProfileResult`s
 - `net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen`
     - `*_BUTTON_WIDTH` are now private
@@ -2600,6 +2704,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.client.multiplayer.chat.ChatListener#clearQueue` -> `flushQueue`
 - `net.minecraft.client.renderer`
     - `DimensionSpecialEffects#forceBrightLightmap` -> `hasEndFlashes`, not one-to-one
+    - `LevelEventHandler` now takes in a `ClientLevel` instead of the `Level` and `LevelRenderer`
     - `LevelRenderer`
         - `prepareCullFrustum` is now private
         - `renderLevel` now takes in an additional `Matrix4f` for the frustum
@@ -2609,11 +2714,18 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `SoundEngine#updateCategoryVolume` no longer takes in the gain
     - `SoundEngineExecutor#flush` -> `shutDown`, not one-to-one
     - `SoundManager#updateSourceVolume` no longer takes in the gain
+- `net.minecraft.commands.arguments.coordinates`
+    - `LocalCoordinates` is now a record
+    - `WorldCoordinate` is now a record
+    - `WorldCoordinates` is now a record
 - `net.minecraft.commands.arguments.selector.EntitySelectorParser`
     - `getDistance`, `getLevel` can now be `null`
     - `*Rot*` methods now return or use `MinMaxBounds$FloatDegrees`
         - Return values can be `null`
-- `net.minecraft.core.Registry#getRandomElementOf` -> `HolderGetter#getRandomElementOf`
+- `net.minecraft.core.Registry`
+    - `getRandomElementOf` -> `HolderGetter#getRandomElementOf`
+    - `registerForHolder` now has an additional generic, making the `Holder$Reference` returned hold the actual object type instead of the registry type
+- `net.minecraft.core.component.PatchedDataComponentMap#set` now has an overload that takes in a `TypedDataComponent`
 - `net.minecraft.data.worldgen.TerrainProvider` methods now use a `BoundedFloatFunction` generic instead of `ToFloatFunction`
 - `net.minecraft.gametest.framework`
     - `GameTestHelper`
@@ -2676,7 +2788,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `CubicSpline` methods and inner classes now use `BoundedFloatFunction` instead of `ToFloatFunction`
     - `ExtraCodecs`
         - `GAME_PROFILE_WITHOUT_PROPERTIES` -> `AUTHLIB_GAME_PROFILE`, now a `Codec` and public
-        - `GAME_PROFILE` -> `STORED_GAME_PROFILE`
+        - `GAME_PROFILE` -> `STORED_GAME_PROFILE`, now a `MapCodec`
     - `StringRepresentable#createNameLookup` now can take in an arbitrary object and return a string
         - The base overload that takes in the object array uses `getSerializedName`
     - `StringUtil#isAllowedChatCharacter` now takes in an `int` codepoint instead of a `char`
@@ -2691,6 +2803,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `moveOrInterpolateTo` now has overloads that take in an XY rotation, a `Vec3` position, or all three as optionals
         - `lerpMotion` now takes in a `Vec3` instead of three doubles
         - `forceSetRotation` now takes in whether the XY rotation is relative
+        - `teleportSetPosition` now has an overload that takes in both the starting and end position
     - `EntityReference` is now private, constructed using the `of` static constructors
         - `getEntity` now takes in a `UUIDLookup<? extends UniquelyIdentifyable>` instead of a `UUIDLookup<? super StoredEntityType>`
         - `get` now takes in a `Level` instead of a `UUIDLookup`
@@ -2701,6 +2814,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `dropFromLootTable` now has overloads to take in a specific loot table key and how the items should be dispensed
         - `getSlotForHand` -> `InteractionHand#asEquipmentSlot`
     - `Mob#shouldDespawnInPeaceful` -> `EntityType#isAllowedInPeaceful`, not one-to-one
+    - `Pose` now implements `StringRepresentable`, has an associated `Codec`
 - `net.minecraft.world.entity.ai.village.poi`
     - `PoiManager#add` now returns a `PoiRecord`
     - `PoiSection#add` now returns a `PoiRecord`
@@ -2714,14 +2828,18 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `setEntityOnShoulder` -> `ServerPlayer#setEntityOnShoulder`
         - `*ShoulderEntity*` -> `ServerPlayer#*ShoulderEntity*`
         - `setMainArm` -> `Avatar#setMainArm`
+        - `CROUCH_BB_HEIGHT`, `SWIMMING_BB_WIDTH`, `SWIMMING_BB_HEIGHT`, `STANDING_DIMENSIONS` have been moved to `Avatar`
+        - `POSES` -> `Avatar#POSES`, now protected
     - `PlayerModelPart` now implements `StringRepresentable`
 - `net.minecraft.world.entity.projectile.Projectile`
     - `deflect` now takes in an `EntityReference` of the owner instead of the `Entity` itself
     - `onDeflection` no longer takes in the direct `Entity`
 - `net.minecraft.world.entity.vehicle.MinecartBehavior#lerpMotion` now takes in a `Vec3` instead of three doubles
-- `net.minecraft.world.item.SpawnEggItem` no longer takes in the `EntityType`
-    - `spawnsEntity` no longer takes in the `HolderLookup$Provider`
-    - `getType` no longer takes in the `HolderLookup$Provider`
+- `net.minecraft.world.item`
+    - `ItemStack#set` now has an overload that takes in a `TypedDataComponent`
+    - `SpawnEggItem` no longer takes in the `EntityType`
+        - `spawnsEntity` no longer takes in the `HolderLookup$Provider`
+        - `getType` no longer takes in the `HolderLookup$Provider`
 - `net.minecraft.world.item.component`
     - `Bees#STREAM_CODEC` now requires a `RegistryFriendlyByteBuf`
     - `ResolvableProfile` is now a sealed class with a protected constructor, created through the static `createResolved`, `createUnresolved`
@@ -2739,6 +2857,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `Level` no longer implements `UUIDLookup`
         - `explode` now takes in a weighter list of explosion particles to display
         - `neighborUpdater` is now a `CollectingNeighborUpdater`
+        - `tickBlockEntities` is now public
     - `ServerExplosion#explode` now returns the number of blocks exploded
 - `net.minecraft.world.level.border`
     - `BorderChangeListener`
@@ -2811,9 +2930,24 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.world.level.levelgen.structure.pools.JigsawPlacement#addPieces` now takes in a `JigsawStructure$MaxDistance` instead of an integer
 - `net.minecraft.world.level.levelgen.structure.structures.JigsawStructure` now takes in a `JigsawStructure$MaxDistance` instead of an integer
 - `net.minecraft.world.level.pathfinder.Path` is now final
+- `net.minecraft.world.level.portal.TeleportTransition#missingRespawnBlock` no longer takes in the `Entity` to get the respawn data from
 - `net.minecraft.world.level.storage`
     - `PrimaryLevelData` now takes in an optional wrapped `WorldBorder$Settings`
     - `ServerLevelData#*WorldBorder` -> `*LegacyWorldBorderSettings`, now dealing with optional wrapped `WorldBorder$Settings`
+- `net.minecraft.world.level.storage.loot.functions`
+    - `CopyComponentsFunction`
+        - `copyComponents` has been split to `copyComponentsFromEntity`, `copyComponentsFromBlockEntity`
+        - `$Source` is now an interface
+            - Original implementation is in `$BlockEntitySource`
+            - `getReferencedContextParams` -> `contextParam`, not one-to-one
+    - `CopyNameFunction`
+        - `copyName` now takes in a `$Source` instead of a `$NameSource`
+        - `$NameSource` -> `$Source`, now a record, not one-to-one
+- `net.minecraft.world.level.storage.loot.providers.nbt.ContextNbtProvider`
+    - `CODEC` -> `MAP_CODEC`, not one-to-one
+    - `$Getter` -> `$Source`
+        - `get` now has an overload that takes in the generic
+        - `getReferencedContextParams` -> `contextParam`, not one-to-one
 - `net.minecraft.world.phys.shapes.EntityCollisionContext` now takes in a `boolean` instead of a `Predicate<FluidState>`
     - `EMPTY` -> `$Empty`, not one-to-one
 - `net.minecraft.world.waypoints.TrackedWaypoint`
@@ -2863,7 +2997,6 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `$LayeredElementConsumer`
 - `net.minecraft.client.gui.screens.LevelLoadingScreen#renderChunks`
 - `net.minecraft.client.gui.screens.achievement.StatsScreen#setActiveList`
-- `net.minecraft.client.gui.screens.dialog.DialogConnectionAccess#disconnect`
 - `net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen`
     - `BUTTON_ROW_WIDTH`, `FOOTER_HEIGHT`
     - `setSelected`
@@ -2899,10 +3032,17 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
     - `GameRules#RULE_SPAWN_CHUNK_RADIUS`
 - `net.minecraft.world.level.border`
     - `BorderChangeListener$DelegateBorderChangeListener`
-    - `WorldBorder$Settings#read`, `write`
+    - `WorldBorder`
+        - `closestBorder`
+        - `$DistancePerDirection`
+        - `$Settings#read`, `write`
 - `net.minecraft.world.level.block.FletchingTableBlock`
 - `net.minecraft.world.level.block.entity.SkullBlockEntity`
     - `CHECKED_MAIN_THREAD_EXECUTOR`
     - `setup`, `clear`
     - `fetchGameProfile`
     - `setOwner`
+- `net.minecraft.world.level.portal.TeleportTransition(ServerLevel, Entity, TeleportTransition.PostTeleportTransition)`
+- `net.minecraft.world.level.storage.loot.providers.nbt.ContextNbtProvider`
+    - `BLOCK_ENTITY`
+    - `$Getter#getId`
