@@ -1587,7 +1587,7 @@ Data sources has received a similar treatment to component contents, now using a
     - `ObjectInfos` - All vanilla object infos.
     - `PlayerSprite` - An object info for a player head and hat texture.
 
-## The JSON-RPC Management Servers (TODO, no more FlatSchema)
+## The JSON-RPC Management Servers
 
 Minecraft has introduced support for remotely managing dedicated servers through a JSON-RPC websocket. This can be enabled through the `management-server-enabled` property, which listens for a server on `localhost:25585` by default. The entire system handles not only constructing the network requests sent via `JsonElement`s, but also the schemas each request uses. These schemas can then be generated through the `JsonRpcApiSchema` data provider.
 
