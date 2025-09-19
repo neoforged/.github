@@ -400,7 +400,7 @@ Method                 | Parameters
 :---------------------:|:----------
 `submitHitbox`         | A pose stack, render state of the entity, and the hitboxes render state
 `submitShadow`         | A pose stack, the shadow radius, and the shadow pieces
-`submitNameTag`        | A pose stack, an optional position offset, the text component, if the text should be seethrough (like when sneaking), light coordinates, and the camera render state
+`submitNameTag`        | A pose stack, an optional position, the Y offset, the text component, if the text should be seethrough (like when sneaking), light coordinates, and the camera render state
 `submitText`           | A pose stack, the XY offset, the text sequence, whether to add a drop shadow, the font display mode, light coordinates, color,  background color, and outline color
 `submitFlame`          | A pose stack, render state of the entity, and a rotation quaternion
 `submitLeash`          | A pose stack and the leash state
@@ -1340,6 +1340,7 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
     - `PaintingRenderState#lightCoords` -> `lightCoordsPerBlock`
     - `PlayerRenderState` -> `AvatarRenderState`
         - `useItemRemainingTicks`, `swinging` are removed
+        - `showDeadMouseEars` -> `showExtraEars`
     - `SheepRenderState`
         - `id` is removed
         - `isJebSheep` is now a field instead of a method
@@ -1586,7 +1587,7 @@ Data sources has received a similar treatment to component contents, now using a
     - `ObjectInfos` - All vanilla object infos.
     - `PlayerSprite` - An object info for a player head and hat texture.
 
-## The JSON-RPC Management Servers
+## The JSON-RPC Management Servers (TODO, no more FlatSchema)
 
 Minecraft has introduced support for remotely managing dedicated servers through a JSON-RPC websocket. This can be enabled through the `management-server-enabled` property, which listens for a server on `localhost:25585` by default. The entire system handles not only constructing the network requests sent via `JsonElement`s, but also the schemas each request uses. These schemas can then be generated through the `JsonRpcApiSchema` data provider.
 
@@ -1594,7 +1595,7 @@ There are two types of RPC methods supported by the system: `IncomingRpcMethod`s
 
 ### Schemas
 
-`Schema`s, as the name implies, are the specification of the JSON objects. They are constructed in a similar fashion `JsonElement`s. Most are constructed as `Schema#record`s, with their field and types being populated via `withField` (usually by calling `Schema#flatten`), before being populated into a `SchemaComponent`, which maps a reference name to the schema. Then the `Schema`s can be obtained via `asRef` or `asArray` to get the object or array implementation, respectively. The `SchemaComponent`s themselves and registered to the list `Schema#SCHEMA_REGISTRY` for reference resolving.
+`Schema`s, as the name implies, are the specification of the JSON objects. They are constructed in a similar fashion `JsonElement`s. Most are constructed as `Schema#record`s, with their field and types being populated via `withField`, before being stored in a `SchemaComponent`, which maps a reference name to the schema. Then the `Schema`s can be obtained via `asRef` or `asArray` to get the object or array implementation, respectively. The `SchemaComponent`s themselves and registered to the list `Schema#SCHEMA_REGISTRY` for reference resolving.
 
 ```json5
 // An example json for changing the weather:
@@ -1613,8 +1614,8 @@ public static final SchemaComponent WEATHER_SCHEMA = new SchemaComponent(
     "examplemod_weather",
     // The schema to use
     Schema.record()
-        .withField("weather", Schema.ofEnum(List.of("clear", "rain", "thunder")).flatten())
-        .withField("duration", Schema.INT_SCHEMA.flatten())
+        .withField("weather", Schema.ofEnum(List.of("clear", "rain", "thunder")))
+        .withField("duration", Schema.INT_SCHEMA)
 );
 
 // Register the schema to the registry
@@ -1777,7 +1778,6 @@ managementServer.forEachConnection(connection -> connection.sendNotification(SOM
     - `OutgoingRpcMethods` - All vanilla outgoing RPC handlers.
     - `PendingRpcRequest` - A pending request made by the minecraft server to the management server.
 - `net.minecraft.server.jsonrpc.api`
-    - `FlatSchema` - Defines the json schema for an item or property, specifying either a reference, type, enum, or array.
     - `MethodInfo` - Defines a method that is handled by the management server, either inbound or outbound.
     - `ParamInfo` - Defines the parameters a specific method takes in.
     - `PlayerDto` - A data transfer object representing the player.
@@ -1785,7 +1785,6 @@ managementServer.forEachConnection(connection -> connection.sendNotification(SOM
     - `ResultInfo` - Defines the response a specific method returns.
     - `Schema` - An implementation of the json schema used the discovery service, parameters, and results.
     - `SchemaComponent` - A reference definition of some component within a schema.
-    - `TypeRefSchema` - Defines the json schema for an item either referencing another or some type.
 - `net.minecraft.server.jsonrpc.dataprovider.JsonRpcApiSchema` - A data provider that generates the json schema from the discovery service.
 - `net.minecraft.server.jsonrpc.internalapi`
     - `GameRules` - An api that gets the current game rule value.
@@ -1813,6 +1812,7 @@ managementServer.forEachConnection(connection -> connection.sendNotification(SOM
     - `DiscoveryService` - A service that displays the schemas of all services supported by the management server.
     - `EncodeJsonRpcException` - An exception thrown when attempting to encode the json packet.
     - `GameRulesService` - A service that handles communication from the management server about the game rules.
+    - `IllegalMethodDefinitionException` - An exception thrown when the method definition provided is illegal.
     - `InvalidParameterJsonRpcException` - An exception thrown when the parameters to the method are invalid.
     - `InvalidRequestJsonRpcException` - An exception thrown when the request is invalid.
     - `IpBanlistService` - A service that handles communication from the management server about the ip ban list.
