@@ -1865,7 +1865,7 @@ There are two types of events: `KeyEvent`s for key presses, and `MouseButtonEven
 
 ### Key Mapping Categories
 
-Key mappings have changed slightly, no longer taking in a raw string for its category, and instead using a `KeyMapping$Category` record, which is essentially a namspaced string. Categories can be created using `KeyMapping$Category#register`; otherwise, an error will be through whenever the mapping is used as part of a comparator. 
+Key mappings have changed slightly, no longer taking in a raw string for its category, and instead using a `KeyMapping$Category` record, which is essentially a namspaced string. Categories can be created using `KeyMapping$Category#register`; otherwise, an error will be thrown whenever the mapping is used as part of a comparator.
 
 ```java
 public static final KeyMapping.Category EXAMPLE = KeyMapping.Category.register(ResourceLocation.withNamespaceAndPath("examplemod", "example"));
