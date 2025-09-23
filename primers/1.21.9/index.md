@@ -405,7 +405,7 @@ Method                 | Parameters
 `submitFlame`          | A pose stack, render state of the entity, and a rotation quaternion
 `submitLeash`          | A pose stack and the leash state
 `submitModel`          | A pose stack, entity model, render state, render type, light coordinates, overlay coordinates, tint color, an optional texture, outline color, and an optional crumbling overlay
-`submitModelPart`      | A pose stack, model part, render type, light coordinates, overlay coordinates, an optional texture, whether to use item glint over entity glint if render type is not transparent, whether to render the glint overlay, tint color, and an optional crumbling overlay
+`submitModelPart`      | A pose stack, model part, render type, light coordinates, overlay coordinates, an optional texture, whether to use item glint over entity glint if render type is not transparent, whether to render the glint overlay, tint color, an optional crumbling overlay, and an outline color
 `submitBlock`          | A pose stack, block state, light coordinates, overlay coordinates, and outline color
 `submitMovingBlock`    | A pose stack and the moving block render state
 `submitBlockModel`     | A pose stack, the render type, block state model, RGB floats, light coordinates, overlay coordinates, and outline color
@@ -661,7 +661,7 @@ public class ExampleSpecialModelRenderer implements NoDataSpecialModelRenderer {
     public ExampleSpecialModelRenderer() {}
 
     @Override
-    public void submit(ItemDisplayContext displayContext, PoseStack poseStack, SubmitNodeCollector collector, int lightCoords, int overlayCoords, boolean hasFoil) {
+    public void submit(ItemDisplayContext displayContext, PoseStack poseStack, SubmitNodeCollector collector, int lightCoords, int overlayCoords, boolean hasFoil, int outlineColor) {
         // An example of submitting something
         collector.submitModelPart(...);
     }
@@ -1166,7 +1166,7 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
         - `renderSunriseAndSunset` no longer takes in the buffer source
     - `SpecialBlockModelRenderer`
         - `vanilla` now takes in a `SpecialModelRenderer$BakingContext` instead of an `EntityModelSet`
-        - `renderByBlock` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource`
+        - `renderByBlock` now takes in a `SubmitNodeCollector` instead of a `MultiBufferSource`, and an outline color
     - `SubmitNodeCollection` - An implementation of `OrderedSubmitNodeCollector` that holds the submitted features in separate lists.
     - `SubmitNodeCollector` - An `OrderedSubmitNodeCollector` that provides a method to change the current order that an element will be rendered in.
     - `SubmitNodeStorage` - A storage of collections held by some order.
@@ -1196,11 +1196,13 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
         - `renderSign` -> `submitSign`, now takes in a `Model$Simple` and no longer takes in a tint color
     - `BannerRenderer` has an overload that takes in a `SpecialModelRenderer$BakingContext`
         - The `EntityModelSet` constructor now takes in the `MaterialSet`
-        - `renderPatterns` -> `submitPatterns` now takes in the `MaterialSet` and `ModelFeatureRenderer$CrumblingOverlay`, and `ModelPart` has been replaced with the `Model` and its render state
+        - `renderPatterns` -> `submitPatterns` now takes in the `MaterialSet` and `ModelFeatureRenderer$CrumblingOverlay`, the `ModelPart` has been replaced with the `Model` and its render state, a `boolean` for whether to use the entity glint, and an outline color
             - The overload with two additional `boolean`s has been removed
+        - `renderSpecial` -> `submitSpecial`, now takes in the outline color
     - `BeaconRenderer#renderBeaconBeam` -> `submitBeaconBeam`, no longer takes in the game time `long`
     - `BedRenderer` has an overload that takes in a `SpecialModelRenderer$BakingContext`
         - The `EntityModelSet` constructor now takes in the `MaterialSet`
+        - `renderSpecial` -> `submitSpecial`, now takes in the outline color
     - `BlockEntityRenderDispatcher` now takes in the `MaterialSet` and `PlayerSkinRenderCache`
         - `render` -> `submit`, now takes in the `BlockEntityRenderState` instead of a `BlockEntity`, no longer takes in the partial tick `float`, and takes in the `CameraRenderState`
         - `getRenderer` now has an overload that can get the renderer from its `BlockEntityRenderState`
@@ -1217,12 +1219,14 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
     - `CopperGolemStatueBlockRenderer` - A block entity renderer for the copper golem statue.
     - `DecoratedPotRenderer` has an overload that takes in a `SpecialModelRenderer$BakingContext`
         - The `EntityModelSet` constructor now takes in the `MaterialSet`
+        - `render` overload -> `submit`, now takes in the outline color
     - `HangingSignRenderer`
         - `createSignModel` now returns a `Model$Simple`
         - `renderInHand` now takes in a `MaterialSet`
     - `ShelfRenderer` - A block entity renderer for a shelf.
     - `ShulkerBoxRenderer` has an overload that takes in a `SpecialModelRenderer$BakingContext`
         - The `EntityModelSet` constructor now takes in the `MaterialSet`
+        - `render` overload -> `submit`, now takes in the outline color
     - `SignRenderer`
         - `createSignModel` now returns a `Model$Simple`
         - `renderInHand` now takes in a `MaterialSet`
@@ -1369,11 +1373,11 @@ public class ExampleEntityRenderer implements EntityRenderer<ExampleEntity, Exam
     - `ConduitSpecialRenderer` now takes in a `MaterialSet`
     - `CopperGolemStatueSpecialRenderer` - A special renderer for the copper golem statue as an item.
     - `HangingSignSpecialRenderer` now takes in a `MaterialSet` and a `Model$Simple` instead of a `Model`
-    - `NoDataSpecialModelRenderer#render` -> `submit`
+    - `NoDataSpecialModelRenderer#render` -> `submit`, now takes in an outline color
     - `PlayerHeadSpecialRenderer` now takes in the `PlayerSkinRenderCache`
     - `ShieldSpecialRenderer` now takes in a `MaterialSet`
     - `SpecialModelRenderer`
-        - `render` -> `submit`
+        - `render` -> `submit`, now takes in an outline color
         - `$BakingContext` - The context used to bake a special item model.
         - `$Unbaked#bake` now takes in a `SpecialModelRenderer$BakingContext` instead of an `EntityModelSet`
     - `SpecialModelRenderers#createBlockRenderers` now takes in a `SpecialModelRenderer$BakingContext` instead of an `EntityModelSet`
@@ -2240,6 +2244,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 
 - `com.mojang.blaze3d.GraphicsWorkarounds#isGlOnDx12` - Returns whether the renderer is using DirectX 12.
 - `com.mojang.blaze3d.opengl.GlStateManager#incrementTrackedBuffers` - Increments the number of buffers used by the game.
+- `com.mojang.blaze3d.systems.TimerQuery#isRecording` - Returns whether there is a query that's currently active. 
 - `net.minecraft.SharedConstants#RESOURCE_PACK_FORMAT_MINOR`, `DATA_PACK_FORMAT_MINOR` - The minor component of the pack version.
 - `net.minecraft.advancements.critereon.MinMaxBounds`
     - `bounds` - Returns the bounds of the value.
@@ -2834,6 +2839,8 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
 - `net.minecraft.world.entity.projectile.Projectile`
     - `deflect` now takes in an `EntityReference` of the owner instead of the `Entity` itself
     - `onDeflection` no longer takes in the direct `Entity`
+    - `checkLeftOwner` now checks if the projectile is outside the collision range only when `leftOwner` and `leftOwnerChecked` are both false
+        - The original logic pertaining to this method has been moved to `isOutsideOwnerCollisionRange`, which is still private
 - `net.minecraft.world.entity.vehicle.MinecartBehavior#lerpMotion` now takes in a `Vec3` instead of three doubles
 - `net.minecraft.world.item`
     - `ItemStack#set` now has an overload that takes in a `TypedDataComponent`
