@@ -6,6 +6,11 @@ This primer is licensed under the [Creative Commons Attribution 4.0 Internationa
 
 If there's any incorrect or missing information, please file an issue on this repository or ping @ChampionAsh5357 in the Neoforged Discord server.
 
+Thank you to:
+
+- @Soaryn for pointing out some non-recommended rendering usages
+- @Deximus-Maximus for some typos
+
 ## Pack Changes
 
 There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.9&tab=changelog).
@@ -834,7 +839,9 @@ public record ExampleGroupRenderState(List<Model<Unit>> models) implements Parti
     @Override
     public void submit(SubmitNodeCollector collector) {
         // Submit every particle 
-        this.models.forEach(model -> collector.submitModel(model, ...));
+        for (var model : this.models) {
+            collector.submitModel(model, ...);
+        }
     }
 }
 
@@ -850,7 +857,7 @@ public class ExampleParticleGroup extends ParticleGroup<ExampleParticle> {
     public ParticleGroupRenderState extractRenderState(Frustum frustum, Camera camera, float partialTick) {
         // Create the particle group to submit the particles
         return new ExampleGroupRenderState(
-            this.particles.stream.map(particle -> particle.model).toList()
+            this.particles.stream().map(particle -> particle.model).toList()
         );
     }
 }
