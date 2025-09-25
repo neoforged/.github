@@ -1725,7 +1725,6 @@ managementServer.forEachConnection(connection -> connection.sendNotification(SOM
         - `onGameRuleChanged` - Handles what happens when the game rule of the current server changes.
         - `getOperatorUserPermissionLevel` -> `operatorUserPermissionLevel`
         - `isLevelEnabled` -> `isAllowedToEnterPortal`, not one-to-one
-        - `isSpawningMonsters` is now protected
         - `setPvpAllowed` replaced by `GameRules#RULE_PVP`
         - `setFlightAllowed` replaced by `DedicatedServerProperties#allowFlight`
         - `isCommandBlockEnabled` is no longer abstract
@@ -2418,6 +2417,7 @@ The current cursor on screen can now change to a native `CursorType`, via `GLFW#
         - `hasActiveTickets` - Checks whether the current level has any active tickets keeping it loaded.
         - `addTicketAndLoadWithRadius` - Adds a ticket to some location and loads the chunk and radius around that location.
     - `ServerEntity$Synchronizer` - Handles sending packets to tracking entities.
+    - `ServerLevel#isSpawningMonsters` - Returns whether the server can spawn monsters.
     - `ServerPlayer$SavedPosition` - Holds the current position of the player on disk.
 - `net.minecraft.server.level.progress.ChunkLoadStatusView` - A status view for the loading chunks.
 - `net.minecraft.server.network.ConfigurationTask#tick` - Calls the task every tick until it returns true, then finishes the task.
