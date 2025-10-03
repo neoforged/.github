@@ -6,6 +6,10 @@ This primer is licensed under the [Creative Commons Attribution 4.0 Internationa
 
 If there's any incorrect or missing information, please file an issue on this repository or ping @ChampionAsh5357 in the Neoforged Discord server.
 
+Thank you to:
+
+- @melanx for a typo
+
 ## Pack Changes
 
 There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.21.10&tab=changelog).
@@ -20,4 +24,4 @@ The following is a list of useful or interesting additions, changes, and removal
 
 ### List of Changes
 
-`net.minecraft.world.level.block.state.BlockBehaviour#entityInside` now takes in an a `boolean` indicating whether the entity is intersecting or inside the block
+`net.minecraft.world.level.block.state.BlockBehaviour#entityInside` now takes in a `boolean` indicating whether the entity is intersecting or inside the block
