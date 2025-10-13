@@ -9,6 +9,7 @@ If there's any incorrect or missing information, please file an issue on this re
 Thank you to:
 
 - @xfacthd for some educated guesses regarding the usage annotations
+- @dinnerbone for pointing out gizmos can also be submitted on the server in singleplayer worlds
 
 ## Pack Changes
 
@@ -104,7 +105,7 @@ public record ExampleGizmo(Vec3 start, Vec3 end) implements Gizmo {
 }
 ```
 
-Actually submitting the elements happens through `Gizmos#addGizmo`. This stores the gizmo to be emitted and drawn to the screen, as long as it is called during `Minecraft#tick` or `GameRenderer#render`, which is how the debug renderers emit theirs. All of the methods in `Gizmos` call `addGizmo` internally, which is why the method is typically absent outside it's class:
+Actually submitting the elements happens through `Gizmos#addGizmo`. This stores the gizmo to be emitted and drawn to the screen, as long as it is called during `Minecraft#tick` or `GameRenderer#render` on the client -- which is how the debug renderers emit theirs -- or `IntegratedServer#tickServer` in a singleplayer world. All of the methods in `Gizmos` call `addGizmo` internally, which is why the method is typically absent outside it's class:
 
 ```java
 // Somewhere in GameRenderer#render
@@ -123,7 +124,7 @@ With that, how can you submit gizmos for rendering pretty much anywhere in the c
 
 `SimpleGizmoCollector` is basically just a list that holds the collected gizmos to render. During the rendering process, `SimpleGizmoCollector#drainGizmos` is called, copying the gizmos over to a separate list for the renderer to `Gizmo#emit` them, before drawing them to the screen through the familiar frame pass and buffer source. `drainGizmos` clears the internal list it holds for the next frame.
 
-To actually collect these elements, there is a rather convoluted process. Both `Minecraft` and `LevelRenderer` have their own `SimpleGizmoCollector`. `Minecraft` collects gizmos during the ticking process, while `LevelRenderer` collects gizmos during the submission/render phases. This is done by setting the collector using `Gizmo#withCollector`, which returns a `Gizmos$TemporaryCollection`. The collection is `AutoCloseable` that, when closed, releases the held collector on the local thread. So, the collectors are wrapped in a try-with-resources to facilitate the submission during these periods. Then, during the debug pass, the per tick gizmos are merged with the per frame gizmos and drawn to the screen, quite literally at the last moment in `LevelRenderer#renderLevel`.
+To actually collect these elements, there is a rather convoluted process. Both `Minecraft`, `LevelRenderer`, and `IntegratedServer` have their own `SimpleGizmoCollector`. `Minecraft` and `IntegratedServer` collects gizmos during the ticking process, while `LevelRenderer` collects gizmos during the submission/render phases. This is done by setting the collector using `Gizmo#withCollector`, which returns a `Gizmos$TemporaryCollection`. The collection is `AutoCloseable` that, when closed, releases the held collector on the local thread. So, the collectors are wrapped in a try-with-resources to facilitate the submission during these periods. Then, during the debug pass, the per tick gizmos are merged with the per frame gizmos and drawn to the screen, quite literally at the last moment in `LevelRenderer#renderLevel`. The `IntegratedServer` gizmos in a singleplayer world are stored in a volatile field, allowing it to be accessed from the client thread.
 
 - `net.minecraft.client.Minecraft`
     - `collectPerTickGizmos` - Returns a collection of all gizmos to emit.
