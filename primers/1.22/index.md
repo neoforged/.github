@@ -15,7 +15,11 @@ Thank you to:
 
 There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.22&tab=changelog).
 
-## The Separation of Samplers
+## Oh Hey, Another Rendering Rewrite
+
+More of the rendering pipeline has been rewritten, with the majority focused on samplers, `RenderType` creation, and mipmaps.
+
+### The Separation of Samplers
 
 Blaze3d has separated setting the `AddressMode`s and `FilterMode`s when reading texture data into `GpuSampler`. As the name implies, a `GpuSampler` defines how to sample data from a buffer, such as a texture. `GpuSampler` contains four methods: `getAddressModeU` / `getAddressModeV` for determining how the sampler should behave when reading the UV positions (either repeat or clamp), and `getMinFilter` / `getMagFilter` for determining how to minify or magnify the texture respectively (either nearest neighbor or linear).
 
@@ -54,6 +58,139 @@ try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRen
 
 Setting up the post processor has not changed from the user perspective as only clamp to edge address modes may be selected.
 
+### The `RenderType` Shuffle
+
+Creating a `RenderType` has been reworked to some degree. While most of the features from the previous implementation still exist, they have been changed to match the new rendering system where direct OpenGL is abstracted away and only accessed through their defined pipelines and `RenderSystem`.
+
+#### Existing Types
+
+Existing types have been moved from `RenderType` to `RenderTypes` (e.g., `RenderType#solid` -> `RenderTypes#solid`).
+
+#### Custom Types
+
+Originally, to create a `RenderType`, you would construct a `$CompositeState` using `RenderStateShard`s. Each `RenderStateShard` would define how the pass should be setup and teardown when building some mesh, whether that was setting textures, the render target, model transforms, etc. Then, the `$CompositeState` would be built for use in whatever rendering application was needed.
+
+The new system splits the render definition in two: the `RenderSetup`, and our `RenderType`. The `RenderSetup`, as the name implies, sets up the renderer to be used when drawing to a texture. Teardown is completely removed as it is either handled directly when drawing the `RenderType` or uses newly constructed states that can just be thrown away. `RenderType`, on the other hand, is simply a named `RenderSetup`. It only handles drawing the mesh data and making some fields of the setup public for use in other buffer implementations. Multiple types can have the same `RenderSetup` as a number of existing types dynamically populate the texture used by the sampler and/or the outline of the object.
+
+A `RenderSetup` can be created through its builder via `RenderSetup#Builder`, supply the `RenderPipeline` to use. Once the builder properties are set, the actual setup can be created via `RenderSetup$RenderSetupBuilder#createRenderSetup`:
+
+```java
+public static final RenderSetup EXAMPLE_SETUP = RenderSetup.builder(
+    // The pipeline to use.
+    // This can affect what settings are allowed from the setup.
+    RenderPipelines.ITEM_ENTITY_TRANSLUCENT_CULL
+)
+    // Specifies the texture to bind to the provided sampler.
+    // The sampler must be defined by the pipeline via `RenderPipeline$Builder#withSampler`.
+    // The texture is represented as an absolute location.
+    .withTexture(
+        // 'Sampler0' is defined by the pipeline.
+        "Sampler0",
+        // Points to 'assets/minecraft/entity/wolf/wolf_armor_crackiness_low.png'.
+        ResourceLocation.withDefaultNamespace("textures/entity/wolf/wolf_armor_crackiness_low.png")
+    )
+    // When set, allows the pipeline to use the light texture.
+    // 'Sampler2' must be defined by the pipeline via `RenderPipeline$Builder#withSampler`.
+    .useLightmap()
+    // When set, allows the pipeline to use the overlay texture.
+    // 'Sampler1' must be defined by the pipeline via `RenderPipeline$Builder#withSampler`.
+    .useOverlay()
+    // When set, uses `RenderTypes#crumbling` to overlay the block destroy stages
+    // based on the crumbling progress for an entity model.
+    // This is only implemented in `ModelFeatureRenderer`.
+    .affectsCrumbling()
+    // When set, sorts the quads based on the set `ProjectionType` in
+    // `RenderSystem#getProjectionType`.
+    // This is only implemented when getting the buffers from `MultiBufferSource$BufferSource`.
+    .sortOnUpload()
+    // Sets the initial capacity of the used buffer.
+    // This is only used when constructing the initial buffers in `RenderBuffers`
+    // All custom applications of sources already have some defined buffer with the determined size.
+    .bufferSize(786432)
+    // An object-wrapped consumer that transforms the model view matrix.
+    // Vanilla implementations exist in `LayeringTransform`, applying
+    // the transformation through the projection type:
+    // - `NO_LAYERING`: Do nothing.
+    // - `VIEW_OFFSET_Z_LAYERING`: Offsets the Z by 1 based on its `ProjectionType`
+    // - `VIEW_OFFSET_Z_LAYERING_FORWARD`: Offsets the Z by -11 based on its `ProjectionType`
+    .setLayeringTransform(
+        // We can also construct a new transform
+        new LayeringTransform(
+            // The name of the transform
+            "examplemod:example_layer",
+            // The transform should not push or pop to the stack
+            // Only translate, scale, or rotate
+            stack -> stack.translate(0f, 0.1f, 0f)
+        )
+    )
+    // Sets the output target that this setup should write to,
+    // unless overridden by the `RenderSystem#output*Override` textures.
+    // This is typically the main target, though it can be other vanilla
+    // targets or a custom one if you plan to handle it.
+    .setOutputTarget(OutputTarget.MAIN_TARGET)
+    // An object-wrapped supplier that provides the texture matrix.
+    // This is typically used to modify the texture UV coordinates
+    // in the vertex shader before sampling in the fragment shader.
+    // Vanilla only uses this for the glint effect and breeze/energy:
+    // - `DEFAULT_TEXTURING`: Do nothing.
+    // - `GLINT_TEXTURING`: Translates based on the glint speed, rotates pi/18, and scales by 8.
+    // - `ENTITY_GLINT_TEXTURING`: Translates based on the glint speed, rotates pi/18, and scales by 0.5.
+    // - `ARMOR_ENTITY_GLINT_TEXTURING`: Translates based on the glint speed, rotates pi/18, and scales by 0.16.
+    // - `$OffsetTextureTransform`: Translates the texture by the provided XY coordinates.
+    .setTextureTransform(
+        // We can also construct a new transform
+        new TextureTransform(
+            // The name of the transform
+            "examplemod:example_texture",
+            // The transform to apply to the texture
+            () -> new Matrix4f().translation(0f, 1f, 0f).scale(1.5f)
+        )
+    )
+    // Sets how an outline of the mesh should be handled:
+    // - `NONE`: Do nothing.
+    // - `IS_OUTLINE`: This is an outline and should write to the outline buffer source.
+    // - `AFFECTS_OUTLINE`: This defines the shape of the outline and should use `RenderTypes#OUTLINE` to draw it.
+    // Checked when writing to the outline buffer source or,
+    // if the outline color for a feature is not 0
+    .setOutline(RenderSetup.OutlineProperty.AFFECTS_OUTLINE)
+    // Builds the setup for use in a render type.
+    .createRenderSetup();
+```
+
+Then, the `RenderType` can be created via `create`.
+
+```java
+public static final RenderType EXAMPLE_TYPE = RenderType.create(
+    // The name of the type for debugging
+    "examplemod:example_type",
+    // The render setup to use
+    EXAMPLE_SETUP
+);
+```
+
+`MeshData` can be written to the output target using `RenderType#draw`.
+
+### Mipmap Strategy Metadata
+
+A texture's `mcmeta` can now specify the `mipmap_strategy` to use in the `textures` section. There are four available strategies, with `auto` defaulting to `mean` if there is no transparency, an `cutout` when there is transparency.
+
+| Strategy        | Description                                                                                                                    |
+|:---------------:|:-------------------------------------------------------------------------------------------------------------------------------|
+| `mean`          | The default that averages the color between four pixels for the current mipmap level.                                          |
+| `cutout`        | `mean`, except that all levels are generated from the original texture, with alpha snapped to 0 or 1 using a threshold of 0.2. |
+| `strict_cutout` | `cutout`, except that it sets the alpha snaps using a threshold of `0.6`.                                                      |
+| `dark_cutout`   | `mean`, except that the surrounding pixels are only included in the average if their alpha is not `0`.                         |
+
+```json5
+// In `assets/examplemod/textures/block/example/example_block.png.mcmeta
+{
+    "texture": {
+        // Uses the chosen strategy
+        "mipmap_strategy": "cutout"
+    }
+}
+```
+
 - `com.mojang.blaze3d.opengl`
     - `GlRenderPass`
         - `samplers` now is a hash map of strings to `GlRenderPass$TextureViewAndSampler`s
@@ -61,15 +198,18 @@ Setting up the post processor has not changed from the user perspective as only 
     - `GlSampler` - The OpenGL implementation of a gpu sampler.
     - `GlTexture#modesDirty`, `flushModeChanges` are removed
 - `com.mojang.blaze3d.pipeline.RenderTarget#filterMode`, `setFilterMode` are removed
+- `com.mojang.blaze3d.platform.TextureUtil#solidify` - Modifies the texture by packing and unpacking the pixels to better help with non-darkened interiors within mipmaps.
 - `com.mojang.blaze3d.systems`
     - `GpuDevice#createSampler` - Creates a sampler for some source to destination with the desired address and filter modes.
     - `RenderPass#bindTexture` now takes in a `GpuSampler`
     - `RenderSystem`
         - `samplerCache` - Returns a cache of samples containing all possible combinations.
-        - `setupOverlayColor` now takes in a `GpuSampler`
-        - `setShaderTexture` now takes in a `GpuSampler`
-        - `getShaderTexture` now returns a `$TextureAndSampler` instead of a `GpuTextureView`
-        - `$TextureAndSampler` - A record that defines a sampler with its sampled texture.
+        - `TEXTURE_COUNT` is removed
+        - `setupOverlayColor`, `teardownOverlayColor` are removed
+        - `setShaderTexture`, `getShaderTexture` are removed
+        - `setTextureMatrix`, `resetTextureMatrix`, `getTextureMatrix` are removed
+        - `lineWidth` -> `VertexConsumer#setLineWidth`
+        - `getShaderLineWidth` -> `Window#getAppropriateLineWidth`
     - `SamplerCache` - A cache of all possible samplers that may be used by the renderer.
 - `com.mojang.blaze3d.textures`
     - `GpuSampler` - A buffer sampler with the specified UV address modes and minification and magnification filters.
@@ -79,11 +219,35 @@ Setting up the post processor has not changed from the user perspective as only 
         - `minFilter` -> `GpuSampler#getMinFilter`
         - `magFilter` -> `GpuSampler#getMagFilter`
         - `setAddressMode`, `setTextureFilter` have been replaced by `SamplerCache#getSampler`, not one-to-one
+        - `useMipmaps`, `setUseMipmaps` are removed
 - `net.minecraft.client.gui.render.TextureSetup` now takes in the `GpuSampler`s for each of the textures
     - This also includes the static constructors
-- `net.minecraft.client.renderer.PostPass`
-    - `$input#bilinear` - Whether to use a bilinear filter.
-    - `$TextureInput` now takes in a `boolean` representing whether to use a bilinear filter
+- `net.minecraft.client.renderer`
+    - `LightTexture#turnOffLightLayer`, `turnOnLightLayer` are removed
+    - `PostPass`
+        - `$Input#bilinear` - Whether to use a bilinear filter.
+        - `$TextureInput` now takes in a `boolean` representing whether to use a bilinear filter
+    - `RenderPipelines#CUTOUT_MIPPED` is removed
+    - `RenderStateShard` has been replaced with `RenderSetup`, not one-to-one
+        - `$LightmapStateShard` -> `RenderSetup#useLightmap`
+        - `$OverlayStateShard` -> `RenderSetup#useOverlay`
+        - `$MultiTextureStateShard`, `$TextureStateShard` -> `RenderSetup#textures`
+        - `$LayeringStateShard` -> `RenderSetup#layeringTransform`, `LayeringTransform`
+        - `$LineStateShard` -> `VertexConsumer#setLineWidth`
+        - `$OutputStateShard` -> `RenderSetup#outputTarget`, `OutputTarget`
+        - `$TexturingStateShard`, `$OffsetTexturingStateShard` -> `RenderSetup#textureTransform`, `TextureTransform`
+    - `RenderType` has been split into two separate concepts, not one-to-one
+        - All of the stored `RenderType`s have been moved to `RenderTypes`
+        - The actual class usage has moved to `.rendertype.RenderType`, where it does the work of `$CompositeRenderType`
+- `net.minecraft.client.renderer.chunk.ChunkSectionLayer` no longer takes in whether to use mipmaps
+    - `CUTOUT_MIPPED` is removed
+- `net.minecraft.client.renderer.texture`
+    - `AbstractTexture#setUseMipmaps` is removed
+    - `MipmapGenerator#generateMipLevels` now takes in a `MipmapStrategy` to determine how a specific texture should be mip mapped
+    - `MipmapStrategy` - A enum defines the strategies used when constructing a mipmap for a texture.
+    - `OverlayTexture#setupOverlayColor`, `teardownOverlayColor` replaced by `getTextureView`, not one-to-one
+    - `SpriteContents` now takes in a `MipmapStrategy` to determine how a specific texture should be mip mapped
+- `net.minecraft.client.resources.metadata.texture.TextureMetadataSection` now takes in a `MipmapStrategy` to determine how a specific texture should be mip mapped
 
 ## Gizmos
 
@@ -116,7 +280,7 @@ Gizmos.addGizmo(new ExampleGizmo(Vec3.ZERO, Vec3.X_AXIS));
 Gizmos.point(Vec3.ZERO, 0, 5f);
 ```
 
-Calling `addGizmo` returns a `GizmoProperties`, which sets some properties for when the element is drawn. `GizmoProperties` provides three methods:
+Calling `addGizmo` returns a `GizmoProperties`, which sets some properties for when the element is drawn, assuming that `GizmoCollector` is not a `NOOP`. `GizmoProperties` provides three methods:
 
 | Method             | Description                                                                     |
 |:------------------:|:--------------------------------------------------------------------------------|
@@ -1064,6 +1228,10 @@ A new debug has been added that draws the bounding box each glyph, including the
     - `TextRenderable$Styled` - A text renderable that defines some active area for its bounds.
 - `net.minecraft.client.gui.font.glyphs.BakedGlyph#createGlyph` now returns a `TextRenderable$Styled`
 
+### Specific Logic Changes
+
+- `AbstractContainerScreen#keyPressed` no longer returns `true` if the key is not handled by the screen, instead returning `false`
+
 ### Tag Changes
 
 - `minecraft:biome`
@@ -1095,9 +1263,7 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `com.mojang.blaze3d.opengl`
     - `GlConst#GL_POINTS` - Defines the points primitive as the type to render.
     - `GlTimerQuery` - The OpenGL implementation of querying an object, typically the time elapsed.
-- `com.mojang.blaze3d.platform`
-    - `InputConstants#MOUSE_BUTTON_*` - The inputs of a mouse click, represented by numbers as they may have different intended purposes.
-    - `TextureUtil#solidify` - Modifies the texture by packing and unpacking the pixels to better help with non-darkened interiors within mipmaps.
+- `com.mojang.blaze3d.platform.InputConstants#MOUSE_BUTTON_*` - The inputs of a mouse click, represented by numbers as they may have different intended purposes.
 - `com.mojang.blaze3d.systems`
     - `CommandEncoder#timerQueryBegin`, `timerQueryEnd` - Handlers for keeping track of the time elapsed.
     - `GpuQuery` - A query for an arbitrary object, such as the time elapsed.
@@ -1110,6 +1276,7 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `com.mojang.math`
     - `OctahedralGroup#permutation` - Returns the symmetric group.
     - `SymmetricGroup3#inverse` - Returns the inverse group.
+- `net.minecraft.Util#localizedDateFormatter` - Returns the localized `DateTimeFormatter` for the given style.
 - `net.minecraft.advancements.critereon.DataComponentMatchers$Builder#any` - Matches whether there exists some data for the component.
 - `net.minecraft.client`
     - `GuiMessage`
@@ -1159,7 +1326,7 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `net.minecraft.client.model`
     - `HumanoidModel$ArmPose`
         - `SPEAR` - The spear third person arm pose.
-        - `animateUseItem` - Modifies the `PoseStack` given the use time, arm, and stack.
+        - `animateUseItem` - Modifies the `PoseStack` given the entity state, use time, arm, and stack.
     - `NautilusArmorModel` - The armor model for a nautilus.
     - `NautilusModel` - The model for a nautilus.
     - `NautilusSaddleModel` - The saddle model for a nautilus
@@ -1180,6 +1347,7 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `swingAnimationType` - The animation to play when swinging their hand.
         - `ticksUsingItem` - How many ticks the item has been used for.
         - `getUseItemStackForArm` - Returns the held item stack based on the arm.
+    - `LivingEntityRenderState#ticksSinceEnemyHit` - The amount of ticks since this entity was last hit.
     - `NautilusRenderState` - The entity render state of a nautilus.
     - `UndeadRenderState` - The entity render state for an undead humanoid.
 - `net.minecraft.client.renderer.item.ItemModelResolver#swapAnimationScale` - Gets the scale of the swap animation for the stack.
@@ -1204,8 +1372,12 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `net.minecraft.server.jsonrpc.api.Schema`
     - `typedCodec` - Returns the codec for the schema.
     - `info` - Returns a copy of the schema.
-- `net.minecraft.server.level.ServerLevel#getDayCount` - Gets the number of days that has passed.
-- `net.minecraft.server.network.ServerGamePacketListenerImpl#resetFlyingTicks` - Resets how long the player has been flying.
+- `net.minecraft.server.level`
+    - `ChunkMap#getChunkDataFixContextTag` - Returns the datafix tag for the chunk data.
+    - `ServerLevel#getDayCount` - Gets the number of days that has passed.
+- `net.minecraft.server.network`
+    - `EventLoopGroupHolder` - A holder for managing the event loop and channels for communicating with some end, whether local or socket-based.
+    - `ServerGamePacketListenerImpl#resetFlyingTicks` - Resets how long the player has been flying.
 - `net.minecraft.server.notifications`
     - `NotificationService#serverActivityOccurred` - Notifies the management server that activity has occurred.
     - `ServerActivityMonitor` - The monitor that sends the server activity notification
@@ -1224,7 +1396,8 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `NON_NEGATIVE_LONG`, `POSITIVE_LONG` - Longs with the listed constraints.
         - `longRange` - A long codec that validates whether it is between the provided range.
         - `STRING_RGB_COLOR`, `STRING_ARGB_COLOR` - A codec allowing for an (A)RGB value expressed in hex form as a string.
-    - `Mth#Cube` - Cubes a number.
+    - `Mth#cube` - Cubes a number.
+    - `SpecialDates` - A utility containing the dates that Mojang changes some behavior or rendering for.
 - `net.minecraft.util.profiling.jfr.JvmProfiler#onClientTick` - Runs on client tick, taking in the current FPS.
 - `net.minecraft.util.profiling.jfr.event.ClientFpsEvent` - An event that keeps track of the client FPS.
 - `net.minecraft.util.profiling.jfr.stats.FpsStat` - A record containing the client FPS.
@@ -1236,6 +1409,7 @@ A new debug has been added that draws the bounding box each glyph, including the
     - `Entity`
         - `getHeadLookAngle` - Calculates the view vector of the head rotation.
         - `updateDataBeforeSync` - Updates the data stored in the entity before syncing to the client.
+    - `EntityEvent#HIT` - An event fired when an entity is hit.
     - `LivingEntity`
         - `DEFAULT_KNOCKBACK` - The default knockback applied to an entity on hit.
         - `itemSwapTicker` - The amount of time taken when swapping items.
@@ -1246,6 +1420,7 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `stabAttack` - Handles when a mob is stabbed by this entity.
         - `onAttack` - Handles when this entity has attacked another entity.
         - `getTicksUsingItem` - Returns the number of ticks this item has been used for.
+        - `getTicksSinceEnemyHit` - The number of ticks that has passed since this entity was last hit.
     - `Mob#sunProtectionSlot` - The equipment slot that protects the entity from the sun.
     - `NeutralMob#level` - Returns the level the entity is in.
     - `PlayerRideableJumping#getPlayerJumpPendingScale` - Returns the scalar to apply to the entity on player jump.
@@ -1267,6 +1442,7 @@ A new debug has been added that draws the bounding box each glyph, including the
     - `cannotAttackWithItem` - Checks whether the player cannot attack with the item.
     - `getItemSwapScale` - Returns the scalar to use for the item swap animation.
     - `resetOnlyAttackStrengthTicker` - Resets the attack strength ticker.
+- `net.minecraft.world.food.FoodData#hasEnoughFood` - Whether the current food level is greater than 6 hunger (or three full hunger bars).
 - `net.minecraft.world.item`
     - `Item$Properties`
         - `spear` - Adds the spear components.
@@ -1282,8 +1458,20 @@ A new debug has been added that draws the bounding box each glyph, including the
     - `LevelBasedValue$Exponent` - Applies an exponent given the base and power.
 - `net.minecraft.world.item.enchantment.effects`
     - `ApplyEntityImpulse` - An entity effect that adds an impulse in the direction of the look angle.
+    - `ApplyExhaustion` - An entity effect that applies food exhaustion to the player if they are using the enchanted item.
     - `ScaleExponentially` - A value effect that multiplies the value by a number raised to some exponent.
 - `net.minecraft.world.level.MoonPhase` - An enum representing the phases of the moon.
+- `net.minecraft.world.level.border.WorldBorder$MovingBorderExtent#getPreviousSize` - Gets the previous size of the border.
+- `net.minecraft.world.level.chunk.storage`
+    - `IOWorker#STORE_EMPTY` - A supplied `null` tag.
+    - `LegacyTagFixer` - An interface that handles how to upgrade a tag, like for the chunk.
+    - `SimpleRegionStorage`
+        - `isOldChunkAround` - Whether the chunk from a previous version still exists in this version.
+        - `injectDatafixingContext` - When the context is not `null`, adds it to the given tag.
+        - `markChunkDone` - Marks a chunk as finished for upgrading to the current version.
+        - `chunkScanner` - Gets the access used to scan chunks.
+- `net.minecraft.world.level.levelgen.structure.LegacyStructureDataHandler#LAST_MONOLYTH_STRUCTURE_DATA_VERSION` - Returns the last data version containing glitched monolyths.
+- `net.minecraft.world.level.storage.loot.functions.DiscardItem` - A loot function that discards the loot, returning an empty stack.
 - `net.minecraft.world.phys.Vec3`
     - `offsetRandomXZ` - Offsets the point by a random amount in the XZ direction.
     - `rotation` - Computes the rotation of the vector.
@@ -1299,11 +1487,7 @@ A new debug has been added that draws the bounding box each glyph, including the
 
 ### List of Changes
 
-- `com.mojang.blaze3d.systems`
-    - `GpuDevice#createTexture` now has an overload that takes in a supplied label instead of the raw string
-    - `RenderSystem`
-        - `lineWidth` -> `VertexConsumer#setLineWidth`
-        - `getShaderLineWidth` -> `Window#getAppropriateLineWidth`
+- `com.mojang.blaze3d.systems.GpuDevice#createTexture` now has an overload that takes in a supplied label instead of the raw string
 - `com.mojang.blaze3d.vertex.VertexConsumer#addVertex`, `addVertexWith2DPose` now take in the interface, 'read only' variants of its arguments (e.g., `Vector3f` -> `Vector3fc`)
 - `com.mojang.math`
     - `OctahedralGroup#permute` -> `SymmetricGroup3#permuteAxis`
@@ -1385,6 +1569,7 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `net.minecraft.client.multiplayer`
     - `ClientLevel#getSkyColor` now takes in the `Camera` instead of the camera position
     - `MultiPlayerGameMode#isAlwaysFlying` -> `isSpectator`
+    - `ServerStatusPinger#pingServer` now takes in an `EventLoopGroupHolder`
 - `net.minecraft.client.renderer`
     - `DimensionSpecialEffects` no longer takes in the `boolean` for end flashes
     - `DynamicUniforms#writeTransform`, `$Transform` no longer take in the line width `float`
@@ -1392,9 +1577,6 @@ A new debug has been added that draws the bounding box each glyph, including the
     - `RenderPipelines`
         - `LINE_STRIP` -> `LINES`, not one-to-one
         - `DEBUG_LINE_STRIP` -> `DEBUG_POINTS`, not one-to-one
-    - `RenderStateShard`
-        - `$MultiTextureStateShard$Builder#add` no longer takes in a `boolean` whether to use mipmaps
-        - `$TextureStateShard` no longer takes in a `boolean` whether to use mipmaps
     - `RenderType`
         - `LINE_STRIP`, `lineStrip` -> `LINES`, not one-to-one
         - `debugLineStrip` -> `debugPoint`, not one-to-one
@@ -1407,11 +1589,11 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `$Vec3Uniform` now takes in a `Vector3fc` instead of a `Vector3f`
         - `$Vec4Uniform` now takes in a `Vector4fc` instead of a `Vector4f`
     - `WeatherEffectRenderer#tickRainParticles` now takes in an `int` for the weather radius
+    - `WorldBorderRenderer#extract` now takes in a `float` for the partial tick
 - `net.minecraft.client.renderer.block.model.BlockElementRotation` now takes in a `Vector3fc` for the origin and a `Matrix4fc` transform
 - `net.minecraft.client.renderer.blockentity.TestInstanceRenderer` no longer takes in the `BlockEntityRendererProvider$Context`
 - `net.minecraft.client.renderer.blockentity.state.BlockEntityWithBoundingBoxRenderState$InvisibleBlockType$STRUCUTRE_VOID` -> `STRUCTURE_VOID`
-- `net.minecraft.client.renderer.chunk.ChunkSectionLayer` no longer takes in whether to use mipmaps
-    - `textureView` -> `texture`, not one-to-one
+- `net.minecraft.client.renderer.chunk.ChunkSectionLayer#textureView` -> `texture`, not one-to-one
 - `net.minecraft.client.renderer.entity.layers.ItemInHandLayer#submitArmWithItem` now takes in the held `ItemStack`
 - `net.minecraft.client.renderer.entity.state`
     - `ArmedEntityRenderState`
@@ -1428,10 +1610,6 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `net.minecraft.client.renderer.fog.environment.FogEnvironment#setupFog` no longer takes in the `Entity` and `BlockPos`, instead the `Camera`
 - `net.minecraft.client.renderer.item.ClientItem$Properties` now takes in a float for changing the scale of the swap animation
 - `net.minecraft.client.renderer.state.SkyRenderState#moonPhase` is now a `MoonPhase` instead of an `int`
-- `net.minecraft.client.renderer.texture`
-    - `MipmapGenerator#generateMipLevels` now takes in a `boolean` of whether the mipmaps should be darkened to emulate the darker interior of the block
-    - `SpriteContents` now takes in whether the mipmaps should be darkened to emulate the darker interior of the block
-    - `TextureMetadataSection` now takes in a `boolean` of whether the mipmaps should be darkened to emulate the darker interior of the block
 - `net.minecraft.client.resources.SplashManager`
     - `prepare` now returns a list of `Component`s instead of strings
     - `apply` now takes in a list of `Component`s instead of strings
@@ -1446,9 +1624,16 @@ A new debug has been added that draws the bounding box each glyph, including the
     - `assetTrue`, `assetFalse`, `assertValueEqual` now has an overload that takes in a `String` instead of a `Component`
     - `assertEntityData` now has an overload that takes in the `AABB` bounding box
     - `getRelativeBounds` is now public
-- `net.minecraft.network.FriendlyByteBuf`
-    - `writeVector3f` now takes in a `Vector3fc` instead of a `Vector3f`
-    - `writeQuaternion` now takes in a `Quaternionfc` instead of a `Quaternionf`
+- `net.minecraft.nbt.NbtUtils#getDataVersion` now has an overload that only takes in the `CompoundTag`
+- `net.minecraft.network`
+    - `Connection`
+        - `NETWORK_WORKER_GROUP` -> `EventLoopGroupHolder#NIO`, not one-to-one
+        - `NETWORK_EPOLL_WORKER_GROUP` -> `EventLoopGroupHolder#EPOLL`, not one-to-one
+        - `LOCAL_WORKER_GROUP` -> `EventLoopGroupHolder#LOCAL`, not one-to-one
+        - `connectToServer`, `connect` now take in an `EventLoopGroupHolder` instead of a `boolean`
+    - `FriendlyByteBuf`
+        - `writeVector3f` now takes in a `Vector3fc` instead of a `Vector3f`
+        - `writeQuaternion` now takes in a `Quaternionfc` instead of a `Quaternionf`
 - `net.minecraft.network.codec`
     - `ByteBufCodecs`
         - `VECTOR3F` now uses a `Vector3fc` instead of a `Vector3f`
@@ -1471,6 +1656,7 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `isCommandBlockEnabled` -> `ServerLevel#isCommandBlockEnabled`
         - `isSpawnerBlockEnabled` -> `ServerLevel#isSpawnerBlockEnabled`
         - `getGameRules` -> `ServerLevel#getGameRules`
+        - `isEpollEnabled` -> `useNativeTransport`
     - `ServerScoreboard` no longer implements its own saved data type, instead using the packed `ScoreboardSaveData`
         - `TYPE` -> `ScoreboardSavedData#TYPE`
 - `net.minecraft.server.jsonrpc`
@@ -1492,6 +1678,10 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `net.minecraft.server.jsonrpc.security.AuthenticationHandler` now implements `ChannelDuplexHandler` instead of `ChannelInboundHandlerAdapter`
     - The constructor now takes in a string set of allowed origins
     - `$SecurityCheckResult#allowed` now has an overload that specifies whether the token was sent through the websocket protocol
+- `net.minecraft.server.level.ChunkMap` now extends `SimpleRegionStorage` instead of `ChunkStorage`
+- `net.minecraft.server.network.ServerConnectionListener`
+    - `SERVER_EVENT_GROUP` -> `EventLoopGroupHolder#NIO`, not one-to-one
+    - `SERVER_EPOLL_EVENT_GROUP` -> `EventLoopGroupHolder#EPOLL`, not one-to-one
 - `net.minecraft.util`
     - `ARGB#lerp` -> `srgbLerp`
     - `ExtraCodecs` now use the interface, 'read only' variants for its generic (e.g., `Vector3f` -> `Vector3fc`)
@@ -1500,6 +1690,11 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `net.minecraft.util.profiling.jfr.parse.JfrStatsResult` now takes in an FPS stat
     - `tickTimes` -> `serverTickTimes`
 - `net.minecraft.util.profiling.jfr.stats.TimedStatSummary#summary` now returns an optional of the `TimeStatSummary`
+- `net.minecraft.util.worldupdate.WorldUpgrader`
+    - `$AbstractUpgrader` no longer takes in a generic
+        - `createStorage` now returns a `SimpleRegionStorage` instead of the generic
+        - `tryProcessOnePosition` now takes in a `SimpleRegionStorage` instead of the generic
+    - `$DimensionToUpgrade` no longer takes in a generic, instead using `SimpleRegionStorage`
 - `net.minecraft.world.RandomSequences` no longer takes in the world seed
     - `codec` -> `CODEC`
     - `get`, `reset` now takes in the world seed
@@ -1554,11 +1749,34 @@ A new debug has been added that draws the bounding box each glyph, including the
     - `AmbientAdditionsSettings` is now a record
     - `AmbientMoodSettings` is now a record
     - `AmbientParticleSettings` is now a record
+- `net.minecraft.world.level.border`
+    - `BorderChangeListener#onLerpSize` now takes in an additional `long` for the game time
+    - `WorldBorder` can now take in the `WorldBorder$Settings`
+        - `getMin*`, `getMax*` now have an overload that takes in the partial tick `float`
+        - `lerpSizeBetween` now takes in an additional `long` for the game time
+        - `applySettings` -> `applyInitialSettings`, not one-to-one
+            - The original behavior can be replicated by passing the settings into the constructor
+        - `$BorderExtent#getMin*`, `getMax*` now takes in the partial tick `float`
+- `net.minecraft.world.level.chunk.storage`
+    - `RecreatingSimpleRegionStorage` now takes in a supplied `LegacyTagFixer`
+    - `SimpleRegionStorage` now takes in a supplied `LegacyTagFixer`
+        - `write` now has an overload that takes in a supplied `CompoundTag`
+        - `upgradeChunkTag` now has an overload that takes in a a nullable tag comntext
 - `net.minecraft.world.level.dimension.DimensionType`
     - `MOON_PHASES` is now an array of `MoonPhase`s and private
     - `moonPhase` now returns a `MoonPhase` instead of an `int`
+- `net.minecraft.world.level.levelgen.structure.LegacyStructureDataHandler` now implements `LegacyTagFixer`
+    - The constructor now takes in the `DataFixer`
+    - `removeIndex` -> `LegacyTagFixer#markChunkDone`
+    - `updateFromLegacy` now private
+    - `getLegacyStructureHandler` now takes in the `DataFixer`
 - `net.minecraft.world.level.saveddata.SavedDataType` no longer takes in a `SavedData$Context`, removing the function argument constructor
-- `net.minecraft.world.level.storage.DimensionDataStorage` no longer takes in a `SavedData$Context`
+- `net.minecraft.world.level.storage`
+    - `DimensionDataStorage` no longer takes in a `SavedData$Context`
+    - `FileNameDateFormatter#create` -> `FORMATTER`
+    - `LevelStorageSource$LevelDirectory#corruptedDataFile`, `rawDataFile` now take in a `ZonedDateTime` instead of a `LocalDateTime`
+- `net.minecraft.world.level.storage.loot.functions.FilteredFunction` now takes in an `Optional` pass and fail `LootItemFunction` instead of just a modifier
+    - The function can now be builder through a `$Builder` via `filtered`
 - `net.minecraft.world.phys.Vec3` now takes in a `Vector3fc` instead of a `Vector3f`
 - `net.minecraft.world.scores`
     - `Score` now has a public constructor for the `$Packed` value
@@ -1571,7 +1789,6 @@ A new debug has been added that draws the bounding box each glyph, including the
 
 ### List of Removals
 
-- `com.mojang.blaze3d.textures.GpuTexture#useMipmaps`, `setUseMipmaps`
 - `com.mojang.blaze3d.vertex.VertexFormat$Mode#LINE_STRIP`
 - `net.minecraft.client`
     - `Minecraft#useFancyGraphics`
@@ -1587,32 +1804,30 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `net.minecraft.client.renderer`
     - `GpuWarnlistManager#dismissWarningAndSkipFabulous`, `isSkippingFabulous`
     - `RenderPipelines`
-        - `CUTOUT_MIPPED`
         - `DEBUG_STRUCTURE_QUADS`, `DEBUG_SECTION_QUADS`
-    - `RenderStateShard`
-        - `BLOCK_SHEET_MIPPED`
-        - `DEFAULT_LINE`, `$LineStateShard`
-    - `RenderType`
-        - `cutoutMipped`
-        - `debugStructureQuads`, `debugSectionQuads`
-        - `$CompositeState$CompositeStateBuilder#setLineState`
     - `SkyRenderer#initTextures`
-- `net.minecraft.client.renderer.chunk.ChunkSectionLayer#CUTOUT_MIPPED`
 - `net.minecraft.client.renderer.fog.environment.FogEnvironment#onNotApplicable`
-- `net.minecraft.client.renderer.texture.AbstractTexture#setUseMipmaps`
 - `net.minecraft.client.resources.model.BlockModelRotation#actualRotation`
 - `net.minecraft.gametest.framework.GameTestHelper#setNight`, `setDayTime`
+- `net.minecraft.network.FriendlyByteBuf#readDate`, `writeDate`
 - `net.minecraft.server.ServerScoreboard#createData`, `addDirtyListener`
 - `net.minecraft.server.jsonrpc.IncomingRpcMethod$Factory`
 - `net.minecraft.server.jsonrpc.methods.IllegalMethodDefinitionException`
 - `net.minecraft.server.jsonrpc.security.AuthenticationHandler#AUTH_HEADER`
+- `net.minecraft.util.thread.NamedThreadFactory`
 - `net.minecraft.world.entity.Mob#isSunBurnTick`
 - `net.minecraft.world.entity.animal.horse.ZombieHorse#checkZombieHorseSpawnRules`
     - Use `Monster#checkMonsterSpawnRules` instead
 - `net.minecraft.world.entity.raid.Raid#TICKS_PER_DAY`
-- `net.minecraft.world.level.BaseCommandBlock`
-    - `getLevel`
-    - `getUsedBy`, `getPosition`
-- `net.minecraft.world.level.Level#TICKS_PER_DAY`
+- `net.minecraft.world.level`
+    - `BaseCommandBlock`
+        - `getLevel`
+        - `getUsedBy`, `getPosition`
+    - `Level#TICKS_PER_DAY`
+- `net.minecraft.world.level.border.WorldBorder$Settings#toWorldBorder`
+    - Use the `WorldBorder` constructor instead
+- `net.minecraft.world.level.chunk.storage`
+    - `ChunkStorage`
+    - `RecreatingChunkStorage`
 - `net.minecraft.world.level.saveddata.SavedData$Context`
 - `net.minecraft.world.phys.Vec3#fromRGB24`
