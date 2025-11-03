@@ -21,11 +21,27 @@ More of the rendering pipeline has been rewritten, with the majority focused on 
 
 ### The Separation of Samplers
 
-Blaze3d has separated setting the `AddressMode`s and `FilterMode`s when reading texture data into `GpuSampler`. As the name implies, a `GpuSampler` defines how to sample data from a buffer, such as a texture. `GpuSampler` contains four methods: `getAddressModeU` / `getAddressModeV` for determining how the sampler should behave when reading the UV positions (either repeat or clamp), and `getMinFilter` / `getMagFilter` for determining how to minify or magnify the texture respectively (either nearest neighbor or linear).
+Blaze3d has separated setting the `AddressMode`s and `FilterMode`s when reading texture data into `GpuSampler`. As the name implies, a `GpuSampler` defines how to sample data from a buffer, such as a texture. `GpuSampler` contains four methods: `getAddressModeU` / `getAddressModeV` for determining how the sampler should behave when reading the UV positions (either repeat or clamp), `getMinFilter` / `getMagFilter` for determining how to minify or magnify the texture respectively (either nearest neighbor or linear), and `getMaxAnisotropy` for the largest anisotropic filtering level that can be used.
 
-Samplers can be created via `GpuDevice#createSampler`, but that is not necessary in this case. As there are only 16 possible combinations, vanilla creates all `GpuSampler`s and stores them in a cache, accessible via `RenderSystem#getSamplerCache`, followed by `SamplerCache#getSampler`:
+Samplers can be created via `GpuDevice#createSampler`, but that is not necessary unless you want to specify a different anisotropic filtering level greater than `1`. If the default, as there are only 16 possible combinations, vanilla creates all `GpuSampler`s and stores them in a cache, accessible via `RenderSystem#getSamplerCache`, followed by `SamplerCache#getSampler`:
 
 ```java
+// Raw call
+GpuSampler sampler = RenderSystem.getDevice().createSampler(
+    // U address mode
+    AddressMode.CLAMP_TO_EDGE,
+    // V address mode
+    AddressMode.CLAMP_TO_EDGE,
+    // Minification filter
+    FilterMode.LINEAR,
+    // Magnification filter
+    FilterMode.NEAREST,
+    // The maximum anisotropic filtering level
+    // Vanilla uses either 1, 2, 4, or 8 for level rendering
+    4f
+);
+
+// Sampler cache method
 GpuSampler sampler = RenderSystem.getSamplerCache().getSampler(
     // U address mode
     AddressMode.CLAMP_TO_EDGE,
@@ -35,7 +51,7 @@ GpuSampler sampler = RenderSystem.getSamplerCache().getSampler(
     FilterMode.LINEAR,
     // Magnification filter
     FilterMode.NEAREST
-)
+);
 ```
 
 To make user of the sampler for a texture, when binding the texture in a render pass (via `RenderPass#bindTexture`), you must now specify the sampler to use in addition to the texture view:
@@ -191,16 +207,27 @@ A texture's `mcmeta` can now specify the `mipmap_strategy` to use in the `textur
 }
 ```
 
+### Block and Terrain Split
+
+`RenderPipeline`s that were used by both a standalone block and the terrain has been split into separate pipelines: one with prefix `_BLOCK` and `_TERRAIN`, respectively. This includes the solid, cutout, translucent, and tripwire pipelines. No block variant exists for the translucent pipeline.
+
 - `com.mojang.blaze3d.opengl`
+    - `GlDevice` now takes in a `ShaderSource` instead of a `BiFunction`
+        - `getOrCompileShader` now takes in a `ShaderSource` instead of a `BiFunction`
     - `GlRenderPass`
         - `samplers` now is a hash map of strings to `GlRenderPass$TextureViewAndSampler`s
         - `$TextureViewAndSampler` - A record that defines a sampler with its sampled texture.
     - `GlSampler` - The OpenGL implementation of a gpu sampler.
     - `GlTexture#modesDirty`, `flushModeChanges` are removed
+    - `GlTextureView#getFbo` - Gets the framebuffer object of a texture, using the cache if present.
 - `com.mojang.blaze3d.pipeline.RenderTarget#filterMode`, `setFilterMode` are removed
 - `com.mojang.blaze3d.platform.TextureUtil#solidify` - Modifies the texture by packing and unpacking the pixels to better help with non-darkened interiors within mipmaps.
+- `com.mojang.blaze3d.shaders.ShaderSource` - A functional interface that gets the shader source from its id and type as a string.
 - `com.mojang.blaze3d.systems`
-    - `GpuDevice#createSampler` - Creates a sampler for some source to destination with the desired address and filter modes.
+    - `GpuDevice`
+        - `createSampler` - Creates a sampler for some source to destination with the desired address and filter modes.
+        - `precompilePipeline` now takes in a `ShaderSource` instead of a `BiFunction`
+        - `getMaxSupportedAnisotropy` - The maximum anisotropic filtering level supported by the hardware.
     - `RenderPass#bindTexture` now takes in a `GpuSampler`
     - `RenderSystem`
         - `samplerCache` - Returns a cache of samples containing all possible combinations.
@@ -210,6 +237,7 @@ A texture's `mcmeta` can now specify the `mipmap_strategy` to use in the `textur
         - `setTextureMatrix`, `resetTextureMatrix`, `getTextureMatrix` are removed
         - `lineWidth` -> `VertexConsumer#setLineWidth`
         - `getShaderLineWidth` -> `Window#getAppropriateLineWidth`
+        - `initRenderer` now takes in a `ShaderSource` instead of a `BiFunction`
     - `SamplerCache` - A cache of all possible samplers that may be used by the renderer.
 - `com.mojang.blaze3d.textures`
     - `GpuSampler` - A buffer sampler with the specified UV address modes and minification and magnification filters.
@@ -224,10 +252,17 @@ A texture's `mcmeta` can now specify the `mipmap_strategy` to use in the `textur
     - This also includes the static constructors
 - `net.minecraft.client.renderer`
     - `LightTexture#turnOffLightLayer`, `turnOnLightLayer` are removed
+    - `LevelRenderer#onChangeMaxAnisotropy` - Resets the chunk layer sampler on anisotropic level change.
     - `PostPass`
         - `$Input#bilinear` - Whether to use a bilinear filter.
         - `$TextureInput` now takes in a `boolean` representing whether to use a bilinear filter
-    - `RenderPipelines#CUTOUT_MIPPED` is removed
+    - `RenderPipelines`
+        - `SOLID` -> `SOLID_BLOCK`, `SOLID_TERRAIN`
+        - `CUTOUT` -> `CUTOUT_BLOCK`, `CUTOUT_TERRAIN`
+        - `CUTOUT_MIPPED` is removed
+        - `TRANSLUCENT` -> `TRANSLUCENT_TERRAIN`
+        - `TRIPWIRE` -> `TRIPWIRE_BLOCK`, `TRIPWIRE_TERRAIN`
+        - `ANIMATE_SPRITE_SNIPPET`, `ANIMATE_SPRITE_BLIT`, `ANIMATE_SPRITE_INTERPOLATION` - Pipelines for animated sprites.
     - `RenderStateShard` has been replaced with `RenderSetup`, not one-to-one
         - `$LightmapStateShard` -> `RenderSetup#useLightmap`
         - `$OverlayStateShard` -> `RenderSetup#useOverlay`
@@ -239,14 +274,45 @@ A texture's `mcmeta` can now specify the `mipmap_strategy` to use in the `textur
     - `RenderType` has been split into two separate concepts, not one-to-one
         - All of the stored `RenderType`s have been moved to `RenderTypes`
         - The actual class usage has moved to `.rendertype.RenderType`, where it does the work of `$CompositeRenderType`
-- `net.minecraft.client.renderer.chunk.ChunkSectionLayer` no longer takes in whether to use mipmaps
-    - `CUTOUT_MIPPED` is removed
+- `net.minecraft.client.renderer.chunk`
+    - `ChunkSectionLayer` no longer takes in whether to use mipmaps
+        - `CUTOUT_MIPPED` is removed
+        - `texture` is removed
+    - `ChunkSectionsToRender` now takes in the `GpuTextureView`
+        - `dynamicTransforms` -> `chunkSectionInfos`
+        - `renderGroup` now takes in the `GpuSampler`
 - `net.minecraft.client.renderer.texture`
     - `AbstractTexture#setUseMipmaps` is removed
-    - `MipmapGenerator#generateMipLevels` now takes in a `MipmapStrategy` to determine how a specific texture should be mip mapped
+    - `MipmapGenerator#generateMipLevels` now takes in the name of the texture and a `MipmapStrategy` to determine how a specific texture should be mip mapped
     - `MipmapStrategy` - A enum defines the strategies used when constructing a mipmap for a texture.
     - `OverlayTexture#setupOverlayColor`, `teardownOverlayColor` replaced by `getTextureView`, not one-to-one
     - `SpriteContents` now takes in a `MipmapStrategy` to determine how a specific texture should be mip mapped
+        - `UBO_SIZE` - The uniform buffer object size of the sprite contents.
+        - `createTicker` -> `createAnimationState`, not one-to-one
+        - `uploadFirstFrame` no longer takes in the texture `int`s, instead a mip level `int`
+        - `$AnimatedTexture#createTicker`, `uploadFirstFrame` -> `createAnimationState`, not one-to-one
+        - `$Ticker` -> `$AnimationState`, not one-to-one
+            - `tickAndUpload` -> `tick`, `getDrawUbo`, `needsToDraw`, `drawToAtlas`; not one-to-one
+    - `SpriteTicker` interface is removed
+    - `Stitcher` now takes in the anisotropic filtering level
+        - `$Holder(T, int)` is removed
+        - `$Region#walk` now takes in a padding `int`
+        - `$SpriteLoader#load` now takes in a padding `int`
+    - `TextureAtlas` now implements `TickableTexture` instead of `Tickable`
+    - `TextureAtlasSprite` now implements `AutoCloseable`
+        - The constructor takes in a padding `int`
+        - `createTicker` -> `createAnimationState`, not one-to-one
+        - `getUOffset`, `getVOffset`, `uvShrinkRatio` are removed
+        - `uploadFirstFrame` now takes in the mip level `int`
+        - `uploadSpriteUbo` - Uploads the atlas sprite to the to the buffer.
+        - `$Ticker` interface is removed
+    - `TextureManager` no longer implements `Tickable`
+    - `Tickable` -> `TickableTexture`
+- `net.minecraft.client.renderer.texture.atlas`
+    - `SpriteSource$SpriteSupplier` -> `$DiscardableLoader`
+        - `Function` superinterface is now represented as `$Loader`
+            - `apply` -> `get`
+    - `SpriteSourceList#list` now returns a list of `SpriteSource$Loader`s
 - `net.minecraft.client.resources.metadata.texture.TextureMetadataSection` now takes in a `MipmapStrategy` to determine how a specific texture should be mip mapped
 
 ## Gizmos
@@ -736,7 +802,9 @@ new Item(new Item.Properties.component(
             - Its original implementation has been replaced by `$TypeBase`
         - `$AnyValueType` - A type that uses the `AnyValue` predicate.
         - `$ConcreteType` - A type that defines a specific predicate.
-- `net.minecraft.world.entity.LivingEntity#SWING_DURATION` -> `SwingAnimation#duration`, not one-to-one
+- `net.minecraft.world.entity`
+    - `LivingEntity#SWING_DURATION` -> `SwingAnimation#duration`, not one-to-one
+    - `Mob#chargeSpeedModifier` - The modifier applied to the movement speed when charging.
 - `net.minecraft.world.item`
     - `ItemStack`
         - `getSwingAnimation` - Returns the swing animation of the item.
@@ -1034,7 +1102,7 @@ public static final EnvironmentAttribute<ExampleObject> EXAMPLE_OBJECT_ATTRIBUTE
     - `Minecraft`
         - `getSituationalMusic` now returns `Music` instead of `MusicInfo`
         - `getMusicVolume` - Gets the volume of the background music, or normal volume if the open screen has background music.
-- `net.minecraft.client.renderer.DimensionSpecialEffects#isFoggyAt` -> `EnvironmentAttributes#EXTRA_FOG`, not one-to-one
+- `net.minecraft.client.renderer.DimensionSpecialEffects#isFoggyAt` -> `EnvironmentAttributes#*_START_DISTANCE`, not one-to-one
 - `net.minecraft.client.resources.sounds.BiomeAmbientSoundsHandler` no longer takes in the `BiomeManager`
 - `net.minecraft.client.sounds`
     - `MusicInfo` -> `Minecraft#getSituationalMusic`, `getMusicVolume`; not one-to-one
@@ -1087,7 +1155,7 @@ public static final EnvironmentAttribute<ExampleObject> EXAMPLE_OBJECT_ATTRIBUTE
             - `putAttributes` - Puts all attributes from another map.
             - `setAttribute` - Sets an environment attribute.
             - `modifyAttribute` - Modifies an attribute source for the biome.
-    - `BiomeSpecialEffects`
+    - `BiomeSpecialEffects` is now a record
         - `getFogColor` -> `EnvironmentAttributes#FOG_COLOR`
         - `getWaterFogColor` -> `EnvironmentAttributes#WATER_FOG_COLOR`
         - `getSkyColor` -> `EnvironmentAttributes#SKY_COLOR`
@@ -1110,6 +1178,126 @@ public static final EnvironmentAttribute<ExampleObject> EXAMPLE_OBJECT_ATTRIBUTE
         - `attribute` - Gets the attributes for this dimension.
         - `piglinSafe`, `$MonsterSettings#piglinSafe` -> `EnvironmentAttributes#PIGLINS_ZOMBIFY`
         - `hasRaids`, `$MonsterSettings#hasRaids` -> `EnvironmentAttributes#CAN_START_RAID`
+- `net.minecraft.world.level.material.FogType#DIMENSION_OR_BOSS` is removed
+
+## The Game Rule Shuffle
+
+The gamerule system has been overhauled to a degree, allowing its keys to be stored as proper registry objects while still having its values limited to either integers or booleans. Most of the classes are basically just combinations of others.
+
+### Existing Game Rules
+
+Existing game rules are still in a `GameRules` class, just moved to a different location. Their fields have been renamed and seem to follow some basic rules:
+
+1. Rules no longer have the `RULE_` prefix
+1. Rules now have underscores separating words
+1. The `DO` prefix is removed from rule names (e.g. `RULE_DOENTITYDROPS` -> `ENTITY_DROPS`)
+1. The `SPAWNING` suffix has been replaced with the `SPAWN_` prefix (e.g. `RULE_DOMOBSPAWNING` -> `SPAWN_MOBS`)
+1. The `DISABLE` prefix is removed, meaning that their values are inverted (e.g., `RULE_DISABLERAIDS` -> `RAIDS`)
+
+While there are some edge cases, searching for a specific word in the previous game rule name will most likely lead you to the new name (e.g., searching for `ADVANCEMENT` in `RULE_ANNOUNCEADVANCEMENTS` leads to `SHOW_ADVANCEMENT_MESSAGES`).
+
+To actually get a value from the game rules, you would use `GameRules#get` instead of the previous `getBoolean` and `getInteger`. The type is obtained from the generic on the registered `GameRule`.
+
+```java
+// With ServerLevel level
+boolean fallDamage = level.getGameRules().get(GameRules.FALL_DAMAGE);
+```
+
+Additionally, setting the game rule is now simplified to calling `GameRules#set` -- taking in the `GameRule`, value, and the current server if the changes are propogated through `MinecraftServer#onGameRuleChanged`, which it should generally be.
+
+```java
+// With ServerLevel level
+level.getGameRules().set(GameRules.FALL_DAMAGE, false, level.getServer());
+```
+
+### Creating a Game Rule
+
+Game rules are created through the `GameRule` class, which is basically a type definition of how the game rule functions depending on its caller. Its generic represents the type of the value being held. The only hardcoded concepts that separate this from being a general type is that the actual arguments can be limited to a specific range, and that they store the default value. Otherwise, the fields are mostly the same from its previous counterparts in `GameRules$Type` and `GameRules$Key`.
+
+Then, once created, the `GameRule` must be statically registered to `BuiltInRegistries#GAME_RULE`
+
+```java
+public static final GameRule<Integer> EXAMPLE_RULE = Registry.register(
+    BuiltInRegistries.GAME_RULE
+    ResourceLocation.withNamespaceAndPath("examplemod", "example_rule"),
+    new GameRule(
+        // The category that best represents the game rule.
+        // This is only used by the edit game rule screen
+        // when first constructing the world.
+        // A custom category can be created by calling
+        // `GameRuleCategory#register` or just its constructor
+        // as the sort order goes unused
+        GameRuleCategory.register(
+            ResourceLocation.withNamespaceAndPath("examplemod", "example_category")
+        ),
+        // The type of the game rule, represenative of the
+        // JSON schema version of the generic.
+        // This is only used by the management system for
+        // checking an untyped rule.
+        GameRuleType.INT,
+        // The argument type used for serializing the value
+        // in commands.
+        // This can be range-limited based on the constructor.
+        IntegerArgumentType.integer(0, 5),
+        // A caller that runs typically during the visiting process
+        // for each game rule.
+        // This caller is only used by the edit game rules screen
+        // for adding the correct component that modifies the value.
+        // `GameRuleTypeVisitor#visit` should not be used here
+        // as the visitor already calls that function.
+        GameRuleTypeVisitor::visitInteger,
+        // The codec used to serialize the game rules to disk
+        // or for the managment service.
+        // This can be range-limited based on the constructor.
+        Codec.intRange(0, 5),
+        // A function that maps the set value to an integer
+        // result used when setting or querying the game rule
+        // via a command.
+        // This is the only case when a result of `0` does not
+        // mean the command has failed.
+        gameRuleValue -> gameRuleValue,
+        // The default value to set for this rule.
+        3,
+        // A feature flag set that are required for this game rule
+        // to be enabled in game.
+        // An empty flag set means it should be enabled at all times.
+        FeatureFlagSet.of()
+    )
+);
+```
+
+`net.minecraft.client.gui.screens.worldselection`
+    - `EditGameRulesScreen`
+        - `$BooleanRuleEntry` now takes in a `GameRule<Boolean>` instead of a `GameRules$BooleanValue`
+        - `$EntryFactory` no longer bounds its generic
+        - `$IntegerRuleEntry` now takes in a `GameRule<Integer>` instead of a `GameRules$IntegerValue`
+    - `InitialWorldCreationOptions#disabledGameRules` is now a `GameRuleMap`
+- `net.minecraft.core.registries.BuiltInRegistries#GAME_RULE`, `Registries#GAME_RULE` - Game rule registry.
+- `net.minecraft.gametest.framework.TestEnvironmentDefinition`
+    - `$SetGameRules` now takes in a `GameRulesMap` instead of `$Entry`s
+        - `entry`, `$Entry` are removed
+- `net.minecraft.server.MinecraftServer#onGameRuleChanged` now takes in the `GameRule` and value instead of the string key and `$Value` wrapper
+- `net.minecraft.server.jsonrpc.api.Schema`
+    - `RULE_TYPE_SCHEMA` is now a `GameRuleType` instead of a `GameRulesService$RuleType`
+    - `TYPED_GAME_RULE_SCHEMA` is now a `GameRulesService$GameRuleUpdate` instead of a `GameRulesService$TypedRule`
+    - `UNTYPED_GAME_RULE_SCHEMA` is now a `GameRulesService$GameRuleUpdate` instead of a `GameRulesService$UntypedRule`
+- `net.minecraft.server.jsonrpc.internalapi`
+    - `GameRules` interface is removed
+    - `MinecraftGameRuleService#getRule` -> `getRuleValue`
+- `net.minecraft.server.jsonrpc.methods.GameRulesService`
+    - `$RuleType` is removed
+    - `$TypedRule`, `$UntypedRule` -> `$GameRuleUpdate`, not one-to-one
+- `net.minecraft.server.notifications.NotificationService#onGameRuleChanged` now takes in the `GameRule` and value instead of the string key and `$Value` wrapper
+- `net.minecraft.world.level.GameRules`
+    - The static rule keys are now located in `.gamerules.GameRules` without the `RULE_` prefix and underscores in-between words
+        - `DO` is removed from the name (e.g. `RULE_DOENTITYDROPS` -> `ENTITY_DROPS`)
+        - `SPAWNING` names now start with `SPAWN_` (e.g. `RULE_DOMOBSPAWNING` -> `SPAWN_MOBS`)
+    - The map behavior linking the key to its associated value is now handled by `GameRuleMap`
+        - `getBoolean`, `getInteger` -> `get`
+    - `$Key`, `$Type` -> `GameRule`, not one-to-one
+    - `$Category` -> `GameRuleCategory`, not one-to-one
+    - `$Value`, `$BooleanValue`, `$IntegerValue` are removed, replaced with the direct object being wrapped
+    - `$GameRuleTypeVisitor` -> `GameRuleTypeVisitor`
 
 ## Minor Migrations
 
@@ -1228,9 +1416,115 @@ A new debug has been added that draws the bounding box each glyph, including the
     - `TextRenderable$Styled` - A text renderable that defines some active area for its bounds.
 - `net.minecraft.client.gui.font.glyphs.BakedGlyph#createGlyph` now returns a `TextRenderable$Styled`
 
+### JSpecify Annotations
+
+Mojang has moved from using a mix of their own annotations to those available in JSpecify when required. As such, instead of all fields, methods, and parameters being marked as nonnull by default, it is replaced by `NullMarked`, which considers a type usage non-null unless explictly annotated as `Nullable`, barring some special cases.
+
+- `com.mojang.blaze3d.FieldsAreNonnullByDefault`, `MethodsReturnNonnullByDefault` are removed
+- `com.mojang.math.FieldsAreNonnullByDefault`, `MethodsReturnNonnullByDefault` are removed
+- `net.minecraft.FieldsAreNonnullByDefault`, `MethodsReturnNonnullByDefault` are removed
+
+### Slot Sources
+
+Slot sources are an expansion upon the previous contents drop system in shulker boxes allowing any loot table to pulls its entries from some container slots. This can be used in any location where a `LootContext` is enabled, though it is currently only implemented as a loot pool entry.
+
+In vanilla, a slot source works by having some `LootContextArg`, which points to some loot context param value, return an object that implements `SlotProvider`. Currently, this refers to any `Container` or `Entity` implementation. The `SlotProvider` is then used by `SlotSource#provide` to construct a `SlotCollection`: a stream of deep copied `ItemStack`s. The stacks stored in the collection are then passed to the output of the pool. As this is all done in one of the `SlotSource#provide` implementations, it can reference anything (not just `SlotProvider`) as long as it can transform that data into the `SlotCollection`.
+
+```java
+// A slot source whose 'slots' are the elements
+// within an item tag.
+public record TagSlotSource(TagKey<Item> tag) implements SlotSource {
+
+    public static final MapCodec<TagSlotSource> MAP_CODEC = TagKey.codec(Registries.ITEM)
+        .fieldOf("tag").xmap(TagSlotSource::new, TagSlotSource::tag);
+    
+    @Override
+    public SlotCollection provide(LootContext ctx) {
+        // Get the holder set for the tag
+        Optional<HolderSet.Named<Item>> holderSetOpt = ctx.getResolver()
+            .lookup(Registries.ITEM).flatMap(getter -> getter.get(this.tag));
+        
+        // Stream the elements and map to a SlotCollection
+        return holderSetOpt.map(holderSet ->
+            // `Item#getDefaultInstance` returns a new copy, so it can be used.
+            // If the ItemStack already exists, then `ItemStack#copy` should be
+            // called on each.
+            (SlotCollection) () -> holderSet.stream().map(holder -> holder.value().getDefaultInstance())
+        ).orElse(SlotCollection.EMPTY);
+    }
+
+    @Override
+    public MapCodec<? extends SlotSource> codec() {
+        // The codec used to serialize the slot source
+        return MAP_CODEC;
+    }
+}
+
+// The map codec needs to be registered to the slot source type registry
+Registry.register(
+    BuiltInRegistries.SLOT_SOURCE_TYPE
+    ResourceLocation.withNamespaceAndPath("examplemod", "tag"),
+    TagSlotSource.MAP_CODEC
+);
+```
+
+```json5
+// An example loot table
+{
+    // ...
+    "pools": [
+        {
+            "rolls": 1.0,
+            "bonus_rolls": 0.0,
+            "entries": [
+                {
+                    // Use the slot source loot pool
+                    "type": "minecraft:slots",
+                    "slot_source": {
+                        // Our slot source
+                        "type": "examplemod:tag",
+                        "tag": "minecraft:planks"
+                    }
+                }
+            ]
+        }
+        // ...
+    ]
+}
+```
+
+- `net.minecraft.advancements.critereon.SlotsPredicate#matches` now takes in a `SlotProvider` instead of an `Entity`
+- `net.minecraft.core.registries.BuiltInRegistries#SLOT_SOURCE_TYPE`, `Registries#SLOT_SOURCE_TYPE` - Slot source type registry.
+- `net.minecraft.world.Container` now extends `SlotProvider`
+    - `getSlot` - Gets an access for a single item.
+- `net.minecraft.world.entity`
+    - `Entity` now implements `SlotProvider`
+    - `SlotAccess`
+        - `NULL` is removed
+        - `forContainer` -> `forListElement`, not one-to-one
+    - `SlotProvider` - An object that provides some access to its internal storage via slots.
+- `net.minecraft.world.item.slot`
+    - `CompositeSlotSource` - A composite of multiple slot sources.
+    - `ContentsSlotSource` - Gets the slot contents.
+    - `EmptySlotSource` - An empty slot source.
+    - `FilteredSlotSource` - Filters the provided slot source pased on the item predicate.
+    - `GroupSlotSource` - Groups multiple slot sources together into one concatenated collection.
+    - `LimitSlotSource` - Limits the provided slot source to a maximum size.
+    - `RangeSlotSource` - Gets the desired range of slots.
+    - `SlotCollection` - A collection of slots to grab the item copies from.
+    - `SlotSource` - Given a loot context, returns a collection of slots to provide.
+    - `SlotSources` - The slot sources provided by vanilla.
+    - `TransformedSlotSource` - Transforms the provided slot source.
+- `net.minecraft.world.level.block.ShulkerBoxBlock#CONTENTS` is removed
+- `net.minecraft.world.level.storage.loot.ContainerComponentManipulator#getSlots` - Gets the slots of a data component on the stack.
+- `net.minecraft.world.level.storage.loot.entries`
+    - `LootPoolEntries#SLOTS` - A pool that uses slots from a source.
+    - `SlotLoot` - A pool that gets its items from some slot source.
+
 ### Specific Logic Changes
 
-- `AbstractContainerScreen#keyPressed` no longer returns `true` if the key is not handled by the screen, instead returning `false`
+- `net.minecraft.client.renderer.entity.EntityRenderState#lightCoords` now defaults to 0xF000F0.
+- `net.minecraft.client.gui.screens.inventory.AbstractContainerScreen#keyPressed` no longer returns `true` if the key is not handled by the screen, instead returning `false`
 
 ### Tag Changes
 
@@ -1238,7 +1532,7 @@ A new debug has been added that draws the bounding box each glyph, including the
     - `plays_underwater_music` is removed
         - Replaced by `BackgroundMusic#underwaterMusic` environment attribute
     - `has_closer_water_fog` is removed
-        - Replaced by `EnvironmentAttributes#WATER_FOG_RADIUS`
+        - Replaced by `EnvironmentAttributes#WATER_FOG_END_DISTANCE`
     - `increased_fire_burnout` is removed
         - Replaced by `EnvironmentAttributes#INCREASED_FIRE_BURNOUT`
     - `snow_golem_melts` is removed
@@ -1247,9 +1541,11 @@ A new debug has been added that draws the bounding box each glyph, including the
     - `can_glide_through`
 - `minecraft:entity_type`
     - `burn_in_daylight`
+    - `can_float_while_ridden`
     - `can_wear_nautilus_armor`
     - `nautilus_hostiles`
 - `minecraft:item`
+    - `camel_husk_food`
     - `zombie_horse_food`
     - `nautilus_bucket_food`
     - `nautilus_food`
@@ -1276,7 +1572,11 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `com.mojang.math`
     - `OctahedralGroup#permutation` - Returns the symmetric group.
     - `SymmetricGroup3#inverse` - Returns the inverse group.
-- `net.minecraft.Util#localizedDateFormatter` - Returns the localized `DateTimeFormatter` for the given style.
+- `net.minecraft`
+    - `SharedConstants`
+        - `MAX_CLOUD_DISTANCE` - The maximum cloud range to be rendered by the player.
+        - `DEFAULT_RANDOM_TICK_SPEED` - The default random tick speed.
+    - `Util#localizedDateFormatter` - Returns the localized `DateTimeFormatter` for the given style.
 - `net.minecraft.advancements.critereon.DataComponentMatchers$Builder#any` - Matches whether there exists some data for the component.
 - `net.minecraft.client`
     - `GuiMessage`
@@ -1299,10 +1599,14 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `cutoutLeaves` - Whether leaves should render in cutout or solid.
         - `vignette` - Whether a vignette should be applied to the screen.
         - `improvedTransparency` - Whether to use the transparency post processor.
+        - `chunkSectionFadeInTime` - The amount of second that should be taken for a chunk to fade in when first rendered.
+        - `maxAnisotropyBit` - The bit value of the anisotrophic filtering level.
+        - `maxAnisotropyValue` - The ansiotrophic filtering level.
 - `net.minecraft.client.animation.definitions.NautilusAnimation` - The animation definitions for the nautilus.
 - `net.minecraft.client.data.models.ItemModelGenerators#generateSpear` - Generates the spear item model.
 - `net.minecraft.client.data.models.model.ModelTemplates#SPEAR_IN_HAND` - A template for the spear in hand model.
 - `net.minecraft.client.gui.components`
+    - `Checkbox#adjustWidth` - Sets the width of the widget using the message, font, and its initial X position.
     - `EditBox#setInvertHighlightedTextColor` - Sets whether to invert the highlighted text color.
     - `FocusableTextWidget`
         - `getPadding` - Returns the text padding.
@@ -1315,13 +1619,19 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `resetOption` - Resets the option value.
         - `$AbstractEntry` - Defines the element within the selection list.
         - `$HeaderEntry` - An entry that represents the header of a section.
+        - `$OptionInstanceWidget` - A record containing the widget and optionally the option instance.
     - `ResettableOptionWidget` - A widget that can reset its value to a default.
+    - `SelectableEntry` - A utility for checking whether the mouse is in a specific region.
+- `net.minecraft.client.gui.layouts.HeaderAndFooterLayout#MAGIC_PADDING` - A common padding between the elements.
+- `net.minecraft.client.gui.screens.advancements.AdvancementTab#canScrollHorizontally`, `canScrollVertically` - Checks whether the tab data can be scrolled in a given direction.
+- `net.minecraft.client.gui.screens.debug.DebugOptionsScreen#getOptionList` - Returns the list of options for the debug screen.
 - `net.minecraft.client.gui.screens.inventory.EffectsInInventory`
     - `SPACING` - The spacing between effects.
     - `SPRITE_SQUARE_SIZE` - The size of the effect icon.
 - `net.minecraft.client.gui.screens.options`
     - `OptionsSubScreen#resetOption` - Resets the option value to its default.
     - `VideoSettingsScreen#updateTransparencyButton` - Sets the transparency button to the current option value.
+- `net.minecraft.client.gui.screens.packs.TransferableSelectionList$PackEntry#ICON_SIZE` - The size of the pack icon.
 - `net.minecraft.client.input.InputQuirks#EDIT_SHORTCUT_KEY_LEFT`, `EDIT_SHORTCUT_KEY_RIGHT` -> `InputWithModifiers#hasControlDownWithQuirk`, not one-to-one
 - `net.minecraft.client.model`
     - `HumanoidModel$ArmPose`
@@ -1329,7 +1639,8 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `animateUseItem` - Modifies the `PoseStack` given the entity state, use time, arm, and stack.
     - `NautilusArmorModel` - The armor model for a nautilus.
     - `NautilusModel` - The model for a nautilus.
-    - `NautilusSaddleModel` - The saddle model for a nautilus
+    - `NautilusSaddleModel` - The saddle model for a nautilus.
+    - `SkeletonModel#createSingleModelDualBodyLayer` - Creates a parched layer definition.
     - `SpearAnimations` - The animations performed when using a spear.
 - `net.minecraft.client.model.geom`
     - `ModelLayers`
@@ -1339,9 +1650,20 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `INNER_MOUTH`, `LOWER_MOUTH` - Part names for a mouth.
         - `SHELL` - Part name for a shell.
 - `net.minecraft.client.multiplayer.MultiPlayerGameMode#piercingAttack` - Initiates a lunging attack.
-- `net.minecraft.client.renderer.Sheets#CELESTIAL_SHEET` - The atlas for the celestial textures.
+- `net.minecraft.client.renderer`
+    - `DynamicUniforms`
+        - `CHUNK_SECTION_UBO_SIZE` - The uniform buffer object size for the chunk section.
+        - `writeChunkSections` - Writes a varargs of chunk sections to the uniform storage.
+        - `$ChunkSectionInfo` - The dynamic uniform for the chunk section.
+    - `GameRenderer#updateCamera` - Calls the setup function for the camera.
+    - `Sheets#CELESTIAL_SHEET` - The atlas for the celestial textures.
 - `net.minecraft.client.renderer.blockentity.BlockEntityWithBoundingBoxRenderer#STRUCTURE_VOIDS_COLOR` - The void color for a structure.
-- `net.minecraft.client.renderer.entity.NautilusRenderer` - The entity renderer for a nautilus.
+- `net.minecraft.client.renderer.chunk.SectionRenderDispatcher$RenderSection#getVisibility` - Returns the current alpha of the chunk.
+- `net.minecraft.client.renderer.entity`
+    - `CamelHuskRenderer` - The entity renderer for a camel husk.
+    - `CamelRenderer#createCamelSaddleLayer` - Creates the saddle layer for the camel.
+    - `NautilusRenderer` - The entity renderer for a nautilus.
+    - `ParchedRenderer` - The entity renderer for a parched.
 - `net.minecraft.client.renderer.entity.state`
     - `ArmedEntityRenderState`
         - `swingAnimationType` - The animation to play when swinging their hand.
@@ -1361,6 +1683,7 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `net.minecraft.data.AtlasIds#CELESTIAL_SHEET` - The atlas for the celestial textures.
 - `net.minecraft.network.chat.MutableComponent#withoutShadow`, `Style#withoutShadow` - Removes the drop shadow from the text.
 - `net.minecraft.network.protocol.game.ServerboundPlayerActionPacket$Action#STAB` - The player performed the stab action.
+- `net.minecraft.resources.ResourceLocation#toShortString` - Returns the string of the location. Namespace is omitted if `minecraft`.
 - `net.minecraft.server`
     - `MinecraftServer`
         - `getServerActivityMonitor` - Returns the monitor that sends the server activity notification.
@@ -1370,11 +1693,14 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `net.minecraft.server.dedicated.DedicatedServerProperties#managementServerAllowedOrigins` - The origins a request from the management server can come from.
 - `net.minecraft.server.jsonrpc.OutgoingRpcMethods#SERVER_ACTIVITY_OCCURRED` - A request made from the minecraft server about server activity occurring.
 - `net.minecraft.server.jsonrpc.api.Schema`
+    - `BOOL_OR_INT_SCHEMA` - A schema for a field that can be either a boolean or integer.
     - `typedCodec` - Returns the codec for the schema.
     - `info` - Returns a copy of the schema.
 - `net.minecraft.server.level`
     - `ChunkMap#getChunkDataFixContextTag` - Returns the datafix tag for the chunk data.
-    - `ServerLevel#getDayCount` - Gets the number of days that has passed.
+    - `ServerLevel`
+        - `getDayCount` - Gets the number of days that has passed.
+        - `canSpreadFireAround` - Whether fire can spread at the given block position.
 - `net.minecraft.server.network`
     - `EventLoopGroupHolder` - A holder for managing the event loop and channels for communicating with some end, whether local or socket-based.
     - `ServerGamePacketListenerImpl#resetFlyingTicks` - Resets how long the player has been flying.
@@ -1391,6 +1717,7 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `multiplyAlpha` - Multiplies the alpha value into the provided ARGB value.
         - `linearLerp` - Linearly interpolates the color by converting into the linear color space.
         - `white`, `black` - Colors with the provided alpha.
+        - `alphaBlend` - Blends two colors along with their alpha value.
     - `Ease` - A utility full of easing functions.
     - `ExtraCodecs`
         - `NON_NEGATIVE_LONG`, `POSITIVE_LONG` - Longs with the listed constraints.
@@ -1409,6 +1736,7 @@ A new debug has been added that draws the bounding box each glyph, including the
     - `Entity`
         - `getHeadLookAngle` - Calculates the view vector of the head rotation.
         - `updateDataBeforeSync` - Updates the data stored in the entity before syncing to the client.
+    - `EntityProcessor` - A post processor for an entity when loading.
     - `EntityEvent#HIT` - An event fired when an entity is hit.
     - `LivingEntity`
         - `DEFAULT_KNOCKBACK` - The default knockback applied to an entity on hit.
@@ -1421,6 +1749,8 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `onAttack` - Handles when this entity has attacked another entity.
         - `getTicksUsingItem` - Returns the number of ticks this item has been used for.
         - `getTicksSinceEnemyHit` - The number of ticks that has passed since this entity was last hit.
+        - `shouldTravelInFluid` - If this entity should travel in the given fluid.
+        - `travelInWater` - Moves an entity as if they were in water.
     - `Mob#sunProtectionSlot` - The equipment slot that protects the entity from the sun.
     - `NeutralMob#level` - Returns the level the entity is in.
     - `PlayerRideableJumping#getPlayerJumpPendingScale` - Returns the scalar to apply to the entity on player jump.
@@ -1430,7 +1760,13 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `net.minecraft.world.entity.ai.memory.MemoryModuleType`
     - `CHARGE_COOLDOWN_TICKS` - The number of cooldown ticks after a charge attack.
     - `ATTACK_TARGET_COOLDOWN` - The number of cooldown ticks before attacking a target.
-- `net.minecraft.world.entity.ai.sensing.SensorType#NAUTILUS_TEMPTATIONS` - A sensor for the items that tempt a nautilus.
+- `net.minecraft.world.entity.ai.sensing.TemptingSensor#forAnimal` - A sensor that special cases animal entities for check if the desired item is food.
+- `net.minecraft.world.entity.animal.camel`
+    - `Camel`
+        - `getDashingSound`, `getDashReadySound` - Camel dashing sounds.
+        - `getStandUpSound`, `getSitDownSound` - Camel sit/stand sounds.
+        - `getSaddleSound` - Camel saddle sound.
+    - `CamelHusk` - The camel husk entity.
 - `net.minecraft.world.entity.animal.horse.AbstractHorse#isMobControlled` - Whether a mob can control this horse.
 - `net.minecraft.world.entity.animal.nautilus`
     - `AbstractNautilus` - The core of the nautilus entity.
@@ -1438,6 +1774,9 @@ A new debug has been added that draws the bounding box each glyph, including the
     - `NautilusAi` - The brain of a nautilus.
     - `ZombieNautilus` - The zombie nautilus entity.
     - `ZombieNautilusAi` - The brain of a zombie nautilus.
+- `net.minecraft.world.entity.monster`
+    - `Husk$HuskGroupData` - The group data for the husk.
+    - `Parched` - The parched entity.
 - `net.minecraft.world.entity.player.Player`
     - `cannotAttackWithItem` - Checks whether the player cannot attack with the item.
     - `getItemSwapScale` - Returns the scalar to use for the item swap animation.
@@ -1471,6 +1810,7 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `markChunkDone` - Marks a chunk as finished for upgrading to the current version.
         - `chunkScanner` - Gets the access used to scan chunks.
 - `net.minecraft.world.level.levelgen.structure.LegacyStructureDataHandler#LAST_MONOLYTH_STRUCTURE_DATA_VERSION` - Returns the last data version containing glitched monolyths.
+- `net.minecraft.world.level.storage.loot.LootContextArg` - An argument for a loot context to query.
 - `net.minecraft.world.level.storage.loot.functions.DiscardItem` - A loot function that discards the loot, returning an empty stack.
 - `net.minecraft.world.phys.Vec3`
     - `offsetRandomXZ` - Offsets the point by a random amount in the XZ direction.
@@ -1496,15 +1836,18 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `permuteVector` -> `OctahedralGroup#rotate`
     - `Transformation` now takes in the interface, 'read only' variants of its arguments (e.g., `Vector3f` -> `Vector3fc`)
         - This also applies to the argument getter methods
-- `net.minecraft.SharedConstants`
-    - `DEBUG_WATER` -> `DebugScreenEntries#VISUALIZE_WATER_LEVELS`, not one-to-one
-    - `DEBUG_HEIGHTMAP` -> `DebugScreenEntries#VISUALIZE_HEIGHTMAP`, not one-to-one
-    - `DEBUG_COLLISION` -> `DebugScreenEntries#VISUALIZE_COLLISION_BOXES`, not one-to-one
-    - `DEBUG_SUPPORT_BLOCKS` -> `DebugScreenEntries#VISUALIZE_ENTITY_SUPPORTING_BLOCKS`, not one-to-one
-    - `DEBUG_LIGHT` -> `DebugScreenEntries#VISUALIZE_BLOCK_LIGHT_LEVELS`, `VISUALIZE_SKY_LIGHT_LEVELS`; not one-to-one
-    - `DEBUG_SKY_LIGHT_SECTIONS` -> `DebugScreenEntries#VISUALIZE_SKY_LIGHT_SECTIONS`, not one-to-one
-    - `DEBUG_SOLID_FACE` -> `DebugScreenEntries#VISUALIZE_SOLID_FACES`, not one-to-one
-    - `DEBUG_CHUNKS` -> `DebugScreenEntries#VISUALIZE_CHUNKS_ON_SERVER`, not one-to-one
+- `net.minecraft`
+    - `FileUtil#isValidStrictPathSegment` -> `containsAllowedCharactersOnly`, now private
+        - Replaced by `isValidPathSegment`
+    - `SharedConstants`
+        - `DEBUG_WATER` -> `DebugScreenEntries#VISUALIZE_WATER_LEVELS`, not one-to-one
+        - `DEBUG_HEIGHTMAP` -> `DebugScreenEntries#VISUALIZE_HEIGHTMAP`, not one-to-one
+        - `DEBUG_COLLISION` -> `DebugScreenEntries#VISUALIZE_COLLISION_BOXES`, not one-to-one
+        - `DEBUG_SUPPORT_BLOCKS` -> `DebugScreenEntries#VISUALIZE_ENTITY_SUPPORTING_BLOCKS`, not one-to-one
+        - `DEBUG_LIGHT` -> `DebugScreenEntries#VISUALIZE_BLOCK_LIGHT_LEVELS`, `VISUALIZE_SKY_LIGHT_LEVELS`; not one-to-one
+        - `DEBUG_SKY_LIGHT_SECTIONS` -> `DebugScreenEntries#VISUALIZE_SKY_LIGHT_SECTIONS`, not one-to-one
+        - `DEBUG_SOLID_FACE` -> `DebugScreenEntries#VISUALIZE_SOLID_FACES`, not one-to-one
+        - `DEBUG_CHUNKS` -> `DebugScreenEntries#VISUALIZE_CHUNKS_ON_SERVER`, not one-to-one
 - `net.minecraft.advancements.critereon.EntityFlagsPredicate` now takes in optional booleans for if the entity is in water or fall flying
     - The associated `$Builder` methods have also been added
 - `net.minecraft.client`
@@ -1514,10 +1857,15 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `Vector3f` return values are replaced with `Vector3fc`
     - `GraphicsStatus` -> `GraphicsPreset`, not one-to-one
     - `KeyMapping` now has an overload that takes in the sort order
+    - `MouseHandler#lastClickTime` -> `lastClick`, now private, not one-to-one
     - `OptionInstance$OptionInstanceSliderButton` now implements `ResettableOptionWidget`
     - `Options#graphicsMode` -> `graphicsPreset`, `applyGraphicsPreset`
 - `net.minecraft.client.data.models`
     - `EquipmentAssetProvider#humanoidAndHorse` -> `humanoidAndMountArmor`
+    - `ItemModelGenerators`
+        - `getSpans` -> `getSideFaces`, not one-to-one
+        - `$SpanFacing` -> `$SideDirection`, not one-to-one
+        - `$Span` -> `$SideFace`, not one-to-one
     - `ItemModelOutput#accept` now has an overload that takes in the `ClientItem$Properties`
 - `net.minecraft.client.gui`
     - `Font#NO_SHADOW` -> `Style#NO_SHADOW`
@@ -1525,6 +1873,7 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `textHighlight` now takes in a `boolean` of whether to render the background rectangle
         - `submitOutline` -> `renderOutline`
 - `net.minecraft.client.gui.components`
+    - `AbstractButton#handleCursor` -> `handleCursor`, now protected
     - `AbstractSliderButton`
         - `HANDLE_WIDTH` is now protected
         - `canChangeValue`, `setValue` are now protected
@@ -1535,7 +1884,11 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `$Builder` now takes in a supplied default value
     - `FocusableTextWidget` constructor is now package private, use `builder` instead
     - `OptionsList` now passes in an `$AbstractEntry` to the generic rather than an `$Entry`
+        - `addSmall` now has an overload that takes in an `OptionInstance`
         - `$Entry` now extends `$AbstractEntry`
+        - `$OptionEntry` class is removed
+            - `big` -> `$Entry#big`
+            - `small` -> `$Entry#small`
     - `StringWidget#clipText` is now public static, taking in the `Font`
 - `net.minecraft.client.gui.components.debug`
     - `DebugScreenEntryList`
@@ -1557,22 +1910,29 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `resize(Minecraft, int, int)` -> `init(int, int)`
         - `handleComponentClicked` -> `ChatScreen#handleComponentClicked`, now private
         - `handleClickEvent` has been moved to their associated classes instead of one super interface (e.g., `BookViewScreen#handleClickEvent`)
+- `net.minecraft.client.gui.screens.debug.DebugOptionsScreen$OptionList` is now public
 - `net.minecraft.client.gui.screens.inventory`
     - `AbstractCommandBlockEditScreen#populateAndSendPacket` no longer takes in the `BaseCommandBlock`
     - `EffectsInInventory#renderEffects` -> `render`
     - `MinecartCommandBlockEditScreen` now takes in a `MinecartCommandBlock` instead of a `BaseCommandBlock`
+- `net.minecraft.client.gui.screens.multiplayer.ServerSelectionList$OnlineServerEntry` now implements `SelectableEntry`
+- `net.minecraft.client.gui.screens.packs.TransferableSelectionList$PackEntry` now implements `SelectableEntry`4
+- `net.minecraft.client.gui.screens.worldselection.WorldSelectionList$WorldListEntry` is no longer static, now implements `SelectableEntry`
 - `net.minecraft.client.model`
     - `AnimationUtils`
         - `animateCrossbowCharge` now takes in a `float` instead of an `int`
         - `animateZombieArms` now takes in an `UndeadRenderState` instead of two `float`s
     - `HumanoidModel#setupAttackAnimation` no longer takes in a `float`
 - `net.minecraft.client.multiplayer`
-    - `ClientLevel#getSkyColor` now takes in the `Camera` instead of the camera position
+    - `ClientLevel`
+        - `getSkyColor` now takes in the `Camera` instead of the camera position
+        - `getCloudColor` now takes in the `Camera`
     - `MultiPlayerGameMode#isAlwaysFlying` -> `isSpectator`
     - `ServerStatusPinger#pingServer` now takes in an `EventLoopGroupHolder`
 - `net.minecraft.client.renderer`
     - `DimensionSpecialEffects` no longer takes in the `boolean` for end flashes
     - `DynamicUniforms#writeTransform`, `$Transform` no longer take in the line width `float`
+    - `GlobalSettingsUniform#update` now takes in the `Camera`
     - `ItemBlockRenderTypes#setFancy` -> `setCutoutLeaves`
     - `RenderPipelines`
         - `LINE_STRIP` -> `LINES`, not one-to-one
@@ -1607,7 +1967,10 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `ticksUsingItem` is now a float
     - `ZombieRenderState` now extends `UndeadRenderState`
     - `ZombifiedPiglinRenderState` now extends `UndeadRenderState`
-- `net.minecraft.client.renderer.fog.environment.FogEnvironment#setupFog` no longer takes in the `Entity` and `BlockPos`, instead the `Camera`
+- `net.minecraft.client.renderer.fog.FogRenderer#setupFog` no longer takes in the `boolean`
+- `net.minecraft.client.renderer.fog.environment`
+    - `AtmosphericFogEnvironment` now extends `FogEnvironment` instead of `AirBasedFogEnvironment`
+    - `FogEnvironment#setupFog` no longer takes in the `Entity` and `BlockPos`, instead the `Camera`
 - `net.minecraft.client.renderer.item.ClientItem$Properties` now takes in a float for changing the scale of the swap animation
 - `net.minecraft.client.renderer.state.SkyRenderState#moonPhase` is now a `MoonPhase` instead of an `int`
 - `net.minecraft.client.resources.SplashManager`
@@ -1674,6 +2037,7 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `CODEC` -> `typedCodec`, not one-to-one
     - `Schema` now takes in a generic for the type it represents
         - The constructor now takes in a list of types instead of an optional, an non-optional property map, non-oprional enuma values, and the codec to serialize the type
+        - `ofTypes` now has an overload that takes in a list of types
     - `SchemaComponent` now takes in a generic for the type it represents
 - `net.minecraft.server.jsonrpc.security.AuthenticationHandler` now implements `ChannelDuplexHandler` instead of `ChannelInboundHandlerAdapter`
     - The constructor now takes in a string set of allowed origins
@@ -1682,6 +2046,9 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `net.minecraft.server.network.ServerConnectionListener`
     - `SERVER_EVENT_GROUP` -> `EventLoopGroupHolder#NIO`, not one-to-one
     - `SERVER_EPOLL_EVENT_GROUP` -> `EventLoopGroupHolder#EPOLL`, not one-to-one
+- `net.minecraft.stats.ServerStatsCounter` now takes in a `Path` instead of a `File`
+    - `parseLocal` -> `parse`, not one-to-one
+    - `toJson` now returns a `JsonElement` instead of a `String`
 - `net.minecraft.util`
     - `ARGB#lerp` -> `srgbLerp`
     - `ExtraCodecs` now use the interface, 'read only' variants for its generic (e.g., `Vector3f` -> `Vector3fc`)
@@ -1699,6 +2066,7 @@ A new debug has been added that draws the bounding box each glyph, including the
     - `codec` -> `CODEC`
     - `get`, `reset` now takes in the world seed
 - `net.minecraft.world.entity`
+    - `EntityType#loadEntityRecursive` now takes in an `EntityProcessor` instead of a `Function`
     - `LivingEntity#invulnerableDuration` -> `INVULNERABLE_DURATION`
     - `Mob#playAttackSound` -> `LivingEntity#playAttackSound`
     - `NeutralMob`
@@ -1706,6 +2074,7 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `getRemainingPersistentAngerTime` -> `getPersistentAngerEndTime`, not one-to-one
         - `setRemainingPersistentAngerTime` -> `setTimeToRemainAngry`, `setPersistentAngerEndTime`; second is not one-to-one
         - `getPersistentAngerTarget`, `setPersistentAngerTarget` now deal with `EntityReference`s
+- `net.minecraft.world.entity.ai.sensing.SensorType#*_TEMPTATIONS` -> `FOOD_TEMPTATIONS`, not one-to-one
 - `net.minecraft.world.entity.ai.util`
     - `GoalUtils`
         - `mobRestricted` now takes in a `double` instead of an `int`
@@ -1717,6 +2086,8 @@ A new debug has been added that draws the bounding box each glyph, including the
         - `generateRandomDirectionWithinRadians` now takes in `double`s for the start/end radians
         - `generateRandomPosTowardDirection` now takes in a `double` instead of an `int`
 - `net.minecraft.world.entity.monster`
+    - `Bogged#*_ATTACK_INTERVAL` -> `AbstractSkeleton#INCREASED_*_ATTACK_INTERVAL`
+    - `Husk#checkHuskSpawnRules` -> `Monster#checkSurfaceMonsterSpawnRules`, not one-to-one
     - `Monster#checkMonsterSpawnRules` now expanded its type generic to extends `Mob` instead of `Monster`
     - `Zombie`
         - `doUnderWaterConversion` now takes in the `ServerLevel`
@@ -1769,14 +2140,28 @@ A new debug has been added that draws the bounding box each glyph, including the
     - The constructor now takes in the `DataFixer`
     - `removeIndex` -> `LegacyTagFixer#markChunkDone`
     - `updateFromLegacy` now private
-    - `getLegacyStructureHandler` now takes in the `DataFixer`
+    - `getLegacyStructureHandler` now takes in the `DataFixer`, a supplied `DimensionDataStorage`, and returns a supplied `LegacyTagFixer`
+- `net.minecraft.world.level.levelgen.structure.structures.NetherFortressPieces$StartPiece` fields are now package-private
 - `net.minecraft.world.level.saveddata.SavedDataType` no longer takes in a `SavedData$Context`, removing the function argument constructor
 - `net.minecraft.world.level.storage`
     - `DimensionDataStorage` no longer takes in a `SavedData$Context`
     - `FileNameDateFormatter#create` -> `FORMATTER`
     - `LevelStorageSource$LevelDirectory#corruptedDataFile`, `rawDataFile` now take in a `ZonedDateTime` instead of a `LocalDateTime`
-- `net.minecraft.world.level.storage.loot.functions.FilteredFunction` now takes in an `Optional` pass and fail `LootItemFunction` instead of just a modifier
-    - The function can now be builder through a `$Builder` via `filtered`
+- `net.minecraft.world.level.storage.loot.LootContext`
+    - `$BlockEntityTarget` now implements `LootContextArg$SimpleGetter`
+        - `getParam` -> `contextParam`
+    - `$EntityTarget` now implements `LootContextArg$SimpleGetter`
+        - `getParam` -> `contextParam`
+    - `$ItemStackTarget` now implements `LootContextArg$SimpleGetter`
+        - `getParam` -> `contextParam`
+- `net.minecraft.world.level.storage.loot.functions`
+    - `CopyComponentsFunction`
+        - `$*Source` -> `$DirectSource`, not one-to-one
+        - `$Source` -> `LootContextArg$Getter`, not one-to-one
+    - `CopyNameFunction#copyName` now takes in a `LootContextArg` instead of a `$Source`
+        - `$Source` -> `LootContextArg`, not one-to-one
+    - `FilteredFunction` now takes in an `Optional` pass and fail `LootItemFunction` instead of just a modifier
+        - The function can now be builder through a `$Builder` via `filtered`
 - `net.minecraft.world.phys.Vec3` now takes in a `Vector3fc` instead of a `Vector3f`
 - `net.minecraft.world.scores`
     - `Score` now has a public constructor for the `$Packed` value
@@ -1790,6 +2175,7 @@ A new debug has been added that draws the bounding box each glyph, including the
 ### List of Removals
 
 - `com.mojang.blaze3d.vertex.VertexFormat$Mode#LINE_STRIP`
+- `net.minecraft.Util#lastOf`
 - `net.minecraft.client`
     - `Minecraft#useFancyGraphics`
     - `GuiMessage#icon`
@@ -1800,13 +2186,20 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `net.minecraft.client.gui.components.CycleButton`
     - `onOffBuilder()`
     - `$Builder#withInitialValue`
-- `net.minecraft.client.gui.screens.inventory.EffectsInInventory#renderTooltip`
+- `net.minecraft.client.gui.screens.inventory`
+    - `EffectsInInventory#renderTooltip`
+    - `InventoryScreen#renderEntityInInventory`
+- `net.minecraft.client.gui.screens.packs.PackSelectionScreen#clearSelected`
 - `net.minecraft.client.renderer`
+    - `ItemModelGenerator#createOrExpandSpan`
     - `GpuWarnlistManager#dismissWarningAndSkipFabulous`, `isSkippingFabulous`
     - `RenderPipelines`
         - `DEBUG_STRUCTURE_QUADS`, `DEBUG_SECTION_QUADS`
     - `SkyRenderer#initTextures`
-- `net.minecraft.client.renderer.fog.environment.FogEnvironment#onNotApplicable`
+- `net.minecraft.client.renderer.fog.environment`
+    - `AirBasedFogEnvironment`
+    - `DimensionOrBossFogEnvironment`
+    - `FogEnvironment#onNotApplicable`
 - `net.minecraft.client.resources.model.BlockModelRotation#actualRotation`
 - `net.minecraft.gametest.framework.GameTestHelper#setNight`, `setDayTime`
 - `net.minecraft.network.FriendlyByteBuf#readDate`, `writeDate`
@@ -1814,10 +2207,18 @@ A new debug has been added that draws the bounding box each glyph, including the
 - `net.minecraft.server.jsonrpc.IncomingRpcMethod$Factory`
 - `net.minecraft.server.jsonrpc.methods.IllegalMethodDefinitionException`
 - `net.minecraft.server.jsonrpc.security.AuthenticationHandler#AUTH_HEADER`
+- `net.minecraft.util`
+    - `DebugBuffer`
+    - `LazyLoadedValue`
 - `net.minecraft.util.thread.NamedThreadFactory`
 - `net.minecraft.world.entity.Mob#isSunBurnTick`
+- `net.minecraft.world.entity.animal.armadillo.ArmadilloAi#getTemptations`
+- `net.minecraft.world.entity.animal.axolotl.AxolotlAi#getTemptations`
+- `net.minecraft.world.entity.animal.camel.CamelAi#getTemptations`
 - `net.minecraft.world.entity.animal.horse.ZombieHorse#checkZombieHorseSpawnRules`
     - Use `Monster#checkMonsterSpawnRules` instead
+- `net.minecraft.world.entity.animal.goat.GoatAi#getTemptations`
+- `net.minecraft.world.entity.animal.sniffer.SnifferAi#getTemptations`
 - `net.minecraft.world.entity.raid.Raid#TICKS_PER_DAY`
 - `net.minecraft.world.level`
     - `BaseCommandBlock`
