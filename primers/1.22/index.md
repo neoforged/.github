@@ -15,15 +15,55 @@ Thank you to:
 
 There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=1.22&tab=changelog).
 
+## The Rename Shuffle
+
+Many core classes, method, and parameters have been shuffled around and renamed while still retaining their individual function. The following is a list of the most important changes
+
+### `ResourceLocation` to `Identifier`
+
+All references to `ResourceLocation`, whether in method names, parameters, or other classes, have been replaced with `Identifier`.
+
+### The `util` Package
+
+Most utility classes have been moved to `net.minecraft.util`.
+
+### `critereon` to `criterion`
+
+`net.minecraft.advancements.critereon` has been renamed to `net.minecraft.advancements.criterion`.
+
+- `net.minecraft`
+    - `BlockUtil` -> `.util.BlockUtil`
+    - `FileUtil` -> `.util.FileUtil`
+    - `ResourceLocationException` -> `IdentifierException`
+    - `Util` -> `.util.Util`
+- `net.minecraft.advancements.critereon` -> `.advancements.criterion`
+- `net.minecraft.client.gui.screens.inventory.JigsawBlockEditScreen#isValidResourceLocation` -> `isValidIdentifier`
+- `net.minecraft.client.resources.sounds`
+    - `AbstractSoundInstance#location` -> `identifier`
+    - `SoundInstance#getLocation` -> `getIdentifier`
+- `net.minecraft.client.searchtree`
+    - `IdSearchTree`
+        - `resourceLocationSearchTree` -> `identifierSearchTree`
+        - `searchResourceLocation` -> `searchIdentifier`
+    - `ResourceLocationSearchTree` -> `IdentifierSearchTree`
+- `net.minecraft.commands.arguments.ResourceLocationArgument` -> `IdentifierArgument`
+- `net.minecraft.network.FriendlyByteBuf#readResourceLocation`, `writeResourceLocation` -> `readIdentifier`, `writeIdentifier`
+- `net.minecraft.resources`
+    - `ResourceKey#location` -> `identifier`
+    - `ResourceLocation` -> `Identifier`
+- `net.minecraft.util.ResourceLocationPattern` -> `IdentifierPattern`
+- `net.minecraft.util.parsing.packrat.commands.ResourceLocationParseRule` -> `IdentifierParseRule`
+- `net.minecraft.world.level.gamerules.GameRule#getResourceLocation` -> `getIdentifier`
+
 ## Oh Hey, Another Rendering Rewrite
 
 More of the rendering pipeline has been rewritten, with the majority focused on samplers, `RenderType` creation, and mipmaps.
 
 ### The Separation of Samplers
 
-Blaze3d has separated setting the `AddressMode`s and `FilterMode`s when reading texture data into `GpuSampler`. As the name implies, a `GpuSampler` defines how to sample data from a buffer, such as a texture. `GpuSampler` contains four methods: `getAddressModeU` / `getAddressModeV` for determining how the sampler should behave when reading the UV positions (either repeat or clamp), `getMinFilter` / `getMagFilter` for determining how to minify or magnify the texture respectively (either nearest neighbor or linear), and `getMaxAnisotropy` for the largest anisotropic filtering level that can be used.
+Blaze3d has separated setting the `AddressMode`s and `FilterMode`s when reading texture data into `GpuSampler`. As the name implies, a `GpuSampler` defines how to sample data from a buffer, such as a texture. `GpuSampler` contains four methods: `getAddressModeU` / `getAddressModeV` for determining how the sampler should behave when reading the UV positions (either repeat or clamp), `getMinFilter` / `getMagFilter` for determining how to minify or magnify the texture respectively (either nearest neighbor or linear), `getMaxAnisotropy` for the largest anisotropic filtering level that can be used, and `getMaxLod` for the maximum level-of-detail on a texture.
 
-Samplers can be created via `GpuDevice#createSampler`, but that is not necessary unless you want to specify a different anisotropic filtering level greater than `1`. If the default, as there are only 16 possible combinations, vanilla creates all `GpuSampler`s and stores them in a cache, accessible via `RenderSystem#getSamplerCache`, followed by `SamplerCache#getSampler`:
+Samplers can be created via `GpuDevice#createSampler`, but that is not necessary unless you want to specify a different anisotropic filtering level greater than `1`, or a maximum level-of-detail that is not `0` or `1000`. If the default, as there are only 32 possible combinations, vanilla creates all `GpuSampler`s and stores them in a cache, accessible via `RenderSystem#getSamplerCache`, followed by `SamplerCache#getSampler`:
 
 ```java
 // Raw call
@@ -38,7 +78,12 @@ GpuSampler sampler = RenderSystem.getDevice().createSampler(
     FilterMode.NEAREST,
     // The maximum anisotropic filtering level
     // Vanilla uses either 1, 2, 4, or 8 for level rendering
-    4f
+    4f,
+    // The maximum level of detail for a texture
+    // Vanilla either uses an 0 for the default,
+    // or an empty optional for moving objects and
+    // uploading to an atlas.
+    OptionalDouble.of(0.0)
 );
 
 // Sampler cache method
@@ -50,7 +95,9 @@ GpuSampler sampler = RenderSystem.getSamplerCache().getSampler(
     // Minification filter
     FilterMode.LINEAR,
     // Magnification filter
-    FilterMode.NEAREST
+    FilterMode.NEAREST,
+    // Whether to use 1000 or 0 for the maximum level-of-detail
+    true
 );
 ```
 
@@ -103,7 +150,10 @@ public static final RenderSetup EXAMPLE_SETUP = RenderSetup.builder(
         // 'Sampler0' is defined by the pipeline.
         "Sampler0",
         // Points to 'assets/minecraft/entity/wolf/wolf_armor_crackiness_low.png'.
-        ResourceLocation.withDefaultNamespace("textures/entity/wolf/wolf_armor_crackiness_low.png")
+        Identifier.withDefaultNamespace("textures/entity/wolf/wolf_armor_crackiness_low.png"),
+        // An optional supplied `GpuSampler` to sample the texture with.
+        // The returned value with be cached after first resolution.
+        () -> RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST)
     )
     // When set, allows the pipeline to use the light texture.
     // 'Sampler2' must be defined by the pipeline via `RenderPipeline$Builder#withSampler`.
@@ -211,6 +261,12 @@ A texture's `mcmeta` can now specify the `mipmap_strategy` to use in the `textur
 
 `RenderPipeline`s that were used by both a standalone block and the terrain has been split into separate pipelines: one with prefix `_BLOCK` and `_TERRAIN`, respectively. This includes the solid, cutout, translucent, and tripwire pipelines. No block variant exists for the translucent pipeline.
 
+### Item Atlases
+
+The block atlas no longer contains textures specifically for items. Those have been moved to their own atlas named `minecraft:items`, with the id stored at `AtlasIds#ITEMS`.
+
+If a given `Material` can use both block and item textures, then it should be supplied with the `ModelManager#BLOCK_OR_ITEM` special case.
+
 - `com.mojang.blaze3d.opengl`
     - `GlDevice` now takes in a `ShaderSource` instead of a `BiFunction`
         - `getOrCompileShader` now takes in a `ShaderSource` instead of a `BiFunction`
@@ -250,7 +306,9 @@ A texture's `mcmeta` can now specify the `mipmap_strategy` to use in the `textur
         - `useMipmaps`, `setUseMipmaps` are removed
 - `net.minecraft.client.gui.render.TextureSetup` now takes in the `GpuSampler`s for each of the textures
     - This also includes the static constructors
+- `net.minecraft.client.particle.SingleQuadParticle$Layer#ITEMS` - A layer for particles with item textures.
 - `net.minecraft.client.renderer`
+    - `ItemBlockRenderTypes#getRenderType(ItemStack)`
     - `LightTexture#turnOffLightLayer`, `turnOnLightLayer` are removed
     - `LevelRenderer#onChangeMaxAnisotropy` - Resets the chunk layer sampler on anisotropic level change.
     - `PostPass`
@@ -274,6 +332,7 @@ A texture's `mcmeta` can now specify the `mipmap_strategy` to use in the `textur
     - `RenderType` has been split into two separate concepts, not one-to-one
         - All of the stored `RenderType`s have been moved to `RenderTypes`
         - The actual class usage has moved to `.rendertype.RenderType`, where it does the work of `$CompositeRenderType`
+    - `Sheets#translucentBlockItemSheet` - A render type for translucent block items.
 - `net.minecraft.client.renderer.chunk`
     - `ChunkSectionLayer` no longer takes in whether to use mipmaps
         - `CUTOUT_MIPPED` is removed
@@ -281,6 +340,12 @@ A texture's `mcmeta` can now specify the `mipmap_strategy` to use in the `textur
     - `ChunkSectionsToRender` now takes in the `GpuTextureView`
         - `dynamicTransforms` -> `chunkSectionInfos`
         - `renderGroup` now takes in the `GpuSampler`
+- `net.minecraft.client.renderer.item.BlockModelWrapper` is now package-private
+- `net.minecraft.client.renderer.rendertype.RenderTypes`
+    - `MOVING_BLOCK_SAMPLER` - A sampler for blocks that are in motion.
+    - `solid` -> `solidMovingBlock`
+    - `cutout` -> `cutoutMovingBlock`
+    - `tripwire` -> `tripwireMovingBlock`
 - `net.minecraft.client.renderer.texture`
     - `AbstractTexture#setUseMipmaps` is removed
     - `MipmapGenerator#generateMipLevels` now takes in the name of the texture and a `MipmapStrategy` to determine how a specific texture should be mip mapped
@@ -314,6 +379,8 @@ A texture's `mcmeta` can now specify the `mipmap_strategy` to use in the `textur
             - `apply` -> `get`
     - `SpriteSourceList#list` now returns a list of `SpriteSource$Loader`s
 - `net.minecraft.client.resources.metadata.texture.TextureMetadataSection` now takes in a `MipmapStrategy` to determine how a specific texture should be mip mapped
+- `net.minecraft.client.resources.model.ModelManager#BLOCK_OR_ITEM` - A special case that causes the model manager to check both the item and block atlas.
+- `net.minecraft.data.AtlasIds#ITEMS` - The item atlas identifier.
 
 ## Gizmos
 
@@ -453,7 +520,7 @@ public record HasExamplePermission(int state) implements Permission {
 // In some registration handler
 Registry.register(
     BuiltInRegistries.PERMISSION_TYPE
-    ResourceLocation.withNamespaceAndPath("examplemod", "has_example_permission"),
+    Identifier.withNamespaceAndPath("examplemod", "has_example_permission"),
     HasExamplePermission.MAP_CODEC
 );
 
@@ -523,7 +590,7 @@ public static record AnyOf(List<Permission> permissions) implements PermissionCh
 // In some registration handler
 Registry.register(
     BuiltInRegistries.PERMISSION_CHECK_TYPE
-    ResourceLocation.withNamespaceAndPath("examplemod", "any_of"),
+    Identifier.withNamespaceAndPath("examplemod", "any_of"),
     AnyOf.MAP_CODEC
 );
 
@@ -803,8 +870,11 @@ new Item(new Item.Properties.component(
         - `$AnyValueType` - A type that uses the `AnyValue` predicate.
         - `$ConcreteType` - A type that defines a specific predicate.
 - `net.minecraft.world.entity`
-    - `LivingEntity#SWING_DURATION` -> `SwingAnimation#duration`, not one-to-one
+    - `LivingEntity`
+        - `SWING_DURATION` -> `SwingAnimation#duration`, not one-to-one
+        - `stabbedEntities` - The number of recent entities attacked by a kinetic weapon.
     - `Mob#chargeSpeedModifier` - The modifier applied to the movement speed when charging.
+- `net.minecraft.world.entity.player.Player#hasEnoughFoodToDoExhaustiveManoeuvres` - Returns whether the player can perform an exhaustive manuever.
 - `net.minecraft.world.item`
     - `ItemStack`
         - `getSwingAnimation` - Returns the swing animation of the item.
@@ -816,9 +886,9 @@ new Item(new Item.Properties.component(
     - `SwingAnimation` - The animation applied when swinging an item.
     - `UseEffects` - The effects to apply to the entity when using the item.
 
-## Environment Attributes
+## The Timeline of Environment Attributes
 
-Environment attributes, at the name implies, defines a set of properties or modifications ('attributes') for a given dimension and/or biome ('environment'). They are stored directly within the biome or dimension type under the `attributes` field. Each attribute can represent anything from the visual settings to gameplay behavior, interpolating between different environments as defined. Vanilla provides their available attributes within `EnvironmentAttributes` while the stored attributes are obtained from `Level#environmentAttributes`.
+Environment attributes, as the name implies, defines a set of properties or modifications ('attributes') for a given dimension and/or biome ('environment'). They are stored directly within the biome or dimension type under the `attributes` field, or as part of a mutable timeline under the `tracks` field. Each attribute can represent anything from the visual settings to gameplay behavior, interpolating between different values as defined. Vanilla provides their available attributes within `EnvironmentAttributes` while the stored attributes are obtained from `Level#environmentAttributes`.
 
 ```json5
 // For some DimensionType json
@@ -849,22 +919,67 @@ Environment attributes, at the name implies, defines a set of properties or modi
     }
     // ...
 }
+
+// For some Timeline json
+// In `data/examplemod/timeline/example_timeline.json
+{
+    // The number of ticks this track takes before repeating
+    "period_ticks": 24000,
+    // Defines the attributes to interpolate between
+    // based on the defined keyframes.
+    // Defaults or modifies those in the biome, or dimension
+    "tracks": {
+        "minecraft:visual/cloud_height": {
+            // The keyframes that define certain values of the attribute
+            "keyframes": [
+                {
+                    // The tick representing the keyframe
+                    "tick": 12000,
+                    // The argument that modifies the value
+                    // In this case, adds 1 to 60 + 90, making this have a cloud height of 151
+                    "value": 1
+                },
+                {
+                    // The tick representing the keyframe
+                    "tick": 23999,
+                    // The argument that modifies the value
+                    // In this case, adds 0 to 60 + 90, making this have a cloud height of 150
+                    "value": 0
+                }
+            ],
+            // Instead of setting the value, applies a modifier to the argument
+            "modifier": "add",
+            // The sampler function to apply when interpolating between ticks
+            "ease": "linear"
+        }
+    }
+}
 ```
 
-When calling `EnvironmentAttributeSystem#getValue`, Each attribute obtains its stored value in roughly four steps. First, it reads the default value from the registered attribute itself (via `EnvironmentAttribute#defaultValue`). Then, it applies a modifier based on the dimension definition (setting a property is basically an override modifier). If the attribute can change based on the position in the world, then a second modifier is applied based on the biome definition. Finally, the value is sanitized to prevent any unexpected behavior.
+When calling `EnvironmentAttributeSystem#getValue`, the attribute value is obtained through the layers defined by the `Level`:
+
+1. Read the default value from the registered attribute (via `EnvironmentAttribute#defaultValue`).
+2. Apply the modifier from the dimension, or do nothing if one does not exist for this attribute.
+3. Apply the modifier from the biome, or do nothing if one does not exist.
+4. Apply the modifiers from all active timelines defined in the `DimensionType`, or do nothing if none exist. Timeline order is not guaranteed.
+5. If the dimension can have weather (skylight, no ceiling, and not the end), apply the modifiers from the `WeatherAttributes`.
+6. If on the client (i.e. `ClientLevel`), apply the sky flashes modifier.
+7. Sanitize the final value to be in the range defined by the `EnvironmentAttribute`.
+
+This is highly oversimplified and introduces many new concepts, so let's break it down further by creating our own environment attribute and timeline.
 
 ### Custom Environment Attributes
 
 Environment attributes are created through the `$Builder`, via `EnvironmentAttribute#builder`, taking the type value it represents (e.g., float, integer, object). The builder only requires one value to be set: the `defaultValue`. This is used if the attribute is not overridden by a dimension or biome. If the attribute value should have a valid set of states, then an `AttributeRange` can be set via `valueRange`. The `AttributeRange` is basically a unary operator that transforms the input into its 'valid' state via `sanitize`. It also verifies that the value passed in through the JSON is in a 'valid' state via `validate`.
 
-From there, there are three more methods responsible for determining the logic used to compute the value. `$Builder#syncable` syncs the attribute to the client, which is required for any attribute that causes some sort of change that is not specific to the server (e.g., visuals or common code). `notPositional` means that the attribute can only be applied dimension-wide and not on a biome, else an exception is thrown. Finally `spatiallyInterpolated` will attempt to interpolate using the attribute type between different biomes to apply a more seamless transition. In its current state, Vanilla only handles client side attributes for spatial interpolation. Anything on the server must handle their own `SpatialAttributeInterpolator`.
+From there, there are three more methods responsible for determining the logic used to compute the value. `$Builder#syncable` syncs the attribute to the client, which is required for any attribute that causes some sort of change that is not specific to the server (e.g., visuals, audio, or common code). `notPositional` means that the attribute cannot be applied on a biome (still settable in a dimension or timeline), else an exception is thrown. Finally `spatiallyInterpolated` will attempt to interpolate using the attribute type between different biomes to apply a more seamless transition. Vanilla only handles client side attributes for spatial interpolation. Anything on the server must handle their own `SpatialAttributeInterpolator`.
 
 Finally the actual attribute can be obtained via `$Builder#build`. This value must be registered to `BuiltInRegistries#ENVIRONMENT_ATTRIBUTE`:
 
 ```java
 public static final EnvironmentAttribute<Boolean> EXAMPLE_ATTRIBUTE = Registry.register(
     BuiltInRegistries.ENVIRONMENT_ATTRIBUTE,
-    ResourceLocation.withNamespaceAndPath("examplemod", "example_attribute"),
+    Identifier.withNamespaceAndPath("examplemod", "example_attribute"),
     EnvironmentAttribute.builder(
         // The attribute type
         // Must match the generic for the attribute value
@@ -898,6 +1013,28 @@ public static final EnvironmentAttribute<Boolean> EXAMPLE_ATTRIBUTE = Registry.r
         }
     }
     // ...
+}
+
+// For some Timeline json
+// In `data/examplemod/timeline/example_timeline.json
+{
+    "period_ticks": 24000,
+    "tracks": {
+        "examplemod:example_attribute": {
+            "keyframes": [
+                {
+                    "tick": 12000,
+                    "value": false
+                },
+                {
+                    "tick": 23999,
+                    "value": true
+                }
+            ],
+            "modifier": "and",
+            "ease": "linear"
+        }
+    }
 }
 ```
 
@@ -1003,7 +1140,7 @@ public static final Map<AttributeModifier.OperationId, AttributeModifier<Example
 
 #### Type Interpolation
 
-To support interpolation, whether for client frames (because of `$Builder#syncable`) or spatial (`$Builder#spatiallyInterpolated`), there needs to be some function that, given some step between 0 and 1 (either time or position), how are the two values merged. This is handled through a `LerpFunction`, of which the generic is the environment attribute value type. For non-interpolated values, this normally uses `LerpFunction#ofStep`, which acts like a simple threshold between the two values. More specifically, spatial will set the threshold as 0.5 while the partial tick will only consider full steps (meaning always the next value). However, this function can be however you choose to define it:
+To support interpolation, whether for client frames (because of `$Builder#syncable`), spatial (`$Builder#spatiallyInterpolated`), states (weather), or keyframes (timelines), there needs to be some function that, given some step between 0 and 1 (either time or position), how are the two values merged. This is handled through a `LerpFunction`, of which the generic is the environment attribute value type. For non-interpolated values, this normally uses `LerpFunction#ofStep`, which acts like a simple threshold between the two values. More specifically, spatial will set the threshold as 0.5 while the partial tick, keyframe, and state change will only consider full steps (meaning always the next value). However, this function can be however you choose to define it:
 
 ```java
 // Step represents the value between 0 and 1 to interpolation
@@ -1022,6 +1159,12 @@ public static final LerpFunction<ExampleObject> EXAMPLE_PARTIAL_LERP = (step, or
         next.value2()
     );
 }
+
+// Will always return the first value
+public static final LerpFunction<ExampleObject> EXAMPLE_KEYFRAME_LERP = LerpFunction.ofConstant();
+
+// Will change to the next state after 0.1 of the step has past
+public static final LerpFunction<ExampleObject> EXAMPLE_STATE_CHANGE_LERP = LerpFunction.ofStep(0.1f);
 ```
 
 #### Putting it all Together
@@ -1034,16 +1177,28 @@ If you decide to use the `AttributeType` instance constructor instead, you will 
 // The attribute type must be statically registered to be handled correctly
 public static final AttributeType<ExampleObject> EXAMPLE_ATTRIBUTE_TYPE = Registry.register(
     BuiltInRegistries.ATTRIBUTE_TYPE,
-    ResourceLocation.withNamespaceAndPath("examplemod", "example_attribute_type"),
-    AttributeType.ofInterpolated(
+    Identifier.withNamespaceAndPath("examplemod", "example_attribute_type"),
+    new AttributeType<>(
         // The codec for the value
         ExampleObject.CODEC,
         // The map of operations that can be modified
         // `OVERRIDE` is automatically added for serialization
         EXAMPLE_LIBRARY,
-        // The function for interpolating between two spatial coordinates
+        // The codec used to serialize the modifier library
+        Util.make(() -> {
+            ImmutableBiMap<AttributeModifier.OperationId, AttributeModifier<Value, ?>> map = ImmutableBiMap.builder()
+                .put(AttributeModifier.OperationId.OVERRIDE, AttributeModifier.override())
+                .putAll(EXAMPLE_LIBRARY)
+                .buildOrThrow();
+            return ExtraCodecs.idResolverCodec(AttributeModifier.OperationId.CODEC, map::get, map.inverse()::get);
+        }),
+        // The function interpolating between two keyframes in a timeline
+        EXAMPLE_KEYFRAME_LERP,
+        // The function interpolating between two states (only used for attributes in the weather maps)
+        EXAMPLE_STATE_CHANGE_LERP,
+        // The function interpolating between two spatial coordinates
         EXAMPLE_SPATIAL_LERP,
-        // The function for interpolating im-between client frames
+        // The function interpolating between client frames
         EXAMPLE_PARTIAL_LERP
     )
 );
@@ -1054,7 +1209,7 @@ From there, we can create an `EnvironmentAttribute` that uses said type:
 ```java
 public static final EnvironmentAttribute<ExampleObject> EXAMPLE_OBJECT_ATTRIBUTE = Registry.register(
     BuiltInRegistries.ENVIRONMENT_ATTRIBUTE,
-    ResourceLocation.withNamespaceAndPath("examplemod", "example_object_attribute"),
+    Identifier.withNamespaceAndPath("examplemod", "example_object_attribute"),
     EnvironmentAttribute.builder(
         EXAMPLE_ATTRIBUTE_TYPE
     )
@@ -1095,6 +1250,132 @@ public static final EnvironmentAttribute<ExampleObject> EXAMPLE_OBJECT_ATTRIBUTE
     }
     // ...
 }
+
+// For some Timeline json
+// In `data/examplemod/timeline/example_timeline.json
+{
+    "period_ticks": 24000,
+    "tracks": {
+        "examplemod:example_object_attribute": {
+            "keyframes": [
+                {
+                    "tick": 12000,
+                    // This can be either a boolean, integer, or object
+                    // because of how the serializer was defined
+                    "value": 1
+                },
+                {
+                    "tick": 23999,
+                    // This can be either a boolean, integer, or object
+                    // because of how the serializer was defined
+                    "value": {
+                        "value1": 0,
+                        "value2": false
+                    }
+                }
+            ],
+            // Must use one of the arguments defined in the library
+            // In this case either 'add', 'or', or 'and'
+            "modifier": "and",
+            "ease": "linear"
+        }
+    }
+}
+```
+
+### Timelines
+
+`Timeline`s are method of modifying attributes based on the current game time. More specifically, they define some keyframes that the values are interpolated between, first determining the step using the `EasingType` function, and second using `AttributeType#keyframeLerp` to get the value. This is not only a replacement of `Schedule`s in brains, but also attributes relating to the day/night cycle (e.g., sky color, slime spawn chance, etc.). These function as a layer after the biome modifiers are applied for both positional and non-positional attributes.
+
+Timelines are activated based on the `DimensionType#timelines` tag, which are prefixed with `in_` (e.g. `minecraft:in_overworld` is the timeline tag for the overworld). All dimension tags include the `minecraft:universal` tag, meaning all timelines tagged within will run within all dimensions (provided they add the universal tag).
+
+The vanilla timelines are like so:
+
+- `minecraft:day`: The day/night cycle
+- `minecraft:moon`: The moon phase and spawn chance
+- `minecraft:villager_schedule`: What `Activity` a villager performs
+- `minecraft:early_game`: Stops pillager patrol spawns for the first few days
+
+The associated tags are the following;
+
+- `minecraft:universal`
+    - `minecraft:villager_schedule`
+- `minecraft:in_overworld` - Overworld dimension
+    - `#minecraft:universal`
+    - `minecraft:day`
+    - `minecraft:moon`
+    - `minecraft:early_game`
+- `minecraft:in_nether` - Nether dimension
+    - `#minecraft:universal`
+- `minecraft:in_end` - End dimension
+    - `#minecraft:universal`
+
+#### Keyframes
+
+Each `Timeline` is made up of keyframes responsible for determining what the argument to the modifier should be at a given tick. These keyframes are then compiled into a list called a `KeyframeTrack`, baked into a `KeyframeTrackSampler` when constructing the attribute layers. Every two adjacent keyframes (including the first and last) is considered a `KeyframeTrackSampler$Segment`. This is what's used to sample an attribute at a given tick.
+
+Let's say we have the following (keyframe, value) segment (100, 0) -> (200, 1) and we are currently at tick 150. How do we choose what argument to use? Well, this is performed in two operations. First, we calculate the step: a value between `0` and `1` that determines how much to interpolate the value with. The step is calculated first linearly: (current_tick - start_segment_tick) / (end_segment_tick - start_segment_tick). Then, the step is passed into the desired `EasingType`, which is a function that takes in a 0-1 value and returns a 0-1 value, such as `in_out_bounce` or `out_back`. You can also create your own `EasingType` like so:
+
+```java
+// `EasingType#registerSimple` must be made public
+EasyingType.registerSimple(
+    // The name of the function
+    "examplemod:ease",
+    // The function to apply to the value
+    // For smooth transitions, the function should map 0 -> 0 and 1 -> 1
+    original -> 0.5f * (float) Mth.sin(Math.PI * (3 * original - 0.5)) + 0.5f
+);
+```
+
+Then, it passes the step to the `AttributeType#keyframeLerp` function along with the two arguments to get the lerped argument to apply.
+
+#### Attribute Tracks
+
+With the keyframes determining the arguments, we apply the arguments to the attribute through an `AttributeTrack`, baked into an `AttributeTrackSampler` when constructing the attribute layers. An `AttributeTrack` contains the `KeyframeTrack` to get the arguments, and an `ArgumentModifier` to apply the argument to the value. Note that there can only be one modifier for a given track.
+
+These `AttributeTrack`s are then stored in a map of attributes to tracks, which define our `Timeline`. The timeline also contains an optional integer indicating the period of the tracks. The 'period', in this case, acts as one full run of all tracks in the timeline. Values outside of the period are modulo'd. Most timelines use `24000` for the period as that represents one Minecraft day in ticks.
+
+#### Custom Timelines
+
+Custom `Timeline`s are added to the `timeline` datapack registry:
+
+```json5
+// For some Timeline json
+// In `data/examplemod/timeline/example_timeline.json
+{
+    // Runs for every 3000 ticks (1/8 of a day)
+    "period_ticks": 3000,
+    "tracks": {
+        // The attribute(s) to modify
+        "examplemod:example_object_attribute": {
+            // The easing function to determine the step between arguments
+            "ease": "examplemod:ease",
+            // The list of keyframes defining the arguments at set ticks
+            // The arguments are then interpolated using the easing function
+            // and keyframe lerp
+            "keyframes": [
+                {
+                    // The tick for which this argument is the given value
+                    "tick": 1500,
+                    // Adds 10 to the attribute
+                    "value": 10
+                },
+                // In-between, uses the easing function to step down between
+                // 10 and 0
+                {
+                    "tick": 2999,
+                    // Adds 0 to the attribute
+                    "value": 0
+                }
+                // In-between, uses the easing function to step up between
+                // 0 and 10
+            ],
+            // The modifier to use when applying the argument
+            // to the value
+            "modifier": "add"
+        }
+    }
+}
 ```
 
 - `net.minecraft.client`
@@ -1102,7 +1383,22 @@ public static final EnvironmentAttribute<ExampleObject> EXAMPLE_OBJECT_ATTRIBUTE
     - `Minecraft`
         - `getSituationalMusic` now returns `Music` instead of `MusicInfo`
         - `getMusicVolume` - Gets the volume of the background music, or normal volume if the open screen has background music.
-- `net.minecraft.client.renderer.DimensionSpecialEffects#isFoggyAt` -> `EnvironmentAttributes#*_START_DISTANCE`, not one-to-one
+- `net.minecraft.client.multiplayer.ClientLevel`
+    - `effects` is removed
+    - `getSkyDarken` -> `EnvironmentAttributes#SKY_LIGHT_COLOR`, `SKY_LIGHT_FACTOR`; not one-to-one
+    - `getSkyColor` -> `EnvironmentAttributes#SKY_COLOR`, not one-to-one
+    - `getCloudColor` -> `EnvironmentAttributes#CLOUD_COLOR`, not one-to-one
+    - `getStarBrightness` -> `EnvironmentAttributes#STAR_BRIGHTNESS`, not one-to-one
+    - `getSkyFlashTime` is now private
+- `net.minecraft.client.renderer`
+    - `DimensionSpecialEffects` class is removed, replaced entirely by `EnvironmentAttribute`s
+    - `SkyRenderer`
+        - `renderSkyDisc` now takes in a single ARGB `int` instead of three RGB `float`s
+        - `renderSunMoonAndStars` now take in two additional `float`s for the moon and star rotation
+- `net.minecraft.client.renderer.state.SkyRenderState`
+    - `skyType` -> `skybox`, not one-to-one
+    - `isSunriseOrSunset`, `timeOfDay` are removed
+    - `moonAngle`, `starAngle` - The angle of the moon and stars.
 - `net.minecraft.client.resources.sounds.BiomeAmbientSoundsHandler` no longer takes in the `BiomeManager`
 - `net.minecraft.client.sounds`
     - `MusicInfo` -> `Minecraft#getSituationalMusic`, `getMusicVolume`; not one-to-one
@@ -1110,8 +1406,17 @@ public static final EnvironmentAttribute<ExampleObject> EXAMPLE_OBJECT_ATTRIBUTE
 - `net.minecraft.core.registries`
     - `BuiltInRegistries`, `Registries#ENVIRONMENT_ATTRIBUTE` - The registry for the environment attributes.
     - `BuiltInRegistries`, `Registries#ATTRIBUTE_TYPE` - The registry for the attribute types.
+    - `BuiltInRegistires`, `Registries#SCHEDULE` are removed
+    - `Registries#TIMELINE` - The registry key for the timeline.
+- `net.minecraft.data.tags.TimelineTagsProvider` - The tags provider for the timeline.
+- `net.minecraft.server.level.ServerLevel#getMoonBrightness` - Returns the brightness of the moon.
 - `net.minecraft.sounds.Music#event` -> `sound`
-- `net.minecraft.util.CubicSampler` -> `GaussianSampler`, `SpatialAttributeInterpolator`; not one-to-one
+- `net.minecraft.tags.TimelineTags` - The tags for the timeline.
+- `net.minecraft.util`
+    - `BinaryAnimator$EasingFunction` -> `EasingType`
+    - `CubicSampler` -> `GaussianSampler`, `SpatialAttributeInterpolator`; not one-to-one
+    - `KeyframeTrack` - A track of keyframes and the easing performed between them.
+    - `KeyframeTrackSampler` - A keyframe track that replays based on the period, lerping between values using the provided function.
 - `net.minecraft.world.attribute`
     - `AmbientSounds` - The sounds that ambiently play within an environment.
     - `AttributeRange` - An interface meant to validate inputs and sanitize the corresponding value into an appropriate bound.
@@ -1120,22 +1425,46 @@ public static final EnvironmentAttribute<ExampleObject> EXAMPLE_OBJECT_ATTRIBUTE
     - `BackgroundMusic` - The background music that plays within an environment.
     - `BedRule` - The rules of how beds function within an environment.
     - `EnvironmentAttribute` - A definition of some attribute within an environment.
+    - `EnvironmentAttributeLayer` - A layer that modifies a value.
     - `EnvironmentAttributeMap` - A map of attribute definitions to their argument and modifier. 
     - `EnvironmentAttributeProbe` - The attribute handler for getting and interpolating between values. Used only by the camera.
     - `EnvironmentAttributeReader` - A reader that can lookup the environment attributes either by dimension or position.
     - `EnvironmentAttributes` - A registry of all vanilla environment attributes.
     - `EnvironmentAttributeSystem` - A reader implementation that gets and spatially interpolates environment attributes.
     - `LerpFunction` - A functional interface that takes in some value between 0-1 along with the start and end values to interpolate between.
+    - `WeatherAttributes` - Attributes maps for applying weather layers.
 - `net.minecraft.world.attribute.holder`
     - `AttributeModifier` - A modifier that takes in the attribute value along with some argument (typically a value of the same type) to produce a modified value.
     - `BooleanModifier` - Modifier for a boolean with a boolean argument.
     - `ColorModifier` - Modifier for an ARGB integer with some argument, typically integers.
     - `FloatModifier` - Modifier for a float with some argument, typical floats or a float with an alpha interpolator.
     - `FloatWithAlpha` - A record containing some value and an alpha typically used for blending.
+- `net.minecraft.world.entity.ai.Brain`
+    - `getSchedule` is removed
+    - `setSchedule` now takes in an `EnvrionmentAttribute<Activity>` instead of a `Schedule`
+    - `updateActivityFromSchedule` now takes in the `EnvironmentAttributeSystem` and position instead of the day time
+- `net.minecraft.world.entity.animal.Bee#isNightOrRaining` replaced with `EnvironmentAttributes#BEES_STAY_IN_HIVE`
 - `net.minecraft.world.entity.player.Player$BedSleepingProblem` is now a record
     - `NOT_POSSIBLE_HERE` -> `BedRule#EXPLODES`
     - `NOT_POSSIBLE_NOW` -> `BedRule#CAN_SLEEP_WHEN_DARK`
-- `net.minecraft.world.level.LevelReader#environmentAttributes` - Returns the manager for get the environment attribute within a dimension and its associated biomes.
+- `net.minecraft.world.entity.schedule`
+    - `Keyframe` -> `.minecraft.util.Keyframe`, not one-to-one
+    - `Schedule` is removed, its logic replaced by `Timeline`, `Timelines`
+    - `ScheduleBuilder` is remvoed, its logic replaced by `Timeline$Builder`
+    - `Timeline` -> `.world.timeline.Timeline`, not one-to-one
+- `net.minecraft.world.entity.variant.SpawnContext` now takes in the `EnvironmentAttributeReader`
+- `net.minecraft.world.level`
+    - `Level`
+        - `isMoonVisible` replaced by `EnvironmentAttributes#MOON_ANGLE`
+        - `getSunAngle` replaced by `EnvironmentAttributes#SUN_ANGLE`
+        - `canHaveWeather` is now `public`
+    - `LevelAccessor` now implements `LevelReader` instead of `LevelTimeAccess`
+    - `LevelReader#environmentAttributes` - Returns the manager for get the environment attribute within a dimension and its associated biomes.
+    - `LevelTimeAccess` interface is removed
+    - `MoonPhase`
+        - `CODEC` - The codec for the moon phase.
+        - `PHASE_LENGTH` - The number of ticks that a moon phase is present for.
+        - `startTick` - The start tick for a particular phase.
 - `net.minecraft.world.level.biome`
     - `AmbientAdditionsSettings` -> `.world.attribute.AmbientAdditionsSettings`
     - `AmbientMoodSettings` -> `.world.attribute.AmbientMoodSettings`
@@ -1167,10 +1496,17 @@ public static final EnvironmentAttribute<ExampleObject> EXAMPLE_OBJECT_ATTRIBUTE
         - `getBackgroundMusicVolume` -> `EnvironmentAttributes#MUSIC_VOLUME`
 - `net.minecraft.world.level.block`
     - `BedBlock#canSetSpawn` -> `BedRule#canSetSpawn` environment attribute
+    - `CreakingHeartBlock#isNaturalNight` replaced by `EnvironmentAttributes#CREAKING_ACTIVE`
     - `RespawnAnchorBlock#canSetSpawn` now takes in the `ServerLevel` and `BlockPos`
 - `net.minecraft.world.level.dimension`
+    - `BuiltinDimensionTypes#*_EFFECTS` are removed
     - `DimensionDefaults#OVERWORLD_CLOUD_HEIGHT` is now a `float`
     - `DimensionType`
+        - `fixedTime` -> `hasFixedTime`, now a `boolean` instead of a `OptionalLong`
+        - `natural`, `effectsLocation` are removed
+        - `skybox` - The skybox to display within the dimension.
+        - `cardinalLightType` - The type of light permeating through a dimension.
+        - `timelines` - A set of timelines that modify the environment attributes of this dimension.
         - `ultraWarm` -> `EnvironmentAttributes#WATER_EVAPORATES`, `FAST_LAVA`, `DEFAULT_DRIPSTONE_PARTICLE`
         - `bedWorks` -> `EnvironmentAttributes#BED_RULE`
         - `respawnAnchorWorks` -> `EnvironmentAttributes#RESPAWN_ANCHOR_WORKS`
@@ -1178,7 +1514,17 @@ public static final EnvironmentAttribute<ExampleObject> EXAMPLE_OBJECT_ATTRIBUTE
         - `attribute` - Gets the attributes for this dimension.
         - `piglinSafe`, `$MonsterSettings#piglinSafe` -> `EnvironmentAttributes#PIGLINS_ZOMBIFY`
         - `hasRaids`, `$MonsterSettings#hasRaids` -> `EnvironmentAttributes#CAN_START_RAID`
+        - `timeOfDay` is removed
+        - `moonPhase` replaced by `EnvironmentAttributes#MOON_PHASE`
+        - `hasEndFlashes` - Returns whether the skybox is the end.
+        - `$CardinalLightType` - The light permeating through a dimension.
+        - `$Skybox` - The skybox of a dimension.
 - `net.minecraft.world.level.material.FogType#DIMENSION_OR_BOSS` is removed
+- `net.minecraft.world.timeline`
+    - `AttributeTrack` - A track that applies the attribute modifier with the argument sampled from the given keyframe track.
+    - `AttributeTrackSampler` - A baked attribute track.
+    - `Timeline` - A map of attributes to tracks that are applied based on the given time in ticks modulo the period.
+    - `Timelines` - All vanilla timelines.
 
 ## The Game Rule Shuffle
 
@@ -1219,7 +1565,7 @@ Then, once created, the `GameRule` must be statically registered to `BuiltInRegi
 ```java
 public static final GameRule<Integer> EXAMPLE_RULE = Registry.register(
     BuiltInRegistries.GAME_RULE
-    ResourceLocation.withNamespaceAndPath("examplemod", "example_rule"),
+    Identifier.withNamespaceAndPath("examplemod", "example_rule"),
     new GameRule(
         // The category that best represents the game rule.
         // This is only used by the edit game rule screen
@@ -1228,7 +1574,7 @@ public static final GameRule<Integer> EXAMPLE_RULE = Registry.register(
         // `GameRuleCategory#register` or just its constructor
         // as the sort order goes unused
         GameRuleCategory.register(
-            ResourceLocation.withNamespaceAndPath("examplemod", "example_category")
+            Identifier.withNamespaceAndPath("examplemod", "example_category")
         ),
         // The type of the game rule, represenative of the
         // JSON schema version of the generic.
@@ -1463,7 +1809,7 @@ public record TagSlotSource(TagKey<Item> tag) implements SlotSource {
 // The map codec needs to be registered to the slot source type registry
 Registry.register(
     BuiltInRegistries.SLOT_SOURCE_TYPE
-    ResourceLocation.withNamespaceAndPath("examplemod", "tag"),
+    Identifier.withNamespaceAndPath("examplemod", "tag"),
     TagSlotSource.MAP_CODEC
 );
 ```
@@ -1493,7 +1839,7 @@ Registry.register(
 }
 ```
 
-- `net.minecraft.advancements.critereon.SlotsPredicate#matches` now takes in a `SlotProvider` instead of an `Entity`
+- `net.minecraft.advancements.criterion.SlotsPredicate#matches` now takes in a `SlotProvider` instead of an `Entity`
 - `net.minecraft.core.registries.BuiltInRegistries#SLOT_SOURCE_TYPE`, `Registries#SLOT_SOURCE_TYPE` - Slot source type registry.
 - `net.minecraft.world.Container` now extends `SlotProvider`
     - `getSlot` - Gets an access for a single item.
@@ -1521,6 +1867,63 @@ Registry.register(
     - `LootPoolEntries#SLOTS` - A pool that uses slots from a source.
     - `SlotLoot` - A pool that gets its items from some slot source.
 
+### Zombie Nautilus Variant
+
+Zombie nautilus are the newest addition to the variant datapack registry objects, taking in the familiar model and texture override along with the spawn conditions:
+
+```json5
+// A file located at:
+// - `data/examplemod/zombie_nautilus_variant/example_zombie_nautilus.json`
+{
+    // Points to a texture at `assets/examplemod/textures/entity/nautilus/example_zombie_nautilus.png`
+    "asset_id": "examplemod:entity/nautilus/example_zombie_nautilus",
+    // Defines the `ZombieNautilusVariant$ModelType` that's used to select what entity model to render the zombie nautilus variant with
+    "model": "warm",
+    "spawn_conditions": [
+        // The conditions for this variant to spawn
+        {
+            "priority": 0
+        }
+    ]
+}
+```
+
+- `net.minecraft.core.component.DataComponents#ZOMBIE_NAUTILUS_VARIANT` - The variant of the zombie nautilus.
+- `net.minecraft.core.registries.Registries#ZOMBIE_NAUTILUS_VARIANT` - The registry key for the zombie nautilus variant.
+- `net.minecraft.network.syncher.EntityDataSerializers#ZOMBIE_NAUTILUS_VARIANT` - The variant of the zombie nautilus.
+- `net.minecraft.world.entity.animal`
+    - `ZombieNautilusVariant` - A variant of a zombie nautilus.
+    - `ZombieNautilusVariants` - All vanilla zombie nautilus variants.
+
+### `OptionEnum` Removal
+
+`OptionEnum` has been removed in favor of simply calling the `OptionInstance$Enum` constructor with the desired values and codec. As such, most `byId` methods have been replaced with some codec and the translatable entry is now stored as a `Component` than the translation key string.
+
+- `net.minecraft.client`
+    - `AttackIndicatorStatus` no longer implements `OptionEnum`
+        - `byId` -> `LEGACY_CODEC`, not one-to-one
+        - `getKey` -> `caption`, not one-to-one
+    - `CloudStatus` no longer implements `OptionEnum`
+        - `getKey` -> `caption`, not one-to-one
+    - `InactivityFpsLimit` no longer implements `OptionEnum`
+        - `getKey` -> `caption`, not one-to-one
+    - `OptionInstance#forOptionEnum` is removed
+    - `PrioritizeChunkUpdate` no longer implements `OptionEnum`
+        - `getKey` -> `caption`, not one-to-one
+        - `byId` -> `LEGACY_CODEC`, not one-to-one
+- `net.minecraft.client.sounds.MusicManager$MusicFrequency` no longer implements `OptionEnum`
+    - `getKey` -> `caption`, not one-to-one
+- `net.minecraft.server.level.ParticleStatus` no longer implements `OptionEnum`
+    - `getKey` -> `caption`, not one-to-one
+    - `byId` -> `LEGACY_CODEC`, not one-to-one
+- `net.minecraft.util.OptionEnum` is removed
+- `net.minecraft.world.entity.HumanoidArm` no longer implements `OptionEnum`
+    - `BY_ID` is now private
+    - `getKey` -> `caption`, not one-to-one
+- `net.minecraft.world.entity.player.ChatVisbility` no longer implements `OptionEnum`
+    - `byId` -> `LEGACY_CODEC`, not one-to-one
+    - `getKey` -> `caption`, not one-to-one
+
 ### Specific Logic Changes
 
 - `net.minecraft.client.renderer.entity.EntityRenderState#lightCoords` now defaults to 0xF000F0.
@@ -1537,6 +1940,9 @@ Registry.register(
         - Replaced by `EnvironmentAttributes#INCREASED_FIRE_BURNOUT`
     - `snow_golem_melts` is removed
         - Replaced by `EnvironmentAttributes#SNOW_GOLEM_MELTS`
+    - `without_patrol_spawns` is removed
+        - Replaced by `EnvironmentAttributes#CAN_PILLAGER_PATROL_SPAWN`
+    - `spawns_coral_variant_zombie_nautilus`
 - `minecraft:block`
     - `can_glide_through`
 - `minecraft:entity_type`
@@ -1553,6 +1959,11 @@ Registry.register(
     - `spears`
     - `enchantable/lunge`
     - `enchantable/sword` -> `enchantable/melee_weapon`, `enchantable/sweeping`
+- `minecraft:timeline`
+    - `universal`
+    - `in_overworld`
+    - `in_nether`
+    - `in_end`
 
 ### List of Additions
 
@@ -1577,12 +1988,15 @@ Registry.register(
         - `MAX_CLOUD_DISTANCE` - The maximum cloud range to be rendered by the player.
         - `DEFAULT_RANDOM_TICK_SPEED` - The default random tick speed.
     - `Util#localizedDateFormatter` - Returns the localized `DateTimeFormatter` for the given style.
-- `net.minecraft.advancements.critereon.DataComponentMatchers$Builder#any` - Matches whether there exists some data for the component.
+- `net.minecraft.advancements.criterion`
+    - `DataComponentMatchers$Builder#any` - Matches whether there exists some data for the component.
+    - `SpearMobsTrigger` - A trigger that checks the number of entities the player has speared with a kinetic weapon.
 - `net.minecraft.client`
     - `GuiMessage`
         - `splitLines` - Splits the component into lines with the desired width.
         - `getTagIconLeft` - Gets the width of the content with an additional four pixel padding.
     - `KeyMapping$Category#DEBUG` - The debug keyboard category.
+    - `NarratorStatus#LEGACY_CODEC` - A codec to deserialize the enum narrator status.
     - `OptionInstance`
         - `$IntRangeBase`
             - `next` - Gets the next value.
@@ -1642,6 +2056,7 @@ Registry.register(
     - `NautilusSaddleModel` - The saddle model for a nautilus.
     - `SkeletonModel#createSingleModelDualBodyLayer` - Creates a parched layer definition.
     - `SpearAnimations` - The animations performed when using a spear.
+    - `ZombieNautilusCoralModel` - The model for the warm variant of a zombie nautilus.
 - `net.minecraft.client.model.geom`
     - `ModelLayers`
         - `*NAUTILUS*` - The model layers for the nautilus.
@@ -1649,21 +2064,29 @@ Registry.register(
     - `PartName`
         - `INNER_MOUTH`, `LOWER_MOUTH` - Part names for a mouth.
         - `SHELL` - Part name for a shell.
+        - `*_CORAL*` - Part names for the corals on a zombie nautilus.
 - `net.minecraft.client.multiplayer.MultiPlayerGameMode#piercingAttack` - Initiates a lunging attack.
 - `net.minecraft.client.renderer`
     - `DynamicUniforms`
         - `CHUNK_SECTION_UBO_SIZE` - The uniform buffer object size for the chunk section.
         - `writeChunkSections` - Writes a varargs of chunk sections to the uniform storage.
         - `$ChunkSectionInfo` - The dynamic uniform for the chunk section.
-    - `GameRenderer#updateCamera` - Calls the setup function for the camera.
+    - `GameRenderer`
+        - `updateCamera` - Calls the setup function for the camera.
+        - `getPanoramicScreenshotParameters` - Get the screenshot parameters for panoramic mode.
+    - `PanoramicScreenshotParameters` - The screenshot parameters for panoramic mode.
     - `Sheets#CELESTIAL_SHEET` - The atlas for the celestial textures.
 - `net.minecraft.client.renderer.blockentity.BlockEntityWithBoundingBoxRenderer#STRUCTURE_VOIDS_COLOR` - The void color for a structure.
-- `net.minecraft.client.renderer.chunk.SectionRenderDispatcher$RenderSection#getVisibility` - Returns the current alpha of the chunk.
+- `net.minecraft.client.renderer.chunk.SectionRenderDispatcher$RenderSection`
+    - `getVisibility` - Returns the current alpha of the chunk.
+    - `setFadeDuration` - Sets the amount of time it should take for a chunk to fade in.
+    - `setWasPreviouslyEmpty`, `wasPreviouslyEmpty` - Handles whether the section did not previously exist. 
 - `net.minecraft.client.renderer.entity`
     - `CamelHuskRenderer` - The entity renderer for a camel husk.
     - `CamelRenderer#createCamelSaddleLayer` - Creates the saddle layer for the camel.
     - `NautilusRenderer` - The entity renderer for a nautilus.
     - `ParchedRenderer` - The entity renderer for a parched.
+    - `ZombieNautilusRenderer` - The entity renderer for a zombie nautilus.
 - `net.minecraft.client.renderer.entity.state`
     - `ArmedEntityRenderState`
         - `swingAnimationType` - The animation to play when swinging their hand.
@@ -1673,6 +2096,7 @@ Registry.register(
     - `NautilusRenderState` - The entity render state of a nautilus.
     - `UndeadRenderState` - The entity render state for an undead humanoid.
 - `net.minecraft.client.renderer.item.ItemModelResolver#swapAnimationScale` - Gets the scale of the swap animation for the stack.
+- `net.minecraft.client.renderer.state.LevelRenderState#gameTime` - The current game time.
 - `net.minecraft.client.resources.SplashManager` component fields - The components for the special messages.
 - `net.minecraft.client.resources.model`
     - `BlockModelRotation#IDENTITY` - The identity rotation.
@@ -1683,7 +2107,8 @@ Registry.register(
 - `net.minecraft.data.AtlasIds#CELESTIAL_SHEET` - The atlas for the celestial textures.
 - `net.minecraft.network.chat.MutableComponent#withoutShadow`, `Style#withoutShadow` - Removes the drop shadow from the text.
 - `net.minecraft.network.protocol.game.ServerboundPlayerActionPacket$Action#STAB` - The player performed the stab action.
-- `net.minecraft.resources.ResourceLocation#toShortString` - Returns the string of the location. Namespace is omitted if `minecraft`.
+- `net.minecraft.network.syncher.EntityDataSerializers#HUMANOID_ARM` - The main hand of the humanoid.
+- `net.minecraft.resources.Identifier#toShortString` - Returns the string of the location. Namespace is omitted if `minecraft`.
 - `net.minecraft.server`
     - `MinecraftServer`
         - `getServerActivityMonitor` - Returns the monitor that sends the server activity notification.
@@ -1718,6 +2143,7 @@ Registry.register(
         - `linearLerp` - Linearly interpolates the color by converting into the linear color space.
         - `white`, `black` - Colors with the provided alpha.
         - `alphaBlend` - Blends two colors along with their alpha value.
+        - `vector4fFromARGB32` - Converts an ARGB value to four floats.
     - `Ease` - A utility full of easing functions.
     - `ExtraCodecs`
         - `NON_NEGATIVE_LONG`, `POSITIVE_LONG` - Longs with the listed constraints.
@@ -1725,6 +2151,9 @@ Registry.register(
         - `STRING_RGB_COLOR`, `STRING_ARGB_COLOR` - A codec allowing for an (A)RGB value expressed in hex form as a string.
     - `Mth#cube` - Cubes a number.
     - `SpecialDates` - A utility containing the dates that Mojang changes some behavior or rendering for.
+    - `TriState`
+        - `CODEC` - The codec for the tristate.
+        - `from` - Turns a boolean into a tristate.
 - `net.minecraft.util.profiling.jfr.JvmProfiler#onClientTick` - Runs on client tick, taking in the current FPS.
 - `net.minecraft.util.profiling.jfr.event.ClientFpsEvent` - An event that keeps track of the client FPS.
 - `net.minecraft.util.profiling.jfr.stats.FpsStat` - A record containing the client FPS.
@@ -1736,8 +2165,11 @@ Registry.register(
     - `Entity`
         - `getHeadLookAngle` - Calculates the view vector of the head rotation.
         - `updateDataBeforeSync` - Updates the data stored in the entity before syncing to the client.
+        - `computeSpeed` - Computes last known speed and position of the entity.
+        - `getKnownSpeed` - Gets the last known speed of the entity.
     - `EntityProcessor` - A post processor for an entity when loading.
     - `EntityEvent#HIT` - An event fired when an entity is hit.
+    - `HumanoidArm#STREAM_CODEC` - The network codec for the arm enum.
     - `LivingEntity`
         - `DEFAULT_KNOCKBACK` - The default knockback applied to an entity on hit.
         - `itemSwapTicker` - The amount of time taken when swapping items.
@@ -1816,6 +2248,7 @@ Registry.register(
     - `offsetRandomXZ` - Offsets the point by a random amount in the XZ direction.
     - `rotation` - Computes the rotation of the vector.
     - `applyLocalCoordinatesToRotation` - Adds the components relative to the current rotation of the vector.
+    - `isFinite` - Returns whether all components of the vector are finite (not NaN or infinity) values.
 - `net.minecraft.world.scores`
     - `Scoreboard`
         - `packPlayerTeams` - Packs the player teams into a serializable format.
@@ -1827,6 +2260,7 @@ Registry.register(
 
 ### List of Changes
 
+- `com.mojang.blaze3d.platform.Lighting#updateLevel` now takes in a `DimensionType$CardinalLightType` instead of a boolean for whether the level is the nether or not
 - `com.mojang.blaze3d.systems.GpuDevice#createTexture` now has an overload that takes in a supplied label instead of the raw string
 - `com.mojang.blaze3d.vertex.VertexConsumer#addVertex`, `addVertexWith2DPose` now take in the interface, 'read only' variants of its arguments (e.g., `Vector3f` -> `Vector3fc`)
 - `com.mojang.math`
@@ -1848,7 +2282,7 @@ Registry.register(
         - `DEBUG_SKY_LIGHT_SECTIONS` -> `DebugScreenEntries#VISUALIZE_SKY_LIGHT_SECTIONS`, not one-to-one
         - `DEBUG_SOLID_FACE` -> `DebugScreenEntries#VISUALIZE_SOLID_FACES`, not one-to-one
         - `DEBUG_CHUNKS` -> `DebugScreenEntries#VISUALIZE_CHUNKS_ON_SERVER`, not one-to-one
-- `net.minecraft.advancements.critereon.EntityFlagsPredicate` now takes in optional booleans for if the entity is in water or fall flying
+- `net.minecraft.advancements.criterion.EntityFlagsPredicate` now takes in optional booleans for if the entity is in water or fall flying
     - The associated `$Builder` methods have also been added
 - `net.minecraft.client`
     - `Camera`
@@ -1930,10 +2364,12 @@ Registry.register(
     - `MultiPlayerGameMode#isAlwaysFlying` -> `isSpectator`
     - `ServerStatusPinger#pingServer` now takes in an `EventLoopGroupHolder`
 - `net.minecraft.client.renderer`
-    - `DimensionSpecialEffects` no longer takes in the `boolean` for end flashes
+    - `CloudRenderer#render` now takes in the game time `long`
     - `DynamicUniforms#writeTransform`, `$Transform` no longer take in the line width `float`
+    - `GameRenderer#setPanoramicMode` -> `setPanoramicScreenshotParameters`, not one-to-one
     - `GlobalSettingsUniform#update` now takes in the `Camera`
     - `ItemBlockRenderTypes#setFancy` -> `setCutoutLeaves`
+    - `LevelRenderer#isSectionCompiled` -> `isSectionCompiledAndVisible`
     - `RenderPipelines`
         - `LINE_STRIP` -> `LINES`, not one-to-one
         - `DEBUG_LINE_STRIP` -> `DEBUG_POINTS`, not one-to-one
@@ -1950,7 +2386,9 @@ Registry.register(
         - `$Vec4Uniform` now takes in a `Vector4fc` instead of a `Vector4f`
     - `WeatherEffectRenderer#tickRainParticles` now takes in an `int` for the weather radius
     - `WorldBorderRenderer#extract` now takes in a `float` for the partial tick
-- `net.minecraft.client.renderer.block.model.BlockElementRotation` now takes in a `Vector3fc` for the origin and a `Matrix4fc` transform
+- `net.minecraft.client.renderer.block.model`
+    - `BlockElementRotation` now takes in a `Vector3fc` for the origin and a `Matrix4fc` transform
+    - `TextureSlots$parseTextureMap` no longer takes in an `Identifier`
 - `net.minecraft.client.renderer.blockentity.TestInstanceRenderer` no longer takes in the `BlockEntityRendererProvider$Context`
 - `net.minecraft.client.renderer.blockentity.state.BlockEntityWithBoundingBoxRenderState$InvisibleBlockType$STRUCUTRE_VOID` -> `STRUCTURE_VOID`
 - `net.minecraft.client.renderer.chunk.ChunkSectionLayer#textureView` -> `texture`, not one-to-one
@@ -1982,12 +2420,22 @@ Registry.register(
     - `RidingHappyGhastSoundInstance` -> `RidingEntitySoundInstance`, not one-to-one
     - `RidingMinecartSoundInstance` now extends `RidingEntitySoundInstance` instead of `AbstractTickableSoundInstance`
         - The constructor now takes in the `SoundEvent`, volume min and max, and amplifier
+    - `SimpleSoundInstance#forMusic` no longer takes in the volume
+- `net.minecraft.client.sounds` 
+    - `SoundEngine` no longer takes in the `MusicManager`
+        - `updateCategoryVolume` -> `refreshCategoryVolume`
+        - `setVolume` -> `updateCategoryVolume`, not one-to-one
+    - `SoundManager` no longer takes in the `MusicManager`
+        - `updateSourceVolume` -> `refreshCategoryVolume`
+        - `setVolume` -> `updateCategoryVolume`, not one-to-one
 - `net.minecraft.gametest.framework.GameTestHelper`
     - `spawn` now has an overload that takes in the `EntitySpawnReason` or three `int`s for the position
     - `assetTrue`, `assetFalse`, `assertValueEqual` now has an overload that takes in a `String` instead of a `Component`
     - `assertEntityData` now has an overload that takes in the `AABB` bounding box
     - `getRelativeBounds` is now public
-- `net.minecraft.nbt.NbtUtils#getDataVersion` now has an overload that only takes in the `CompoundTag`
+- `net.minecraft.nbt`
+    - `CompoundTag#remove` now returns the removed tag
+    - `NbtUtils#getDataVersion` now has an overload that only takes in the `CompoundTag`
 - `net.minecraft.network`
     - `Connection`
         - `NETWORK_WORKER_GROUP` -> `EventLoopGroupHolder#NIO`, not one-to-one
@@ -2042,7 +2490,9 @@ Registry.register(
 - `net.minecraft.server.jsonrpc.security.AuthenticationHandler` now implements `ChannelDuplexHandler` instead of `ChannelInboundHandlerAdapter`
     - The constructor now takes in a string set of allowed origins
     - `$SecurityCheckResult#allowed` now has an overload that specifies whether the token was sent through the websocket protocol
-- `net.minecraft.server.level.ChunkMap` now extends `SimpleRegionStorage` instead of `ChunkStorage`
+- `net.minecraft.server.level`
+    - `ChunkMap` now extends `SimpleRegionStorage` instead of `ChunkStorage`
+    - `ServerLevel#drop` no longer returns a `boolean`
 - `net.minecraft.server.network.ServerConnectionListener`
     - `SERVER_EVENT_GROUP` -> `EventLoopGroupHolder#NIO`, not one-to-one
     - `SERVER_EPOLL_EVENT_GROUP` -> `EventLoopGroupHolder#EPOLL`, not one-to-one
@@ -2052,7 +2502,10 @@ Registry.register(
 - `net.minecraft.util`
     - `ARGB#lerp` -> `srgbLerp`
     - `ExtraCodecs` now use the interface, 'read only' variants for its generic (e.g., `Vector3f` -> `Vector3fc`)
-    - `Mth#easeInOutSine` -> `Ease#inOutSine`
+    - `Mth`
+        - `easeInOutSine` -> `Ease#inOutSine`
+        - `sin`, `cos` now takes in a `double` instead of a `float`
+    - `TriState` now implements `StringRepresentable`
 - `net.minecraft.util.profiling.jfr.Percentiles#evaluate` now has an overload that takes in an `int[]`
 - `net.minecraft.util.profiling.jfr.parse.JfrStatsResult` now takes in an FPS stat
     - `tickTimes` -> `serverTickTimes`
@@ -2066,6 +2519,8 @@ Registry.register(
     - `codec` -> `CODEC`
     - `get`, `reset` now takes in the world seed
 - `net.minecraft.world.entity`
+    - `Avatar#DATA_PLAYER_MAIN_HAND` now uses a `HumanoidArm` generic instead of a byte
+    - `Entity#hasImpulse` -> `needsSync`
     - `EntityType#loadEntityRecursive` now takes in an `EntityProcessor` instead of a `Function`
     - `LivingEntity#invulnerableDuration` -> `INVULNERABLE_DURATION`
     - `Mob#playAttackSound` -> `LivingEntity#playAttackSound`
@@ -2232,3 +2687,5 @@ Registry.register(
     - `RecreatingChunkStorage`
 - `net.minecraft.world.level.saveddata.SavedData$Context`
 - `net.minecraft.world.phys.Vec3#fromRGB24`
+
+CONTINUE: `net.minecraft.world.attribute`
