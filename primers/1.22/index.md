@@ -308,6 +308,9 @@ If a given `Material` can use both block and item textures, then it should be su
     - This also includes the static constructors
 - `net.minecraft.client.particle.SingleQuadParticle$Layer#ITEMS` - A layer for particles with item textures.
 - `net.minecraft.client.renderer`
+    - `FaceInfo`
+        - `$Constants` -> `$Extent`
+        - `$VertexInfo` is now a record
     - `ItemBlockRenderTypes#getRenderType(ItemStack)`
     - `LightTexture#turnOffLightLayer`, `turnOnLightLayer` are removed
     - `LevelRenderer#onChangeMaxAnisotropy` - Resets the chunk layer sampler on anisotropic level change.
@@ -333,6 +336,33 @@ If a given `Material` can use both block and item textures, then it should be su
         - All of the stored `RenderType`s have been moved to `RenderTypes`
         - The actual class usage has moved to `.rendertype.RenderType`, where it does the work of `$CompositeRenderType`
     - `Sheets#translucentBlockItemSheet` - A render type for translucent block items.
+- `net.minecraft.client.renderer.block`
+    - `BlockRenderDispatcher` no longer takes in the supplied `SpecialBlockModelRenderer`
+    - `LiquidBlockRenderer` now takes in a `MaterialSet`
+        - `setupSprites` has been moved into the `LiquidBlockRenderer` constructor
+- `net.minecraft.client.renderer.block.model`
+    - `BakedQuad`
+        - `vertices` -> `position*`, `packedUV*`, not one-to-one
+        - `position` - Gets the position vector given the index.
+        - `packedUV` - Gets the packed UV given the index.
+    - `BlockElementRotation` now takes in a `Vector3fc` for the origin and a `Matrix4fc` transform
+        - The constructor also takes in a `$RotationValue` instead of a `Direction$Axis` and angle `float`
+        - `$EulerXYZRotation` - A XYZ rotation in degrees.
+        - `$RotationValue` - An interface that defines the rotation transformation.
+        - `$SingleAxisRotation` - A rotation in degrees around a single axis.
+    - `FaceBakery`
+        - `VERTEX_COUNT` -> `BakedQuad#VERTEX_COUNT`
+        - `VERTEX_INT_SIZE`, `COLOR_INDEX`, `UV_INDEX` are removed
+        - `bakeQuad` now takes in a `ModelBaker$PartCache`
+        - `extractPositions` is removed
+    - `SimpleModelWrapper#bake` now returns a `BlockModelPart`
+    - `SimpleUnbakedGeometry#bake` now takes in a `ModelBaker` instead of a `SpriteGetter`
+    - `TextureSlots$parseTextureMap` no longer takes in an `Identifier`
+    - `Variant`
+        - `withZRot` - Rotates the model state around the Z axis.
+        - `$SimpleModelState` now takes in a Z `Quadrant`
+            - `withZ` - Sets the Z quadrant of the model state.
+    - `VariantMutator#Z_ROT` - Rotates a model around the Z axis.
 - `net.minecraft.client.renderer.chunk`
     - `ChunkSectionLayer` no longer takes in whether to use mipmaps
         - `CUTOUT_MIPPED` is removed
@@ -340,7 +370,12 @@ If a given `Material` can use both block and item textures, then it should be su
     - `ChunkSectionsToRender` now takes in the `GpuTextureView`
         - `dynamicTransforms` -> `chunkSectionInfos`
         - `renderGroup` now takes in the `GpuSampler`
-- `net.minecraft.client.renderer.item.BlockModelWrapper` is now package-private
+- `net.minecraft.client.renderer.item`
+    - `BlockModelWrapper` constructor is now package-private
+        - `computeExtents` now returns an array of `Vector3fc`s
+    - `ItemStackRenderState$LayerRenderState`
+        - `NO_EXTENTS_SUPPLIER` is now a supplied array of `Vector3fc`s
+        - `setExtents` now takes in a supplied array of `Vector3fc`s
 - `net.minecraft.client.renderer.rendertype.RenderTypes`
     - `MOVING_BLOCK_SAMPLER` - A sampler for blocks that are in motion.
     - `solid` -> `solidMovingBlock`
@@ -379,7 +414,17 @@ If a given `Material` can use both block and item textures, then it should be su
             - `apply` -> `get`
     - `SpriteSourceList#list` now returns a list of `SpriteSource$Loader`s
 - `net.minecraft.client.resources.metadata.texture.TextureMetadataSection` now takes in a `MipmapStrategy` to determine how a specific texture should be mip mapped
-- `net.minecraft.client.resources.model.ModelManager#BLOCK_OR_ITEM` - A special case that causes the model manager to check both the item and block atlas.
+- `net.minecraft.client.resources.model`
+    - `ModelBaker`
+        - `missingBlockModelPart` - The missing block model.
+        - `parts` - A cache of previously constructed vectors.
+        - `$PartCache` - A cache that interns previously constructed vertices in a quad.
+    - `ModelBakery`
+        - `*_STILL` - Fluid still texture locations.
+        - `$MissingModels` now takes in a `BlockModelPart` missing model
+    - `ModelManager`
+        - `BLOCK_OR_ITEM` - A special case that causes the model manager to check both the item and block atlas.
+        - `specialBlockModelRenderer` now returns the raw renderer instead of a supplied value.
 - `net.minecraft.data.AtlasIds#ITEMS` - The item atlas identifier.
 
 ## Gizmos
@@ -402,7 +447,7 @@ public record ExampleGizmo(Vec3 start, Vec3 end) implements Gizmo {
 }
 ```
 
-Actually submitting the elements happens through `Gizmos#addGizmo`. This stores the gizmo to be emitted and drawn to the screen, as long as it is called during `Minecraft#tick` or `GameRenderer#render` on the client -- which is how the debug renderers emit theirs -- or `IntegratedServer#tickServer` in a singleplayer world. All of the methods in `Gizmos` call `addGizmo` internally, which is why the method is typically absent outside it's class:
+Actually submitting the elements happens through `Gizmos#addGizmo`. This stores the gizmo to be emitted and drawn to the screen, as long as it is called during `Minecraft#tick` or any rendering on the client -- which is how the debug renderers emit theirs, `IntegratedServer#tickServer` in a singleplayer world, or packet processing on either side. All of the methods in `Gizmos` call `addGizmo` internally, which is why the method is typically absent outside its class:
 
 ```java
 // Somewhere in GameRenderer#render
@@ -425,9 +470,9 @@ Calling `addGizmo` returns a `GizmoProperties`, which sets some properties for w
 
 With that, how can you submit gizmos for rendering pretty much anywhere in the client pipeline? Well, this all starts from `Gizmos#withCollector` and `SimpleGizmoCollector`.
 
-`SimpleGizmoCollector` is basically just a list that holds the collected gizmos to render. During the rendering process, `SimpleGizmoCollector#drainGizmos` is called, copying the gizmos over to a separate list for the renderer to `Gizmo#emit` them, before drawing them to the screen through the familiar frame pass and buffer source. `drainGizmos` then clears the internal list based on `GizmoProperties#persistForMillis`, or immediately if not specified, for the next frame.
+`SimpleGizmoCollector` is basically just a list that holds the collected gizmos to render. During the rendering process, `SimpleGizmoCollector#drainGizmos` is called, copying the gizmos over to a separate list for the renderer to `Gizmo#emit`, before drawing to the screen through the familiar frame pass and buffer source. `drainGizmos` then clears the internal list based on `GizmoProperties#persistForMillis`, or immediately if not specified, for the next frame.
 
-To actually collect these elements, there is a rather convoluted process. Both `Minecraft`, `LevelRenderer`, and `IntegratedServer` have their own `SimpleGizmoCollector`. `Minecraft` and `IntegratedServer` collects gizmos during the ticking process, while `LevelRenderer` collects gizmos during the submission/render phases. This is done by setting the collector using `Gizmo#withCollector`, which returns a `Gizmos$TemporaryCollection`. The collection is `AutoCloseable` that, when closed, releases the held collector on the local thread. So, the collectors are wrapped in a try-with-resources to facilitate the submission during these periods. Then, during the debug pass, the per tick gizmos are merged with the per frame gizmos and drawn to the screen via `addTemporaryGizmos`, quite literally at the last moment in `LevelRenderer#renderLevel`. The `IntegratedServer` gizmos in a singleplayer world are stored in a volatile field, allowing it to be accessed from the client thread.
+To actually collect these elements, there is a rather convoluted process. `Minecraft`, `LevelRenderer`, and `IntegratedServer` have their own `SimpleGizmoCollector`. This is done by setting the collector using `Gizmo#withCollector`, which returns a `Gizmos$TemporaryCollection`. The collection is `AutoCloseable` that, when closed, releases the held collector on the local thread. So, the collectors are wrapped in a try-with-resources to facilitate the submission during these periods. Then, during the debug pass, the per tick gizmos are merged with the per frame gizmos and drawn to the screen via `addTemporaryGizmos`, quite literally at the last moment in `LevelRenderer#renderLevel`. The `IntegratedServer` gizmos in a singleplayer world are stored in a volatile field, allowing it to be accessed from the client thread.
 
 - `net.minecraft.client.Minecraft`
     - `collectPerTickGizmos` - Returns a collection of all gizmos to emit.
@@ -488,6 +533,7 @@ To actually collect these elements, there is a rather convoluted process. Both `
     - `RectGizmo` - A gizmo that draws a rectangle.
     - `SimpleGizmoCollector` - A collector implementation for adding gizmos before sending them off for rendering.
     - `TextGizmo` - A gizmo that draws text.
+- `net.minecraft.server.MinecraftServer#processPacketsAndTick` - Handles server ticking and packet processing.
 
 ## Permission Overhaul
 
@@ -657,6 +703,7 @@ Commands.literal("example").requires(Commands.hasPermission(CHECK_STATE_ONE));
     - `Permissions` - The permissions vanilla provides.
     - `PermissionSet` - A set of a permissions to user has, but mostly defines a method to determine whether a user has the desired permission.
     - `PermissionSetSupplier` - An object that supplies a `PermissionSet`.
+    - `PermissionSetUnion` - A union of multiple permission sets.
     - `PermissionTypes` - The types of permissions vanilla provides.
 - `net.minecraft.server.players`
     - `PlayersList#op` now takes in an optional `LevelBasedPermissionSet` instead of an `int`
@@ -675,7 +722,7 @@ With the addition of the spear, a number of data components have been added to p
 
 ### Use Effects
 
-`DataComponents#USE_EFFECTS` defines some effects to apply to the player that is using (e.g., right-clicking) an item. Currently, there are only two types of effects: whether the player can sprint when using the item, and the scalar that is applied to the player's horizontal movement.
+`DataComponents#USE_EFFECTS` defines some effects to apply to the player that is using (e.g., right-clicking) an item. Currently, there are only three types of effects: whether the player can sprint when using the item, whether the use interaction causes vibrations, and the scalar that is applied to the player's horizontal movement.
 
 ```java
 // For some item registration
@@ -684,6 +731,8 @@ new Item(new Item.Properties.component(
     new UseEffects(
         // Whether the player can sprint while using the item
         true,
+        // Whether on item use that a vibration is sent from the player
+        false
         // The scalar applied to the player's horizontal movement
         0.5f
     )
@@ -876,9 +925,11 @@ new Item(new Item.Properties.component(
     - `Mob#chargeSpeedModifier` - The modifier applied to the movement speed when charging.
 - `net.minecraft.world.entity.player.Player#hasEnoughFoodToDoExhaustiveManoeuvres` - Returns whether the player can perform an exhaustive manuever.
 - `net.minecraft.world.item`
+    - `Item#getDamageSource` -> `getItemDamageSource`, now deprecated
     - `ItemStack`
         - `getSwingAnimation` - Returns the swing animation of the item.
         - `getDamageSource` - Returns the damage source the item provides when hit.
+        - `causeUseVibration` - Sends the game event if the item on use can cause vibrations.
     - `SwingAnimationType` - The type of animation played when swinging the item.
 - `net.minecraft.world.item.component`
     - `KineticWeapon` - A weapon with some hitbox range that requires some amount of forward momentum. 
@@ -1641,6 +1692,7 @@ public static final GameRule<Integer> EXAMPLE_RULE = Registry.register(
     - The map behavior linking the key to its associated value is now handled by `GameRuleMap`
         - `getBoolean`, `getInteger` -> `get`
     - `$Key`, `$Type` -> `GameRule`, not one-to-one
+        - `GameRule` implements `FeatureElement`
     - `$Category` -> `GameRuleCategory`, not one-to-one
     - `$Value`, `$BooleanValue`, `$IntegerValue` are removed, replaced with the direct object being wrapped
     - `$GameRuleTypeVisitor` -> `GameRuleTypeVisitor`
@@ -1861,7 +1913,6 @@ Registry.register(
     - `SlotSource` - Given a loot context, returns a collection of slots to provide.
     - `SlotSources` - The slot sources provided by vanilla.
     - `TransformedSlotSource` - Transforms the provided slot source.
-- `net.minecraft.world.level.block.ShulkerBoxBlock#CONTENTS` is removed
 - `net.minecraft.world.level.storage.loot.ContainerComponentManipulator#getSlots` - Gets the slots of a data component on the stack.
 - `net.minecraft.world.level.storage.loot.entries`
     - `LootPoolEntries#SLOTS` - A pool that uses slots from a source.
@@ -1981,7 +2032,10 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `VertexFormat$Mode#POINTS` - A vertex mode that draws points.
     - `VertexFormatElement#LINE_WIDTH` - A vertex element that takes in one float representing the width.
 - `com.mojang.math`
-    - `OctahedralGroup#permutation` - Returns the symmetric group.
+    - `OctahedralGroup`
+        - `BLOCK_ROT_*` - Constants representing the block rotations.
+        - `permutation` - Returns the symmetric group.
+    - `Quadrant#fromXYZAngles` - Gets the octahedral group that represents the three quadrant rotations.
     - `SymmetricGroup3#inverse` - Returns the inverse group.
 - `net.minecraft`
     - `SharedConstants`
@@ -1996,6 +2050,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `splitLines` - Splits the component into lines with the desired width.
         - `getTagIconLeft` - Gets the width of the content with an additional four pixel padding.
     - `KeyMapping$Category#DEBUG` - The debug keyboard category.
+    - `MusicToastDisplayState` - An enum representing how the toast for music should be displayed.
     - `NarratorStatus#LEGACY_CODEC` - A codec to deserialize the enum narrator status.
     - `OptionInstance`
         - `$IntRangeBase`
@@ -2020,7 +2075,12 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 - `net.minecraft.client.data.models.ItemModelGenerators#generateSpear` - Generates the spear item model.
 - `net.minecraft.client.data.models.model.ModelTemplates#SPEAR_IN_HAND` - A template for the spear in hand model.
 - `net.minecraft.client.gui.components`
+    - `AbstractButton#setOverrideRenderHighlightedSprite` - Overrides whether to use the focused enabled/disabled sprite.
     - `Checkbox#adjustWidth` - Sets the width of the widget using the message, font, and its initial X position.
+    - `CycleButton`
+        - `$Builder#withSprite` - Sets the supplier used to get the sprite based on the current button state.
+        - `$DisplayState` - How the button shoud be displayed.
+        - `$SpriteSupplier` - Gets the sprite location given the current button state.
     - `EditBox#setInvertHighlightedTextColor` - Sets whether to invert the highlighted text color.
     - `FocusableTextWidget`
         - `getPadding` - Returns the text padding.
@@ -2037,20 +2097,27 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `ResettableOptionWidget` - A widget that can reset its value to a default.
     - `SelectableEntry` - A utility for checking whether the mouse is in a specific region.
 - `net.minecraft.client.gui.layouts.HeaderAndFooterLayout#MAGIC_PADDING` - A common padding between the elements.
-- `net.minecraft.client.gui.screens.advancements.AdvancementTab#canScrollHorizontally`, `canScrollVertically` - Checks whether the tab data can be scrolled in a given direction.
+- `net.minecraft.client.gui.screens.advancements`
+    - `AdvancementTab#canScrollHorizontally`, `canScrollVertically` - Checks whether the tab data can be scrolled in a given direction.
+    - `AdvancementTabType#getWidth`, `getHeight` - Gets the width / height of the tab.
 - `net.minecraft.client.gui.screens.debug.DebugOptionsScreen#getOptionList` - Returns the list of options for the debug screen.
-- `net.minecraft.client.gui.screens.inventory.EffectsInInventory`
-    - `SPACING` - The spacing between effects.
-    - `SPRITE_SQUARE_SIZE` - The size of the effect icon.
+- `net.minecraft.client.gui.screens.inventory`
+    - `AbstractMountInventoryScreen` - A screen representing a mount's inventory.
+    - `EffectsInInventory`
+        - `SPACING` - The spacing between effects.
+        - `SPRITE_SQUARE_SIZE` - The size of the effect icon.
+    - `NautilusInventoryScreen` - The screen for the nautilus inventory.
 - `net.minecraft.client.gui.screens.options`
     - `OptionsSubScreen#resetOption` - Resets the option value to its default.
     - `VideoSettingsScreen#updateTransparencyButton` - Sets the transparency button to the current option value.
 - `net.minecraft.client.gui.screens.packs.TransferableSelectionList$PackEntry#ICON_SIZE` - The size of the pack icon.
+- `net.minecraft.client.gui.screens.recipebook.RecipeBookTabButton#select`, `unselect` - Handles tab display selection.
 - `net.minecraft.client.input.InputQuirks#EDIT_SHORTCUT_KEY_LEFT`, `EDIT_SHORTCUT_KEY_RIGHT` -> `InputWithModifiers#hasControlDownWithQuirk`, not one-to-one
 - `net.minecraft.client.model`
     - `HumanoidModel$ArmPose`
         - `SPEAR` - The spear third person arm pose.
         - `animateUseItem` - Modifies the `PoseStack` given the entity state, use time, arm, and stack.
+        - `affectsOffhandPose` - Whether the arm animation will affect the offhand pose.
     - `NautilusArmorModel` - The armor model for a nautilus.
     - `NautilusModel` - The model for a nautilus.
     - `NautilusSaddleModel` - The saddle model for a nautilus.
@@ -2065,6 +2132,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `INNER_MOUTH`, `LOWER_MOUTH` - Part names for a mouth.
         - `SHELL` - Part name for a shell.
         - `*_CORAL*` - Part names for the corals on a zombie nautilus.
+- `net.minecraft.client.model.geom.builders.UVPair#pack`, `unpack*` - Handles packing/unpacking of a UV into a `long`.
 - `net.minecraft.client.multiplayer.MultiPlayerGameMode#piercingAttack` - Initiates a lunging attack.
 - `net.minecraft.client.renderer`
     - `DynamicUniforms`
@@ -2105,6 +2173,8 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `multiply` - Multiplies each component with a provided scalar.
     - `toMutable` - Returns a mutable `Vector3i`.
 - `net.minecraft.data.AtlasIds#CELESTIAL_SHEET` - The atlas for the celestial textures.
+- `net.minecraft.data.recipes.RecipeProvider#waxedChiseled` - The recipe for a waxed chiseled block.
+- `net.minecraft.gametest.framework.GameTestHelper#getAbsoluteDirection` - Returns the absolute direction from the test relative direction.
 - `net.minecraft.network.chat.MutableComponent#withoutShadow`, `Style#withoutShadow` - Removes the drop shadow from the text.
 - `net.minecraft.network.protocol.game.ServerboundPlayerActionPacket$Action#STAB` - The player performed the stab action.
 - `net.minecraft.network.syncher.EntityDataSerializers#HUMANOID_ARM` - The main hand of the humanoid.
@@ -2160,7 +2230,9 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 - `net.minecraft.world`
     - `Stopwatch` - A record that holds the creation time and amount of time that has elapsed.
     - `Stopwatches` - A tracker for starting, managing, and stopping stopwatches.
-- `net.minecraft.world.effect.MobEffects#BREATH_OF_THE_NAUTILUS` - Prevents the user from losing air underwater.
+- `net.minecraft.world.effect`
+    - `MobEffects#BREATH_OF_THE_NAUTILUS` - Prevents the user from losing air underwater.
+    - `MobEffectUtil#shouldEffectsRefillAirsupply` - Whether the entity has an effect that refills the air supply while under a liquid.
 - `net.minecraft.world.entity`
     - `Entity`
         - `getHeadLookAngle` - Calculates the view vector of the head rotation.
@@ -2213,8 +2285,13 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `cannotAttackWithItem` - Checks whether the player cannot attack with the item.
     - `getItemSwapScale` - Returns the scalar to use for the item swap animation.
     - `resetOnlyAttackStrengthTicker` - Resets the attack strength ticker.
+    - `openNautilusInventory` - Opens the inventory of the interacted nautilus.
 - `net.minecraft.world.food.FoodData#hasEnoughFood` - Whether the current food level is greater than 6 hunger (or three full hunger bars).
+- `net.minecraft.world.inventory`
+    - `AbstractMountInventoryMenu` - The inventory menu for a mount.
+    - `NautilusInventoryMenu` - The inventory menu of a nautilus.
 - `net.minecraft.world.item`
+    - `HoneycombItem#WAXED_RECIPES` - A map of waxed block to their recipe categories and name.
     - `Item$Properties`
         - `spear` - Adds the spear components.
         - `nautilusArmor` - Adds the nautilus armor components.
@@ -2262,9 +2339,13 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 
 - `com.mojang.blaze3d.platform.Lighting#updateLevel` now takes in a `DimensionType$CardinalLightType` instead of a boolean for whether the level is the nether or not
 - `com.mojang.blaze3d.systems.GpuDevice#createTexture` now has an overload that takes in a supplied label instead of the raw string
-- `com.mojang.blaze3d.vertex.VertexConsumer#addVertex`, `addVertexWith2DPose` now take in the interface, 'read only' variants of its arguments (e.g., `Vector3f` -> `Vector3fc`)
+- `com.mojang.blaze3d.vertex.VertexConsumer`
+    - `addVertex`, `addVertexWith2DPose` now take in the interface, 'read only' variants of its arguments (e.g., `Vector3f` -> `Vector3fc`)
+    - `putBulkData` no longer takes the final `boolean` to read the buffer data to determine the initial color
 - `com.mojang.math`
-    - `OctahedralGroup#permute` -> `SymmetricGroup3#permuteAxis`
+    - `OctahedralGroup`
+        - `fromXYAngles` -> `Quadrant#fromXYAngles`
+        - `permute` -> `SymmetricGroup3#permuteAxis`
     - `SymmetricGroup3`
         - `permutation` -> `permute`
         - `permuteVector` -> `OctahedralGroup#rotate`
@@ -2293,7 +2374,9 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `KeyMapping` now has an overload that takes in the sort order
     - `MouseHandler#lastClickTime` -> `lastClick`, now private, not one-to-one
     - `OptionInstance$OptionInstanceSliderButton` now implements `ResettableOptionWidget`
-    - `Options#graphicsMode` -> `graphicsPreset`, `applyGraphicsPreset`
+    - `Options`
+        - `graphicsMode` -> `graphicsPreset`, `applyGraphicsPreset`
+        - `showNowPlayingToast` -> `musicToast`, not one-to-one
 - `net.minecraft.client.data.models`
     - `EquipmentAssetProvider#humanoidAndHorse` -> `humanoidAndMountArmor`
     - `ItemModelGenerators`
@@ -2316,6 +2399,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `builder` now has an overload to take in a supplied default value
         - `booleanBuilder` now takes in a boolean to choose which component to default to
         - `$Builder` now takes in a supplied default value
+            - `displayOnlyValue(boolean)` -> `displayState`, not one-to-one
     - `FocusableTextWidget` constructor is now package private, use `builder` instead
     - `OptionsList` now passes in an `$AbstractEntry` to the generic rather than an `$Entry`
         - `addSmall` now has an overload that takes in an `OptionInstance`
@@ -2331,7 +2415,9 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `isF3Visible` -> `isOverlayVisible`
     - `DebugScreenEntryStatus#IN_F3` -> `IN_OVERLAY`
 - `net.minecraft.client.gui.components.debugchart.AbstractDebugChart#COLOR_GREY` -> `CommonColors#TEXT_GRAY`
-- `net.minecraft.client.gui.components.toasts.NowPlayingToast#renderToast` now takes in the `Minecraft` instance
+- `net.minecraft.client.gui.components.toasts.ToastManager`
+    - `createNowPlayingToast` -> `initializeMusicToast`, now private, not one-to-one
+    - `removeNowPlayingToast` -> `setMusicToastDisplayState`, not one-to-one
 - `net.minecraft.client.gui.navigation.ScreenRectangle#transform*` methods now take in the interface, 'read only' variants of its arguments (e.g., `Vector3f` -> `Vector3fc`)
 - `net.minecraft.client.gui.render.state.*` now take in the interface, 'read only' variants for its `pose` (e.g., `Vector3f` -> `Vector3fc`)
     - `GuiTextRenderState` now takes in whether to draw the empty space around each glyph
@@ -2344,23 +2430,32 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `resize(Minecraft, int, int)` -> `init(int, int)`
         - `handleComponentClicked` -> `ChatScreen#handleComponentClicked`, now private
         - `handleClickEvent` has been moved to their associated classes instead of one super interface (e.g., `BookViewScreen#handleClickEvent`)
+- `net.minecraft.client.gui.screens.advancements`
+    - `AdvancementsScreen#renderWindow` now takes in the mouse XY `int`s
+    - `AdvancementTab#drawTab` now takes in the mouse XY `int`s
 - `net.minecraft.client.gui.screens.debug.DebugOptionsScreen$OptionList` is now public
 - `net.minecraft.client.gui.screens.inventory`
     - `AbstractCommandBlockEditScreen#populateAndSendPacket` no longer takes in the `BaseCommandBlock`
+    - `AbstractContainerScreen#renderSlots`, `renderSlot` now take in the mouse XY `int`s
+    - `CreativeModeInventoryScreen#renderTabButton` now takes in the mouse XY `int`s
     - `EffectsInInventory#renderEffects` -> `render`
+    - `HorseInventoryScreen` now extends `AbstractMountInventoryScreen`
     - `MinecartCommandBlockEditScreen` now takes in a `MinecartCommandBlock` instead of a `BaseCommandBlock`
 - `net.minecraft.client.gui.screens.multiplayer.ServerSelectionList$OnlineServerEntry` now implements `SelectableEntry`
-- `net.minecraft.client.gui.screens.packs.TransferableSelectionList$PackEntry` now implements `SelectableEntry`4
+- `net.minecraft.client.gui.screens.packs.TransferableSelectionList$PackEntry` now implements `SelectableEntry`
+- `net.minecraft.client.gui.screens.recipebook`
+    - `RecipeBookComponent#initFilterButtonTextures` -> `getFilterButtonTextures`, not one-to-one
+    - `RecipeBookTabButton` now implements `ImageButton` instead of `StateSwitchingButton`
+        - The constructor now takes in the XY position along with the `Button$OnPress` consumer
 - `net.minecraft.client.gui.screens.worldselection.WorldSelectionList$WorldListEntry` is no longer static, now implements `SelectableEntry`
 - `net.minecraft.client.model`
     - `AnimationUtils`
         - `animateCrossbowCharge` now takes in a `float` instead of an `int`
         - `animateZombieArms` now takes in an `UndeadRenderState` instead of two `float`s
     - `HumanoidModel#setupAttackAnimation` no longer takes in a `float`
+- `net.minecraft.client.model.geom.ModelPart#getExtentsForGui` now takes in a `Consumer<Vector3fc>` instead of a set
+- `net.minecraft.client.model.geom.builders.UVPair` is now a record
 - `net.minecraft.client.multiplayer`
-    - `ClientLevel`
-        - `getSkyColor` now takes in the `Camera` instead of the camera position
-        - `getCloudColor` now takes in the `Camera`
     - `MultiPlayerGameMode#isAlwaysFlying` -> `isSpectator`
     - `ServerStatusPinger#pingServer` now takes in an `EventLoopGroupHolder`
 - `net.minecraft.client.renderer`
@@ -2369,12 +2464,13 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `GameRenderer#setPanoramicMode` -> `setPanoramicScreenshotParameters`, not one-to-one
     - `GlobalSettingsUniform#update` now takes in the `Camera`
     - `ItemBlockRenderTypes#setFancy` -> `setCutoutLeaves`
+    - `ItemInHandRenderer` no longer takes in the `ItemRenderer`
     - `LevelRenderer#isSectionCompiled` -> `isSectionCompiledAndVisible`
     - `RenderPipelines`
-        - `LINE_STRIP` -> `LINES`, not one-to-one
+        - `LINE_STRIP` -> `LINES` or `LINES_TRANSLUCENT`, not one-to-one
         - `DEBUG_LINE_STRIP` -> `DEBUG_POINTS`, not one-to-one
     - `RenderType`
-        - `LINE_STRIP`, `lineStrip` -> `LINES`, not one-to-one
+        - `LINE_STRIP`, `lineStrip` -> `RenderTypes#LINES`, `LINES_TRANSLUCENT`, `linesTranslucent`; not one-to-one
         - `debugLineStrip` -> `debugPoint`, not one-to-one
     - `SkyRenderer` now takes in the `TextureManager` and `AtlasManager`
         - `extractRenderState` now takes in a `Camera` instead of the camera position
@@ -2386,13 +2482,21 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `$Vec4Uniform` now takes in a `Vector4fc` instead of a `Vector4f`
     - `WeatherEffectRenderer#tickRainParticles` now takes in an `int` for the weather radius
     - `WorldBorderRenderer#extract` now takes in a `float` for the partial tick
-- `net.minecraft.client.renderer.block.model`
-    - `BlockElementRotation` now takes in a `Vector3fc` for the origin and a `Matrix4fc` transform
-    - `TextureSlots$parseTextureMap` no longer takes in an `Identifier`
-- `net.minecraft.client.renderer.blockentity.TestInstanceRenderer` no longer takes in the `BlockEntityRendererProvider$Context`
+- `net.minecraft.client.renderer.blockentity`
+    - `BannerRenderer#getExtents` now takes in a `Consumer<Vector3fc>` instead of a set
+    - `BedRenderer#getExtents` now takes in a `Consumer<Vector3fc>` instead of a set
+    - `BellRenderer#BELL_RESOURCE_LOCATION` -> `BELL_TEXTURE`
+    - `DecoratedPotRenderer#getExtents` now takes in a `Consumer<Vector3fc>` instead of a set
+    - `EnchantTableRenderer#BOOK_LOCATION` -> `BOOK_TEXTURE`
+    - `ShulkerBoxRenderer#getExtents` now takes in a `Consumer<Vector3fc>` instead of a set
+    - `TestInstanceRenderer` no longer takes in the `BlockEntityRendererProvider$Context`
 - `net.minecraft.client.renderer.blockentity.state.BlockEntityWithBoundingBoxRenderState$InvisibleBlockType$STRUCUTRE_VOID` -> `STRUCTURE_VOID`
 - `net.minecraft.client.renderer.chunk.ChunkSectionLayer#textureView` -> `texture`, not one-to-one
-- `net.minecraft.client.renderer.entity.layers.ItemInHandLayer#submitArmWithItem` now takes in the held `ItemStack`
+- `net.minecraft.client.renderer.entity.EntityRenderDispatcher` no longer takes in the `ItemRenderer`
+- `net.minecraft.client.renderer.entity.layers`
+    - `CarriedBLockLayer` no longer takes in the `BlockRenderDispatcher`
+    - `IronGolemFlowerLayer` no longer takes in the `BlockRenderDispatcher`
+    - `ItemInHandLayer#submitArmWithItem` now takes in the held `ItemStack`
 - `net.minecraft.client.renderer.entity.state`
     - `ArmedEntityRenderState`
         - `*HandItem` -> `*HandItemState`, `*HandItemStack`; not one-to-one
@@ -2410,6 +2514,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `AtmosphericFogEnvironment` now extends `FogEnvironment` instead of `AirBasedFogEnvironment`
     - `FogEnvironment#setupFog` no longer takes in the `Entity` and `BlockPos`, instead the `Camera`
 - `net.minecraft.client.renderer.item.ClientItem$Properties` now takes in a float for changing the scale of the swap animation
+- `net.minecraft.client.renderer.special.SpecialModelRenderer#getExtents` now takes in a `Consumer<Vector3fc>` instead of a set
 - `net.minecraft.client.renderer.state.SkyRenderState#moonPhase` is now a `MoonPhase` instead of an `int`
 - `net.minecraft.client.resources.SplashManager`
     - `prepare` now returns a list of `Component`s instead of strings
@@ -2433,6 +2538,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `assetTrue`, `assetFalse`, `assertValueEqual` now has an overload that takes in a `String` instead of a `Component`
     - `assertEntityData` now has an overload that takes in the `AABB` bounding box
     - `getRelativeBounds` is now public
+    - `assertEntityPosition` -> `assertEntityPresent`, not one-to-one
 - `net.minecraft.nbt`
     - `CompoundTag#remove` now returns the removed tag
     - `NbtUtils#getDataVersion` now has an overload that only takes in the `CompoundTag`
@@ -2453,6 +2559,10 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 - `net.minecraft.network.chat`
     - `ComponentUtils#mergeStyles` now has an overload that takes in and returns a `Component`
     - `MutableComponent` is now final
+- `net.minecraft.network.protocol.game`
+    - `ClientboundHorseScreenOpenPacket` -> `ClientboundMountScreenOpenPacket`
+    - `ClientGamePacketListener#handleHorseScreenOpen` -> `handleMountScreenOpen`
+    - `GamePacketTypes#CLIENTBOUND_HORSE_SCREEN_OPEN` -> `CLIENTBOUND_MOUNT_SCREEN_OPEN`
 - `net.minecraft.network.numbers`
     - `FixedFormat` is now a record
     - `StyledFormat` is now a record
@@ -2540,6 +2650,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `RandomPos`
         - `generateRandomDirectionWithinRadians` now takes in `double`s for the start/end radians
         - `generateRandomPosTowardDirection` now takes in a `double` instead of an `int`
+- `net.minecraft.world.entity.animal.horse.AbstractHorse#getInventorySize` -> `AbstractMountInventoryMenu#getInventorySize`
 - `net.minecraft.world.entity.monster`
     - `Bogged#*_ATTACK_INTERVAL` -> `AbstractSkeleton#INCREASED_*_ATTACK_INTERVAL`
     - `Husk#checkHuskSpawnRules` -> `Monster#checkSurfaceMonsterSpawnRules`, not one-to-one
@@ -2560,7 +2671,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 - `net.minecraft.world.entity.vehicle`
     - `AbstractMinecart` now takes in the `ServerLevel`
     - `MinecartCommandBlock$MinecartCommandBase` is now package-private
-- `net.minecraft.world.item.Item#getDamageSource` -> `getItemDamageSource`, now deprecated
+- `net.minecraft.world.inventory.HorseInventoryMenu` now extends `AbstractMountInventoryMenu`
 - `net.minecraft.world.item.enchantment.effects.PlaySoundEffect` now takes in a list of sound events instead of a single
 - `net.minecraft.world.level`
     - `BaseCommandBlock`
@@ -2618,6 +2729,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `FilteredFunction` now takes in an `Optional` pass and fail `LootItemFunction` instead of just a modifier
         - The function can now be builder through a `$Builder` via `filtered`
 - `net.minecraft.world.phys.Vec3` now takes in a `Vector3fc` instead of a `Vector3f`
+- `net.minecraft.world.phys.shapes.Shapes#rotateHorizontal`, `rotateAll`, `rotateAttachFace` now have overloads to take in the `OctahedralGroup`
 - `net.minecraft.world.scores`
     - `Score` now has a public constructor for the `$Packed` value
         - `MAP_CODEC` -> `Score$Packed` ands its `$Packed#MAP_CODEC`
@@ -2638,13 +2750,16 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `formattedIndexByWidth`, `componentStyleAtWidth`
         - `splitLines(FormattedText, int, Style, FormattedText)`
 - `net.minecraft.client.gui.Font#wordWrapHeight(String, int)`
-- `net.minecraft.client.gui.components.CycleButton`
-    - `onOffBuilder()`
-    - `$Builder#withInitialValue`
+- `net.minecraft.client.gui.components`
+    - `CycleButton`
+        - `onOffBuilder()`
+        - `$Builder#withInitialValue`
+    - `StateSwitchingButton`
 - `net.minecraft.client.gui.screens.inventory`
     - `EffectsInInventory#renderTooltip`
     - `InventoryScreen#renderEntityInInventory`
 - `net.minecraft.client.gui.screens.packs.PackSelectionScreen#clearSelected`
+- `net.minecraft.client.player.LocalPlayer#USING_ITEM_SPEED_FACTOR`
 - `net.minecraft.client.renderer`
     - `ItemModelGenerator#createOrExpandSpan`
     - `GpuWarnlistManager#dismissWarningAndSkipFabulous`, `isSkippingFabulous`
@@ -2658,7 +2773,9 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 - `net.minecraft.client.resources.model.BlockModelRotation#actualRotation`
 - `net.minecraft.gametest.framework.GameTestHelper#setNight`, `setDayTime`
 - `net.minecraft.network.FriendlyByteBuf#readDate`, `writeDate`
-- `net.minecraft.server.ServerScoreboard#createData`, `addDirtyListener`
+- `net.minecraft.server`
+    - `MinecraftServer#hasGui`
+    - `ServerScoreboard#createData`, `addDirtyListener`
 - `net.minecraft.server.jsonrpc.IncomingRpcMethod$Factory`
 - `net.minecraft.server.jsonrpc.methods.IllegalMethodDefinitionException`
 - `net.minecraft.server.jsonrpc.security.AuthenticationHandler#AUTH_HEADER`
@@ -2687,5 +2804,3 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `RecreatingChunkStorage`
 - `net.minecraft.world.level.saveddata.SavedData$Context`
 - `net.minecraft.world.phys.Vec3#fromRGB24`
-
-CONTINUE: `net.minecraft.world.attribute`
