@@ -25,11 +25,15 @@ All references to `ResourceLocation`, whether in method names, parameters, or ot
 
 ### The `util` Package
 
-Most utility classes have been moved to `net.minecraft.util`.
+Most utility classes have been moved to `net.minecraft.util`. These will need to be reimported.
 
 ### `critereon` to `criterion`
 
-`net.minecraft.advancements.critereon` has been renamed to `net.minecraft.advancements.criterion`.
+`net.minecraft.advancements.critereon` has been renamed to `net.minecraft.advancements.criterion`. These will need to be reimported.
+
+### Entity and Object Subpackages
+
+Both `net.minecraft.client.model` and `net.minecraft.world.entity` have been reorganized into additional subpackages based on the type of backing object. These will need to be reimported.
 
 - `net.minecraft`
     - `BlockUtil` -> `.util.BlockUtil`
@@ -38,6 +42,123 @@ Most utility classes have been moved to `net.minecraft.util`.
     - `Util` -> `.util.Util`
 - `net.minecraft.advancements.critereon` -> `.advancements.criterion`
 - `net.minecraft.client.gui.screens.inventory.JigsawBlockEditScreen#isValidResourceLocation` -> `isValidIdentifier`
+- `net.minecraft.client.model`
+    - `AbstractBoatModel` -> `.object.boat.AbstractBoatModel`
+    - `AbstractEquineModel` -> `.animal.equine.AbstractEquineModel`
+    - `AbstractPiglinModel` -> `.monster.piglin.AbstractPiglinModel`
+    - `AbstractZombieModel` -> `.monster.zombie.AbstractZombieModel`
+    - `AllayModel` -> `.animal.allay.AllayModel`
+    - `ArmadilloModel` -> `.animal.armadillo.ArmadilloModel`
+    - `ArmorStandArmorModel` -> `.object.armorstand.ArmorStandArmorModel`
+    - `ArmorStandModel` -> `.object.armorstand.ArmorStandModel`
+    - `ArrowModel` -> `.object.projectile.ArrowModel`
+    - `AxolotlModel` -> `.animal.axolotl.AxolotlModel`
+    - `BannerFlagModel` -> `.object.banner.BannerFlagModel`
+    - `BannerModel` -> `.object.banner.BannerModel`
+    - `BatModel` -> `.ambient.BatModel`
+    - `BeeModel` -> `.animal.bee.BeeModel`
+    - `BeeStingerModel` -> `.animal.bee.BeeStingerModel`
+    - `BellModel` -> `.object.bell.BellModel`
+    - `BlazeModel` -> `.monster.blaze.BlazeModel`
+    - `BoatModel` -> `.object.boat.BoatModel`
+    - `BoggedModel` -> `.monster.skeleton.BoggedModel`
+    - `BookModel` -> `.object.book.BookModel`
+    - `BreezeModel` -> `.monster.breeze.BreezeModel`
+    - `CamelModel` -> `.animal.camel.CamelModel`
+    - `CamelSaddleModel` -> `.animal.camel.CamelSaddleModel`
+    - `CatModel` -> `.animal.feline.CatModel`
+    - `ChestModel` -> `.object.chest.ChestModel`
+    - `ChickenModel` -> `.animal.chicken.ChickenModel`
+    - `CodModel` -> `.animal.fish.CodModel`
+    - `ColdChickenModel` -> `.animal.chicken.ColdChickenModel`
+    - `ColdCowModel` -> `.animal.cow.ColdCowModel`
+    - `ColdPigModel` -> `.animal.pig.ColdPigModel`
+    - `CopperGolemModel` -> `.animal.golem.CopperGolemModel`
+    - `CopperGolemStatueModel` -> `.object.statue.CopperGolemStatueModel`
+    - `CowModel` -> `.animal.cow.CowModel`
+    - `CreakingModel` -> `.monster.creaking.CreakingModel`
+    - `CreeperModel` -> `.monster.creeper.CreeperModel`
+    - `DolphinModel` -> `.animal.dolphin.DolphinModel`
+    - `DonkeyModel` -> `.animal.equine.DonkeyModel`
+    - `DrownedModel` -> `.monster.zombie.DrownedModel`
+    - `ElytraModel` -> `.object.equipment.ElytraModel`
+    - `EndCrystalModel` -> `.object.crystal.EndCrystalModel`
+    - `EndermanModel` -> `.monster.enderman.EndermanModel`
+    - `EndermiteModel` -> `.monster.endermite.EndermiteModel`
+    - `EquineSaddleModel` -> `.animal.equine.EquineSaddleModel`
+    - `EvokerFangsModel` -> `.effects.EvokerFangsModel`
+    - `FelineModel` -> `.animal.feline.FelineModel`
+    - `FoxModel` -> `.animal.fox.FoxModel`
+    - `FrogModel` -> `.animal.frog.FrogModel`
+    - `GhastModel` -> `.monster.ghast.GhastModel`
+    - `GiantZombieModel` -> `.monster.zombie.GiantZombieModel`
+    - `GoatModel` -> `.animal.goat.GoatModel`
+    - `GuardianModel` -> `.monster.guardian.GuardianModel`
+    - `GuardianParticleModel` -> `.monster.guardian.GuardianParticleModel`
+    - `HappyGhastHarnessModel` -> `.animal.ghast.HappyGhastHarnessModel`
+    - `HappyGhastModel` -> `.animal.ghast.HappyGhastModel`
+    - `HoglinModel` -> `.monster.hoglin.HoglinModel`
+    - `HorseModel` -> `.animal.equine.HorseModel`
+    - `IllagerModel` -> `.monster.illager.IllagerModel`
+    - `IronGolemModel` -> `.animal.golem.IronGolemModel`
+    - `LavaSlimeModel` -> `.monster.slime.MagmaCubeModel`
+    - `LeashKnotModel` -> `.object.leash.LeashKnotModel`
+    - `LlamaModel` -> `.animal.llama.LlamaModel`
+    - `LlamaSpitModel` -> `.animal.llama.LlamaSpitModel`
+    - `MinecartModel` -> `.object.cart.MinecartModel`
+    - `OcelotModel` -> `.animal.feline.OcelotModel`
+    - `PandaModel` -> `.animal.panda.PandaModel`
+    - `ParrotModel` -> `.animal.parrot.ParrotModel`
+    - `PhantomModel` -> `.monster.phantom.PhantomModel`
+    - `PiglinHeadModel` -> `.object.skull.PiglinHeadModel`
+    - `PiglinModel` -> `.monster.piglin.PiglinModel`
+    - `PigModel` -> `.animal.pig.PigModel`
+    - `PlayerCapeModel` -> `.player.PlayerCapeModel`
+    - `PlayerEarsModel` -> `.player.PlayerEarsModel`
+    - `PlayerModel` -> `.player.PlayerModel`
+    - `PolarBearModel` -> `.animal.polarbear.PolarBearModel`
+    - `PufferfishBigModel` -> `.animal.fish.PufferfishBigModel`
+    - `PufferfishMidModel` -> `.animal.fish.PufferfishMidModel`
+    - `PufferfishSmallModel` -> `.animal.fish.PufferfishSmallModel`
+    - `RabbitModel` -> `.animal.rabbit.RabbitModel`
+    - `RaftModel` -> `.object.boat.RaftModel`
+    - `RavagerModel` -> `.monster.ravager.RavagerModel`
+    - `SalmonModel` -> `.animal.fish.SalmonModel`
+    - `SheepFurModel` -> `.animal.sheep.SheepFurModel`
+    - `SheepModel` -> `.animal.sheep.SheepModel`
+    - `ShieldModel` -> `.object.equipment.ShieldModel`
+    - `ShulkerBulletModel` -> `.object.projectile.ShulkerBulletModel`
+    - `ShulkerModel` -> `.monster.shulker.ShulkerModel`
+    - `SilverfishModel` -> `.monster.silverfish.SilverfishModel`
+    - `SkeletonModel` -> `.monster.skeleton.SkeletonModel`
+    - `SkullModel` -> `.object.skull.SkullModel`
+    - `SkullModelBase` -> `.object.skull.SkullModelBase`
+    - `SlimeModel` -> `.monster.slime.SlimeModel`
+    - `SnifferModel` -> `.animal.sniffer.SnifferModel`
+    - `SnowGolemModel` -> `.animal.golem.SnowGolemModel`
+    - `SpiderModel` -> `.monster.spider.SpiderModel`
+    - `SpinAttackEffectModel` -> `.effects.SpinAttackEffectModel`
+    - `SquidModel` -> `.animal.squid.SquidModel`
+    - `StriderModel` -> `.monster.strider.StriderModel`
+    - `TadpoleModel` -> `.animal.frog.TadpoleModel`
+    - `TridentModel` -> `.object.projectile.TridentModel`
+    - `TropicalFishModelA` -> `.animal.fish.TropicalFishSmallModel`
+    - `TropicalFishModelB` -> `.animal.fish.TropicalFishLargeModel`
+    - `TurtleModel` -> `.animal.turtle.TurtleModel`
+    - `VexModel` -> `.monster.vex.VexModel`
+    - `VillagerModel` -> `.npc.VillagerModel`
+    - `WardenModel` -> `.monster.warden.WardenModel`
+    - `WarmCowModel` -> `.animal.cow.WarmCowModel`
+    - `WindChargeModel` -> `.object.projectile.WindChargeModel`
+    - `WitchModel` -> `.monster.witch.WitchModel`
+    - `WitherBossModel` -> `.monster.wither.WitherBossModel`
+    - `WolfModel` -> `.animal.wolf.WolfModel`
+    - `ZombieModel` -> `.monster.zombie.ZombieModel`
+    - `ZombieVillagerModel` -> `.monster.zombie.ZombieVillagerModel`
+    - `ZombifiedPiglinModel` -> `.monster.piglin.ZombifiedPiglinModel`
+- `net.minecraft.client.model.dragon`
+    - `DragonHeadModel` -> `.model.object.skull.DragonHeadModel`
+    - `EnderDragonModel` -> `.model.monster.dragon.EnderDragonModel`
 - `net.minecraft.client.resources.sounds`
     - `AbstractSoundInstance#location` -> `identifier`
     - `SoundInstance#getLocation` -> `getIdentifier`
@@ -53,6 +174,121 @@ Most utility classes have been moved to `net.minecraft.util`.
     - `ResourceLocation` -> `Identifier`
 - `net.minecraft.util.ResourceLocationPattern` -> `IdentifierPattern`
 - `net.minecraft.util.parsing.packrat.commands.ResourceLocationParseRule` -> `IdentifierParseRule`
+- `net.minecraft.world.entity.GlowSquid` -> `.animal.squid.GlowSquid`
+- `net.minecraft.world.entity.animal`
+    - `AbstractCow` -> `.cow.AbstractCow`
+    - `AbstractFish` -> `.fish.AbstractFish`
+    - `AbstractGolem` -> `.golem.AbstractGolem`
+    - `AbstractSchoolingFish` -> `.fish.AbstractSchoolingFish`
+    - `Bee` -> `.bee.Bee`
+    - `Cat` -> `.feline.Cat`
+    - `CatVariant` -> `.feline.CatVariant`
+    - `CatVariants` -> `.feline.CatVariants`
+    - `Chicken` -> `.chicken.Chicken`
+    - `ChickenVariant` -> `.chicken.ChickenVariant`
+    - `ChickenVariants` -> `.chicken.ChickenVariants`
+    - `Cod` -> `.fish.Cod`
+    - `Cow` -> `.cow.Cow`
+    - `CowVariant` -> `.cow.CowVariant`
+    - `CowVariants` -> `.cow.CowVariants`
+    - `Dolphin` -> `.dolphin.Dolphin`
+    - `Fox` -> `.fox.Fox`
+    - `HappyGhast` -> `.happyghast.HappyGhast`
+    - `HappyGhastAi` -> `.happyghast.HappyGhastAi`
+    - `IronGolem` -> `.golem.IronGolem`
+    - `MushroomCow` -> `.cow.MushroomCow`
+    - `Ocelot` -> `.feline.Ocelot`
+    - `Panda` -> `.panda.Panda`
+    - `Parrot` -> `.parrot.Parrot`
+    - `Pig` -> `.pig.Pig`
+    - `PigVariant` -> `.pig.PigVariant`
+    - `PigVariants` -> `.pig.PigVariants`
+    - `PolarBear` -> `.polarbear.PolarBear`
+    - `Pufferfish` -> `.fish.Pufferfish`
+    - `Rabbit` -> `.rabbit.Rabbit`
+    - `Salmon` -> `.fish.Salmon`
+    - `ShoulderRidingEntity` -> `.parrot.ShoulderRidingEntity`
+    - `SnowGolem` -> `.golem.SnowGolem`
+    - `Squid` -> `.squid.Squid`
+    - `TropicalFish` -> `.fish.TropicalFish`
+    - `Turtle` -> `.turtle.Turtle`
+    - `WaterAnimal` -> `.fish.WaterAnimal`
+- `net.minecraft.world.entity.animal.coppergolem.*` -> `.animal.golem.*`
+- `net.minecraft.world.entity.animal.horse.*` -> `.animal.equine.*`
+- `net.minecraft.world.entity.boss.EnderDragonPart` -> `.enderdragon.EnderDragonPart`
+- `net.minecraft.world.entity.decoration`
+    - `Painting` -> `.painting.Painting`
+    - `PaintingVariant` -> `.painting.PaintingVariant`
+    - `PaintingVariants` -> `.painting.PaintingVariants`
+- `net.minecraft.world.entity.monster`
+    - `AbstractIllager` -> `.illager.AbstractIllager`
+    - `AbstractSkeleton` -> `.skeleton.AbstractSkeleton`
+    - `Bogged` -> `.skeleton.Bogged`
+    - `CaveSpider` -> `.spider.CaveSpider`
+    - `Drowned` -> `.zombie.Drowned`
+    - `Evoker` -> `.illager.Evoker`
+    - `Husk` -> `.zombie.Husk`
+    - `Illusioner` -> `.illager.Illusioner`
+    - `Parched` -> `.skeleton.Parched`
+    - `Pillager` -> `.illager.Pillager`
+    - `Skeleton` -> `.skeleton.Skeleton`
+    - `SpellcasterIllager` -> `.illager.SpellcasterIllager`
+    - `Spider` -> `.spider.Spider`
+    - `Stray` -> `.skeleton.Stray`
+    - `Vindicator` -> `.illager.Vindicator`
+    - `WitherSkeleton` -> `.skeleton.WitherSkeleton`
+    - `Zombie` -> `.zombie.Zombie`
+    - `ZombieVillager` -> `.zombie.ZombieVillager`
+    - `ZombifiedPiglin` -> `.zombie.ZombifiedPiglin`
+- `net.minecraft.world.entity.npc`
+    - `AbstractVillager` -> `.villager.AbstractVillager`
+    - `Villager` -> `.villager.Villager`
+    - `VillagerData` -> `.villager.VillagerData`
+    - `VillagerDataHolder` -> `.villager.VillagerDataHolder`
+    - `VillagerProfession` -> `.villager.VillagerProfession`
+    - `VillagerTrades` -> `.villager.VillagerTrades`
+    - `VillagerType` -> `.villager.VillagerType`
+    - `WanderingTrader` -> `.wanderingtrader.WanderingTrader`
+    - `WanderingTraderSpawner` -> `.wanderingtrader.WanderingTraderSpawner`
+- `net.minecraft.world.entity.projectile`
+    - `AbstractArrow` -> `.arrow.AbstractArrow`
+    - `AbstractHurtingProjectile` -> `.hurtingprojectile.AbstractHurtingProjectile`
+    - `AbstractThrownPotion` -> `.throwableitemprojectile.AbstractThrownPotion`
+    - `Arrow` -> `.arrow.Arrow`
+    - `DragonFireball` -> `.hurtingprojectile.DragonFireball`
+    - `Fireball` -> `.hurtingprojectile.Fireball`
+    - `LargeFireball` -> `.hurtingprojectile.LargeFireball`
+    - `SmallFireball` -> `.hurtingprojectile.SmallFireball`
+    - `Snowball` -> `.throwableitemprojectile.Snowball`
+    - `SpectralArrow` -> `.arrow.SpectralArrow`
+    - `ThrowableItemProjectile` -> `.throwableitemprojectile.ThrowableItemProjectile`
+    - `ThrownEgg` -> `.throwableitemprojectile.ThrownEgg`
+    - `ThrownEnderpearl` -> `.throwableitemprojectile.ThrownEnderpearl`
+    - `ThrownExperienceBottle` -> `.throwableitemprojectile.ThrownExperienceBottle`
+    - `ThrownLingeringPotion` -> `.throwableitemprojectile.ThrownLingeringPotion`
+    - `ThrownSplashPotion` -> `.throwableitemprojectile.ThrownSplashPotion`
+    - `ThrownTrident` -> `.arrow.ThrownTrident`
+    - `WitherSkull` -> `.hurtingprojectile.WitherSkull`
+- `net.minecraft.world.entity.projectile.windcharge.*` -> `.projectile.hurtingprojectile.windcharge.*`
+- `net.minecraft.world.entity.vehicle`
+    - `AbstractBoat` -> `.boat.AbstractBoat`
+    - `AbstractChestBoat` -> `.boat.AbstractChestBoat`
+    - `AbstractMinecart` -> `.minecart.AbstractMinecart`
+    - `AbstractMinecartContainer` -> `.minecart.AbstractMinecartContainer`
+    - `Boat` -> `.boat.Boat`
+    - `ChestBoat` -> `.boat.ChestBoat`
+    - `ChestRaft` -> `.boat.ChestRaft`
+    - `Minecart` -> `.minecart.Minecart`
+    - `MinecartBehavior` -> `.minecart.MinecartBehavior`
+    - `MinecartChest` -> `.minecart.MinecartChest`
+    - `MinecartCommandBlock` -> `.minecart.MinecartCommandBlock`
+    - `MinecartFurnace` -> `.minecart.MinecartFurnace`
+    - `MinecartHopper` -> `.minecart.MinecartHopper`
+    - `MinecartSpawner` -> `.minecart.MinecartSpawner`
+    - `MinecartTNT` -> `.minecart.MinecartTNT`
+    - `NewMinecartBehavior` -> `.minecart.NewMinecartBehavior`
+    - `OldMinecartBehavior` -> `.minecart.OldMinecartBehavior`
+    - `Raft` -> `.boat.Raft`
 - `net.minecraft.world.level.gamerules.GameRule#getResourceLocation` -> `getIdentifier`
 
 ## Oh Hey, Another Rendering Rewrite
@@ -252,7 +488,13 @@ A texture's `mcmeta` can now specify the `mipmap_strategy` to use in the `textur
 {
     "texture": {
         // Uses the chosen strategy
-        "mipmap_strategy": "cutout"
+        "mipmap_strategy": "cutout",
+        // Determines how much the cutoff should be biased
+        // when determining whether a pixel is either fully
+        // opaque or transparent.
+        // Larger numbers means higher alpha cutoff while
+        // lower values use a lower alpha cutoff.
+        "alpha_cutoff_bias": 0.2
     }
 }
 ```
@@ -304,6 +546,9 @@ If a given `Material` can use both block and item textures, then it should be su
         - `magFilter` -> `GpuSampler#getMagFilter`
         - `setAddressMode`, `setTextureFilter` have been replaced by `SamplerCache#getSampler`, not one-to-one
         - `useMipmaps`, `setUseMipmaps` are removed
+- `net.minecraft.client`
+    - `Options#textureFiltering` - The chosen texture sampling method when viewed at an angle or from a distance.
+    - `TextureFilteringMethod` - The sampling method when viewing a texture at an angle or from a distance.
 - `net.minecraft.client.gui.render.TextureSetup` now takes in the `GpuSampler`s for each of the textures
     - This also includes the static constructors
 - `net.minecraft.client.particle.SingleQuadParticle$Layer#ITEMS` - A layer for particles with item textures.
@@ -383,10 +628,10 @@ If a given `Material` can use both block and item textures, then it should be su
     - `tripwire` -> `tripwireMovingBlock`
 - `net.minecraft.client.renderer.texture`
     - `AbstractTexture#setUseMipmaps` is removed
-    - `MipmapGenerator#generateMipLevels` now takes in the name of the texture and a `MipmapStrategy` to determine how a specific texture should be mip mapped
+    - `MipmapGenerator#generateMipLevels` now takes in the name of the texture, a `MipmapStrategy` to determine how a specific texture should be mip mapped, and a `float` for the alpha cutoff bias
     - `MipmapStrategy` - A enum defines the strategies used when constructing a mipmap for a texture.
     - `OverlayTexture#setupOverlayColor`, `teardownOverlayColor` replaced by `getTextureView`, not one-to-one
-    - `SpriteContents` now takes in a `MipmapStrategy` to determine how a specific texture should be mip mapped
+    - `SpriteContents` now takes in an optional `TextureMetadataSection` to determine the sprite's metadata
         - `UBO_SIZE` - The uniform buffer object size of the sprite contents.
         - `createTicker` -> `createAnimationState`, not one-to-one
         - `uploadFirstFrame` no longer takes in the texture `int`s, instead a mip level `int`
@@ -413,7 +658,7 @@ If a given `Material` can use both block and item textures, then it should be su
         - `Function` superinterface is now represented as `$Loader`
             - `apply` -> `get`
     - `SpriteSourceList#list` now returns a list of `SpriteSource$Loader`s
-- `net.minecraft.client.resources.metadata.texture.TextureMetadataSection` now takes in a `MipmapStrategy` to determine how a specific texture should be mip mapped
+- `net.minecraft.client.resources.metadata.texture.TextureMetadataSection` now takes in a `MipmapStrategy` to determine how a specific texture should be mip mapped, and a `float` for the alpha cutoff bias
 - `net.minecraft.client.resources.model`
     - `ModelBaker`
         - `missingBlockModelPart` - The missing block model.
@@ -710,11 +955,10 @@ Commands.literal("example").requires(Commands.hasPermission(CHECK_STATE_ONE));
     - `ServerOpListEntry` now takes in a `LevelBasedPermissionSet` instead of an `int`
         - `getLevel` -> `permissions`, not one-to-one
 - `net.minecraft.world.entity.player.Player#getPermissionLevel`, `hasPermissions` -> `permissions`, not one-to-one
-- `net.minecraft.world.entity.projectile`
-    - `AbstractArrow#findHitEntities` - Gets all entities hit by the vector.
-    - `ProjectileUtils`
-        - `getHitEntitiesAlong` - Gets the entities hit along the provided path.
-        - `getManyEntityHitResult` - Gets all entities hit along the path of the two points within the bounding box.
+- `net.minecraft.world.entity.projectile.ProjectileUtils`
+    - `getHitEntitiesAlong` - Gets the entities hit along the provided path.
+    - `getManyEntityHitResult` - Gets all entities hit along the path of the two points within the bounding box.
+- `net.minecraft.world.entity.projectile.arrow.AbstractArrow#findHitEntities` - Gets all entities hit by the vector.
 
 ## New Data Components
 
@@ -784,6 +1028,33 @@ new Item(new Item.Properties.component(
 ));
 ```
 
+### Attack Range
+
+`DataComponents#ATTACK_RANGE` determines the range that an entity can attack another entity from when attacking with this item. If not set, it defaults to the entity's interaction range attribute. The range specified is for the player, with mob reach determined by the range times the mob factor.
+
+```java
+// For some item registration
+new Item(new Item.Properties.component(
+    DataComponents.ATTACK_RANGE,
+    new AttackRange(
+        // The minimum range in blocks for this item to hit the entity.
+        // Must be between [0, 64]; defaults to 0.
+        0.4f,
+        // The maximum range in blocks for this item to hit the entity.
+        // Must be between [0,64]; defaults to 3.
+        4.5f,
+        // The margin to inflate the hitbox by in blocks, compensating
+        // for potential precision issues.
+        // Must be between [0,1]; defaults to 0.3.
+        0.25f,
+        // A scalar to multiply the minimum and maximum range by to determine
+        // a non-player entity's reach.
+        // Must be between [0,2]; defaults to 1.
+        1.1f
+    )
+));
+```
+
 ### Piercing Weapon
 
 `DataComponents#PIERCING_WEAPON` sets the player's attack as not an attack, but as a stab or piercing attack. This is a separate action than swinging, which either attacks the entity or breaks a block. A piercing weapon can attack an entity, but is unable to break blocks. It also applies any enchantment effects for lunging. Piercing weapons are only applied to the player.
@@ -796,17 +1067,22 @@ The logic pipeline flows like so:
     - Server - `PiercingWeapon#attack`
 - Server-only:
     - Get all entities that:
-        - Are between the min and max reach of the weapon, in blocks
+        - Are within the entity's attack range `DataComponents#ATTACK_RANGE`
         - Are within the hitbox constructed from the reach starting at the player's eye position
         - If `PiercingWeapon#canHitEntity` returns true:
-            - Entity can be hit by a projectile
-            - If both players, that this player can harm the other player
-            - If living, the living entity was not stabbed in the last ten ticks
-            - Is not a passenger of the same vehicle
+            - Player is not invulnerable or dead, and
+            - Either:
+                - Entity is an `Interaction` entity
+            - Or:
+                - Entity can be hit by a projectile
+                - If both players, that this player can harm the other player
+                - Is not a passenger of the same vehicle
     - Call `LivingEntity#stabAttack` on each entity
 - `LivingEntity#onAttack` is fired
 - `LivingEntity#lungeForwardMaybe` is fired
-- Server-only: `PiercingWeapon#makeHitSound` and `makeSound` is played
+- Server-only:
+    - `PiercingWeapon#makeHitSound` is played if at least one entity was hit
+    - `PiercingWeapon#makeSound` is played
 - `LivingEntity#swing` is fired
 
 ```java
@@ -814,90 +1090,85 @@ The logic pipeline flows like so:
 new Item(new Item.Properties.component(
     DataComponents.PIERCING_WEAPON,
     new PiercingWeapon(
-        // The minimum reach in blocks for this item to hit the entity
-        2f,
-        // The maximum reach in blocks for this item to hit the entity
-        4.5,
-        // The margin to increase the hitbox by in blocks
-        // This is to compensate for potential precision issues
-        0.25f,
-        // Whether being hit by this item deals knockback to the entity
+        // Whether being hit by this item deals knockback to the entity.
         true,
-        // Whether being hit by this item dismounts the entity from its vehicle
+        // Whether being hit by this item dismounts the entity from its vehicle.
         true,
-        // The sound to play when attacking with this item
-        SoundEvents.LLAMA_SWAG,
-        // The sound to play when this item hits an entity
-        SoundEvents.ITEM_BREAK
+        // The sound to play when attacking with this item.
+        // If the optional is empty, no sound is played.
+        Optional.of(SoundEvents.LLAMA_SWAG),
+        // The sound to play when this item hits an entity.
+        // If the optional is empty, no sound is played.
+        Optional.of(SoundEvents.ITEM_BREAK)
     )
 ));
 ```
 
 ### Kinetic Weapon
 
-`DataComponents#KINETIC_WEAPON` affects an entity's use (e.g., right-click) behavior. On right-click, if an item has the component, then `KineticWeapon#damageEntities` is called every tick instead of `Item#onUseTick`, only on the server. The kinetic weapon also calls `LivingEntity#stabAttack` to damage its entities similar to piercing attack. In fact, the component itself is roughly a copy of `PiercingWeapon`, except with a few additional fields to handle the kinetic damage applied and to make it accessible to all living entities instead of only the player.
+`DataComponents#KINETIC_WEAPON` affects an entity's use (e.g., right-click) behavior. On right-click, if an item has the component, then `KineticWeapon#damageEntities` is called every tick instead of `Item#onUseTick`, only on the server. The kinetic weapon also calls `LivingEntity#stabAttack` to damage its entities similar to piercing attack. In fact, the component itself is similar to `PiercingWeapon`, except with a few additional fields to handle the kinetic damage applied and to make it accessible to all living entities instead of only the player.
+
+For the stab attack to occur, one of the conditions (dismount, knockback, damage) must be present and return true. The attack range is obtained from the `DataComponents#ATTACK_RANGE` component. If a stab attack occurs, then the `SPEAR_MOBS_TRIGGER` criteria will be fired on the server.
 
 ```java
 // For some item registration
 new Item(new Item.Properties.component(
     DataComponents.KINETIC_WEAPON,
     new KineticWeapon(
-        // The minimum reach in blocks for this item to hit the entity
-        2f,
-        // The maximum reach in blocks for this item to hit the entity
-        4.5,
-        // The margin to increase the hitbox by in blocks
-        // This is to compensate for potential precision issues
-        0.25f,
         // The number of ticks to wait before this entity can attempt to contact
-        // (e.g., damage) another entity
+        // (e.g., damage) another entity.
         10,
-        // The number of ticks to wait before attempting to stab any entities in range
+        // The number of ticks to wait before attempting to stab any entities in range.
         20,
         // The condition to check whether an attack from this item will dismount
-        // an entity in a vehicle
-        new KineticWeapon.Condition(
+        // an entity in a vehicle.
+        // If the optional is not present, then it will default to false.
+        Optional.of(new KineticWeapon.Condition(
             // The maximum number of ticks from first use plus delay that this
-            // condition may return true
+            // condition may return true.
             100,
             // The minimum speed the entity must be traveling for this condition
-            // to succeed
+            // to succeed.
             // The speed is calculated as the dot product of the delta movement
-            // and the view vector multiplied by 20
-            // Vanilla spears use values from 7-14 for dismount and 5.1 for knockback
+            // and the view vector multiplied by 20.
+            // Vanilla spears use values from 7-14 for dismount and 5.1 for knockback.
             9f,
             // The minimum speed relative to the attacking entity that this entity
-            // must be traveling for this condition to succeed
-            // Vanilla spears use 4.6 for damage
+            // must be traveling for this condition to succeed.
+            // Vanilla spears use 4.6 for damage.
             5f
-        ),
+        )),
         // The condition to check whether an attack from this item will cause knockback
-        // to an entity
-        KineticWeapon.Condition.ofAttackerSpeed(
+        // to an entity.
+        // If the optional is not present, then it will default to false.
+        Optional.of(KineticWeapon.Condition.ofAttackerSpeed(
             // Maximum ticks
             100,
             // Entity traveling speed
             5.1f
-        ),
+        )),
         // The condition to check whether an attack from this item will damage an
-        // entity
-        KineticWeapon.Condition.ofRelativeSpeed(
+        // entity.
+        // If the optional is not present, then it will default to false.
+        Optional.of(KineticWeapon.Condition.ofRelativeSpeed(
             // Maximum ticks
             100,
             // Relative traveling speed
             4.6f
-        ),
+        )),
         // The movement of the item during the third person attack animation
-        // Vanilla spears use 0.38
+        // Vanilla spears use 0.38.
         0.38f,
         // A multiplier to apply to the damage of an entity
         // The damage is calculated as the relative traveling speed of this entity
-        // to its target
+        // to its target.
         4f,
-        // The sound to play when first using this item
-        SoundEvents.LLAMA_SWAG,
-        // The sound to play when this item hits an entity
-        SoundEvents.ITEM_BREAK
+        // The sound to play when first using this item.
+        // If the optional is empty, no sound is played.
+        Optional.of(SoundEvents.LLAMA_SWAG),
+        // The sound to play when this item hits an entity.
+        // If the optional is empty, no sound is played.
+        Optiona.of(SoundEvents.ITEM_BREAK)
     )
 ));
 ```
@@ -910,6 +1181,7 @@ new Item(new Item.Properties.component(
         - `PIERCING_WEAPON` - A weapon with some hitbox range that lunges towards the entity.
         - `KINETIC_WEAPON` - A weapon with some hitbox range that requires some amount of forward momentum.
         - `SWING_ANIMATION` - The animation applied when swinging an item.
+        - `ATTACK_RANGE` - Sets a custom attack range when using the item, overriding the normal entity interaction range.
 - `net.minecraft.core.component.DataComponentType#ignoreSwapAnimation`, `$Builder#ignoreSwapAnimation` - When true, the swap animation does not affect the data component 'usage'.
 - `net.minecraft.core.component.predicates`
     - `AnyValue` - A predicate that checks if the component exists on the getter.
@@ -918,12 +1190,34 @@ new Item(new Item.Properties.component(
             - Its original implementation has been replaced by `$TypeBase`
         - `$AnyValueType` - A type that uses the `AnyValue` predicate.
         - `$ConcreteType` - A type that defines a specific predicate.
+- `net.minecraft.network.protocol.game.ServerboundInteractPacket#isWithinRange` - Whether the interaction from the player is within the valid range to execute.
 - `net.minecraft.world.entity`
     - `LivingEntity`
         - `SWING_DURATION` -> `SwingAnimation#duration`, not one-to-one
         - `stabbedEntities` - The number of recent entities attacked by a kinetic weapon.
-    - `Mob#chargeSpeedModifier` - The modifier applied to the movement speed when charging.
-- `net.minecraft.world.entity.player.Player#hasEnoughFoodToDoExhaustiveManoeuvres` - Returns whether the player can perform an exhaustive manuever.
+        - `entityAttackRange` - The range that this entity can attack.
+        - `getActiveItem` - The currently used item, or the mainhand item.
+    - `Mob`
+        - `chargeSpeedModifier` - The modifier applied to the movement speed when charging.
+        - `canFireProjectileWeapon` -> `canUseNonMeleeWeapon`, now taking in an `ItemStack` instead of a `ProjectileWeaponItem`
+        - `getAttackBoundingBox` now takes in a horizontal inflation offset
+- `net.minecraft.world.entity.ai.behavior`
+    - `ChargeAttack` - Handles a charge attack performed by a mob.
+    - `SpearApproach` - Approaches the enemy when holding a kinetic weapon.
+    - `SpearAttack` - Attacks the enemy with a kinetic weapon.
+    - `SpearRetreat` - Flees from the attacked target after using a kinetic weapon.
+- `net.minecraft.world.entity.ai.goal.SpearUseGoal` - Handles a mob using a spear.
+- `net.minecraft.world.entity.ai.memory.MemoryModuleType`
+    - `SPEAR_FLEEING_TIME` - The number of ticks the entity has been fleeing for after using a kinetic weapon.
+    - `SPEAR_FLEEING_POSITION` - The position the entity flees to after using a kinetic weapon.
+    - `SPEAR_CHARGE_POSITION` - The position the entity charges to when using a kinetic weapon.
+    - `SPEAR_ENGAGE_TIME` - How long this entity has been engaged with its enemy when using a kinetic weapon.
+    - `SPEAR_STATUS` - The status of the entity when using a kinetic weapon.
+- `net.minecraft.world.entity.player.Player`
+    - `hasEnoughFoodToDoExhaustiveManoeuvres` - Returns whether the player can perform an exhaustive manuever.
+    - `canInteractWithEntity` -> `isWithinEntityInteractionRange`
+    - `isWithinAttackRange` - If the bounding box being targeted is within the player's range.
+    - `canInteractWithBlock` -> `isWithinBlockInteractionRange`
 - `net.minecraft.world.item`
     - `Item#getDamageSource` -> `getItemDamageSource`, now deprecated
     - `ItemStack`
@@ -932,8 +1226,9 @@ new Item(new Item.Properties.component(
         - `causeUseVibration` - Sends the game event if the item on use can cause vibrations.
     - `SwingAnimationType` - The type of animation played when swinging the item.
 - `net.minecraft.world.item.component`
-    - `KineticWeapon` - A weapon with some hitbox range that requires some amount of forward momentum. 
-    - `PiercingWeapon` - A weapon with some hitbox range that lunges towards the entity.
+    - `AttackRange` - The hitbox range of this item.
+    - `KineticWeapon` - A weapon that requires some amount of forward momentum. 
+    - `PiercingWeapon` - A weapon that lunges towards the entity.
     - `SwingAnimation` - The animation applied when swinging an item.
     - `UseEffects` - The effects to apply to the entity when using the item.
 
@@ -1014,8 +1309,9 @@ When calling `EnvironmentAttributeSystem#getValue`, the attribute value is obtai
 3. Apply the modifier from the biome, or do nothing if one does not exist.
 4. Apply the modifiers from all active timelines defined in the `DimensionType`, or do nothing if none exist. Timeline order is not guaranteed.
 5. If the dimension can have weather (skylight, no ceiling, and not the end), apply the modifiers from the `WeatherAttributes`.
-6. If on the client (i.e. `ClientLevel`), apply the sky flashes modifier.
-7. Sanitize the final value to be in the range defined by the `EnvironmentAttribute`.
+6. If the dimension can have weather, add a positional layer for the 'monsters burn' attribute for precipitation.
+7. If on the client (i.e. `ClientLevel`), apply the sky flashes modifier.
+8. Sanitize the final value to be in the range defined by the `EnvironmentAttribute`.
 
 This is highly oversimplified and introduces many new concepts, so let's break it down further by creating our own environment attribute and timeline.
 
@@ -1494,7 +1790,7 @@ Custom `Timeline`s are added to the `timeline` datapack registry:
     - `getSchedule` is removed
     - `setSchedule` now takes in an `EnvrionmentAttribute<Activity>` instead of a `Schedule`
     - `updateActivityFromSchedule` now takes in the `EnvironmentAttributeSystem` and position instead of the day time
-- `net.minecraft.world.entity.animal.Bee#isNightOrRaining` replaced with `EnvironmentAttributes#BEES_STAY_IN_HIVE`
+- `net.minecraft.world.entity.animal.bee.Bee#isNightOrRaining` replaced with `EnvironmentAttributes#BEES_STAY_IN_HIVE`
 - `net.minecraft.world.entity.player.Player$BedSleepingProblem` is now a record
     - `NOT_POSSIBLE_HERE` -> `BedRule#EXPLODES`
     - `NOT_POSSIBLE_NOW` -> `BedRule#CAN_SLEEP_WHEN_DARK`
@@ -1771,7 +2067,7 @@ collector.accept(
         - `$Plain` replicates the previous behavior
     - `ChatComponent`
         - `MESSAGE_BOTTOM_TO_MESSAGE_TOP` - The height of a chat component.
-        - `render` now takes in a `Font`
+        - `render` now takes in a `Font` and a `boolean` for whether to change the curse on insertions
         - `captureClickableText` - Captures the clickable text to submit.
         - `handleChatQueueClicked` replaced by `QUEUE_EXPAND_ID`, not one-to-one
         - `getClickedComponentStyleAt` -> `$ChatGraphicsAccess#handleMessage`, not one-to-one
@@ -1942,7 +2238,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 - `net.minecraft.core.component.DataComponents#ZOMBIE_NAUTILUS_VARIANT` - The variant of the zombie nautilus.
 - `net.minecraft.core.registries.Registries#ZOMBIE_NAUTILUS_VARIANT` - The registry key for the zombie nautilus variant.
 - `net.minecraft.network.syncher.EntityDataSerializers#ZOMBIE_NAUTILUS_VARIANT` - The variant of the zombie nautilus.
-- `net.minecraft.world.entity.animal`
+- `net.minecraft.world.entity.animal.nautilus`
     - `ZombieNautilusVariant` - A variant of a zombie nautilus.
     - `ZombieNautilusVariants` - All vanilla zombie nautilus variants.
 
@@ -2018,6 +2314,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 
 ### List of Additions
 
+- `com.mojang.blaze3d.GraphicsWorkarounds#isAmd` - Whether the GPU's vendor is AMD.
 - `com.mojang.blaze3d.opengl`
     - `GlConst#GL_POINTS` - Defines the points primitive as the type to render.
     - `GlTimerQuery` - The OpenGL implementation of querying an object, typically the time elapsed.
@@ -2072,7 +2369,9 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `maxAnisotropyBit` - The bit value of the anisotrophic filtering level.
         - `maxAnisotropyValue` - The ansiotrophic filtering level.
 - `net.minecraft.client.animation.definitions.NautilusAnimation` - The animation definitions for the nautilus.
-- `net.minecraft.client.data.models.ItemModelGenerators#generateSpear` - Generates the spear item model.
+- `net.minecraft.client.data.models.ItemModelGenerators`
+    - `generateSpear` - Generates the spear item model.
+    - `generateItemWithTintedBaseLayer` - Generates a two layered item model whose base layer is tinted.
 - `net.minecraft.client.data.models.model.ModelTemplates#SPEAR_IN_HAND` - A template for the spear in hand model.
 - `net.minecraft.client.gui.components`
     - `AbstractButton#setOverrideRenderHighlightedSprite` - Overrides whether to use the focused enabled/disabled sprite.
@@ -2113,17 +2412,15 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 - `net.minecraft.client.gui.screens.packs.TransferableSelectionList$PackEntry#ICON_SIZE` - The size of the pack icon.
 - `net.minecraft.client.gui.screens.recipebook.RecipeBookTabButton#select`, `unselect` - Handles tab display selection.
 - `net.minecraft.client.input.InputQuirks#EDIT_SHORTCUT_KEY_LEFT`, `EDIT_SHORTCUT_KEY_RIGHT` -> `InputWithModifiers#hasControlDownWithQuirk`, not one-to-one
-- `net.minecraft.client.model`
-    - `HumanoidModel$ArmPose`
-        - `SPEAR` - The spear third person arm pose.
-        - `animateUseItem` - Modifies the `PoseStack` given the entity state, use time, arm, and stack.
-        - `affectsOffhandPose` - Whether the arm animation will affect the offhand pose.
+- `net.minecraft.client.model.HumanoidModel$ArmPose`
+    - `SPEAR` - The spear third person arm pose.
+    - `animateUseItem` - Modifies the `PoseStack` given the entity state, use time, arm, and stack.
+    - `affectsOffhandPose` - Whether the arm animation will affect the offhand pose.
+- `net.minecraft.client.model.animal.nautilus`
     - `NautilusArmorModel` - The armor model for a nautilus.
     - `NautilusModel` - The model for a nautilus.
     - `NautilusSaddleModel` - The saddle model for a nautilus.
-    - `SkeletonModel#createSingleModelDualBodyLayer` - Creates a parched layer definition.
-    - `SpearAnimations` - The animations performed when using a spear.
-    - `ZombieNautilusCoralModel` - The model for the warm variant of a zombie nautilus.
+- `net.minecraft.client.model.effects.SpearAnimations` - The animations performed when using a spear.
 - `net.minecraft.client.model.geom`
     - `ModelLayers`
         - `*NAUTILUS*` - The model layers for the nautilus.
@@ -2133,7 +2430,12 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `SHELL` - Part name for a shell.
         - `*_CORAL*` - Part names for the corals on a zombie nautilus.
 - `net.minecraft.client.model.geom.builders.UVPair#pack`, `unpack*` - Handles packing/unpacking of a UV into a `long`.
-- `net.minecraft.client.multiplayer.MultiPlayerGameMode#piercingAttack` - Initiates a lunging attack.
+- `net.minecraft.client.model.monster.nautilus.ZombieNautilusCoralModel` - The model for the warm variant of a zombie nautilus.
+- `net.minecraft.client.model.monster.skeleton.SkeletonModel#createSingleModelDualBodyLayer` - Creates a parched layer definition.
+- `net.minecraft.client.multiplayer`
+    - `ClientPacketListener#hasClientLoaded` - Whether the client is loaded.
+    - `MultiPlayerGameMode#piercingAttack` - Initiates a lunging attack.
+- `net.minecraft.client.player.LocalPlayer#raycastHitResult` - Gets the hit result for the camera entity for the given partial tick.
 - `net.minecraft.client.renderer`
     - `DynamicUniforms`
         - `CHUNK_SECTION_UBO_SIZE` - The uniform buffer object size for the chunk section.
@@ -2175,6 +2477,9 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 - `net.minecraft.data.AtlasIds#CELESTIAL_SHEET` - The atlas for the celestial textures.
 - `net.minecraft.data.recipes.RecipeProvider#waxedChiseled` - The recipe for a waxed chiseled block.
 - `net.minecraft.gametest.framework.GameTestHelper#getAbsoluteDirection` - Returns the absolute direction from the test relative direction.
+- `net.minecraft.nbt.NbtAccounter`
+    - `defaultQuota` - An accounter with a maximum of 2 MiB allocated.
+    - `uncompressedQuota` - An accounter with a maximum of 100 MiB allocated.
 - `net.minecraft.network.chat.MutableComponent#withoutShadow`, `Style#withoutShadow` - Removes the drop shadow from the text.
 - `net.minecraft.network.protocol.game.ServerboundPlayerActionPacket$Action#STAB` - The player performed the stab action.
 - `net.minecraft.network.syncher.EntityDataSerializers#HUMANOID_ARM` - The main hand of the humanoid.
@@ -2219,6 +2524,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `NON_NEGATIVE_LONG`, `POSITIVE_LONG` - Longs with the listed constraints.
         - `longRange` - A long codec that validates whether it is between the provided range.
         - `STRING_RGB_COLOR`, `STRING_ARGB_COLOR` - A codec allowing for an (A)RGB value expressed in hex form as a string.
+        - `MAX_PROPERTY_NAME_LENGTH`, `MAX_PROPERTY_VALUE_LENGTH`, `MAX_PROPERTY_SIGNATURE_LENGTH`, `MAX_PROPERTIES` - Constants related to serializing the property map.
     - `Mth#cube` - Cubes a number.
     - `SpecialDates` - A utility containing the dates that Mojang changes some behavior or rendering for.
     - `TriState`
@@ -2259,8 +2565,6 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `NeutralMob#level` - Returns the level the entity is in.
     - `PlayerRideableJumping#getPlayerJumpPendingScale` - Returns the scalar to apply to the entity on player jump.
 - `net.minecraft.world.entity.ai.attributes.Attributes#DEFAULT_ATTACK_SPEED` - The default attack speed.
-- `net.minecraft.world.entity.ai.behavior.ChargeAttack` - Handles a charge attack performed by a mob.
-- `net.minecraft.world.entity.ai.goal.SpearUseGoal` - Handles a mob using a spear.
 - `net.minecraft.world.entity.ai.memory.MemoryModuleType`
     - `CHARGE_COOLDOWN_TICKS` - The number of cooldown ticks after a charge attack.
     - `ATTACK_TARGET_COOLDOWN` - The number of cooldown ticks before attacking a target.
@@ -2271,21 +2575,21 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `getStandUpSound`, `getSitDownSound` - Camel sit/stand sounds.
         - `getSaddleSound` - Camel saddle sound.
     - `CamelHusk` - The camel husk entity.
-- `net.minecraft.world.entity.animal.horse.AbstractHorse#isMobControlled` - Whether a mob can control this horse.
+- `net.minecraft.world.entity.animal.equine.AbstractHorse#isMobControlled` - Whether a mob can control this horse.
 - `net.minecraft.world.entity.animal.nautilus`
     - `AbstractNautilus` - The core of the nautilus entity.
     - `Nautilus` - The nautilus entity.
     - `NautilusAi` - The brain of a nautilus.
     - `ZombieNautilus` - The zombie nautilus entity.
     - `ZombieNautilusAi` - The brain of a zombie nautilus.
-- `net.minecraft.world.entity.monster`
-    - `Husk$HuskGroupData` - The group data for the husk.
-    - `Parched` - The parched entity.
+- `net.minecraft.world.entity.monster.skeleton.Parched` - The parched entity.
+- `net.minecraft.world.entity.monster.zombie.Husk$HuskGroupData` - The group data for the husk.
 - `net.minecraft.world.entity.player.Player`
     - `cannotAttackWithItem` - Checks whether the player cannot attack with the item.
     - `getItemSwapScale` - Returns the scalar to use for the item swap animation.
     - `resetOnlyAttackStrengthTicker` - Resets the attack strength ticker.
     - `openNautilusInventory` - Opens the inventory of the interacted nautilus.
+    - `applyPostImpulseGraceTime`, `isInPostImpulseGraceTime` - Handles the grace time between impulses.
 - `net.minecraft.world.food.FoodData#hasEnoughFood` - Whether the current food level is greater than 6 hunger (or three full hunger bars).
 - `net.minecraft.world.inventory`
     - `AbstractMountInventoryMenu` - The inventory menu for a mount.
@@ -2452,7 +2756,9 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `AnimationUtils`
         - `animateCrossbowCharge` now takes in a `float` instead of an `int`
         - `animateZombieArms` now takes in an `UndeadRenderState` instead of two `float`s
-    - `HumanoidModel#setupAttackAnimation` no longer takes in a `float`
+    - `HumanoidModel`
+        - `setupAttackAnimation` no longer takes in a `float`
+        - `getArm` is now public from protected
 - `net.minecraft.client.model.geom.ModelPart#getExtentsForGui` now takes in a `Consumer<Vector3fc>` instead of a set
 - `net.minecraft.client.model.geom.builders.UVPair` is now a record
 - `net.minecraft.client.multiplayer`
@@ -2462,7 +2768,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `CloudRenderer#render` now takes in the game time `long`
     - `DynamicUniforms#writeTransform`, `$Transform` no longer take in the line width `float`
     - `GameRenderer#setPanoramicMode` -> `setPanoramicScreenshotParameters`, not one-to-one
-    - `GlobalSettingsUniform#update` now takes in the `Camera`
+    - `GlobalSettingsUniform#update` now takes in the `Camera` and whether to use Rotated Grid Super Sampling (RGSS)
     - `ItemBlockRenderTypes#setFancy` -> `setCutoutLeaves`
     - `ItemInHandRenderer` no longer takes in the `ItemRenderer`
     - `LevelRenderer#isSectionCompiled` -> `isSectionCompiledAndVisible`
@@ -2551,6 +2857,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `FriendlyByteBuf`
         - `writeVector3f` now takes in a `Vector3fc` instead of a `Vector3f`
         - `writeQuaternion` now takes in a `Quaternionfc` instead of a `Quaternionf`
+        - `DEFAULT_NBT_QUOTA` -> `NbtAccounter#DEFAULT_NBT_QUOTA`
 - `net.minecraft.network.codec`
     - `ByteBufCodecs`
         - `VECTOR3F` now uses a `Vector3fc` instead of a `Vector3f`
@@ -2650,15 +2957,15 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `RandomPos`
         - `generateRandomDirectionWithinRadians` now takes in `double`s for the start/end radians
         - `generateRandomPosTowardDirection` now takes in a `double` instead of an `int`
-- `net.minecraft.world.entity.animal.horse.AbstractHorse#getInventorySize` -> `AbstractMountInventoryMenu#getInventorySize`
-- `net.minecraft.world.entity.monster`
-    - `Bogged#*_ATTACK_INTERVAL` -> `AbstractSkeleton#INCREASED_*_ATTACK_INTERVAL`
+- `net.minecraft.world.entity.animal.equine.AbstractHorse#getInventorySize` -> `AbstractMountInventoryMenu#getInventorySize`
+- `net.minecraft.world.entity.monster.Monster#checkMonsterSpawnRules` now expanded its type generic to extends `Mob` instead of `Monster`
+- `net.minecraft.world.entity.monster.skeleton.Bogged#*_ATTACK_INTERVAL` -> `AbstractSkeleton#INCREASED_*_ATTACK_INTERVAL`
+- `net.minecraft.world.entity.monster.zombie`
     - `Husk#checkHuskSpawnRules` -> `Monster#checkSurfaceMonsterSpawnRules`, not one-to-one
-    - `Monster#checkMonsterSpawnRules` now expanded its type generic to extends `Mob` instead of `Monster`
     - `Zombie`
         - `doUnderWaterConversion` now takes in the `ServerLevel`
         - `convertToZombieType` now takes in the `ServerLevel`
-- `net.minecraft.world.entity.npc`
+- `net.minecraft.world.entity.npc.villager`
     - `AbstractVillager`
         - `updateTrades` now takes in the `ServerLevel`
         - `addOffersFromItemListings` now takes in the `ServerLevel`
@@ -2668,10 +2975,17 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `openMinecartCommandBlock` now takes in a `MinecartCommandBlock` instead of a `BaseCommandBlock`
     - `sweepAttack` -> `doSweepAttack`, now private, not one-to-one
     - `respawn` -> `LocalPlayer#respawn`
-- `net.minecraft.world.entity.vehicle`
+    - `CLIENT_LOADED_TIMEOUT_TIME` -> `ServerGamePacketListenerImpl#CLIENT_LOADED_TIMEOUT_TIME`
+    - `clientLoadedTimeoutTimer`, `tickClientLoadTimeout` -> `ServerGamePacketListenerImpl#tickClientLoadTimeout`
+    - `hasClientLoaded` -> `ServerGamePacketListenerImpl#hasClientLoaded`
+    - `setClientLoaded` -> `ServerGamePacketListenerImpl#markClientLoaded`, `markClientUnloadedAfterDeath`, `restartClientLoadTimerAfterRespawn`; not one-to-one
+- `net.minecraft.world.entity.projectile.Projectile` constructor is now `protected` instead of package private
+- `net.minecraft.world.entity.vehicle.VehicleEntity#shouldSourceDestroy` is now `protected` instead of package private
+- `net.minecraft.world.entity.vehicle.minecart`
     - `AbstractMinecart` now takes in the `ServerLevel`
     - `MinecartCommandBlock$MinecartCommandBase` is now package-private
 - `net.minecraft.world.inventory.HorseInventoryMenu` now extends `AbstractMountInventoryMenu`
+- `net.minecraft.world.item.component.ItemAttributeModifiers#compute` now takes in the `Attribute` holder
 - `net.minecraft.world.item.enchantment.effects.PlaySoundEffect` now takes in a list of sound events instead of a single
 - `net.minecraft.world.level`
     - `BaseCommandBlock`
@@ -2712,7 +3026,9 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 - `net.minecraft.world.level.storage`
     - `DimensionDataStorage` no longer takes in a `SavedData$Context`
     - `FileNameDateFormatter#create` -> `FORMATTER`
-    - `LevelStorageSource$LevelDirectory#corruptedDataFile`, `rawDataFile` now take in a `ZonedDateTime` instead of a `LocalDateTime`
+    - `LevelStorageSource`
+        - `UNCOMPRESSED_NBT_QUOTA` -> `NbtAccounter#UNCOMPRESSED_NBT_QUOTA`, now `public`
+        - `$LevelDirectory#corruptedDataFile`, `rawDataFile` now take in a `ZonedDateTime` instead of a `LocalDateTime`
 - `net.minecraft.world.level.storage.loot.LootContext`
     - `$BlockEntityTarget` now implements `LootContextArg$SimpleGetter`
         - `getParam` -> `contextParam`
@@ -2787,7 +3103,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 - `net.minecraft.world.entity.animal.armadillo.ArmadilloAi#getTemptations`
 - `net.minecraft.world.entity.animal.axolotl.AxolotlAi#getTemptations`
 - `net.minecraft.world.entity.animal.camel.CamelAi#getTemptations`
-- `net.minecraft.world.entity.animal.horse.ZombieHorse#checkZombieHorseSpawnRules`
+- `net.minecraft.world.entity.animal.equine.ZombieHorse#checkZombieHorseSpawnRules`
     - Use `Monster#checkMonsterSpawnRules` instead
 - `net.minecraft.world.entity.animal.goat.GoatAi#getTemptations`
 - `net.minecraft.world.entity.animal.sniffer.SnifferAi#getTemptations`
