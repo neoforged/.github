@@ -519,7 +519,9 @@ If a given `Material` can use both block and item textures, then it should be su
     - `GlTexture#modesDirty`, `flushModeChanges` are removed
     - `GlTextureView#getFbo` - Gets the framebuffer object of a texture, using the cache if present.
 - `com.mojang.blaze3d.pipeline.RenderTarget#filterMode`, `setFilterMode` are removed
-- `com.mojang.blaze3d.platform.TextureUtil#solidify` - Modifies the texture by packing and unpacking the pixels to better help with non-darkened interiors within mipmaps.
+- `com.mojang.blaze3d.platform.TextureUtil`
+    - `solidify` - Modifies the texture by packing and unpacking the pixels to better help with non-darkened interiors within mipmaps.
+    - `fillEmptyAreasWithDarkColor` - Sets empty pixels to an empty pixel whose RGB value is the darkest color in the image.
 - `com.mojang.blaze3d.shaders.ShaderSource` - A functional interface that gets the shader source from its id and type as a string.
 - `com.mojang.blaze3d.systems`
     - `GpuDevice`
@@ -671,6 +673,7 @@ If a given `Material` can use both block and item textures, then it should be su
         - `BLOCK_OR_ITEM` - A special case that causes the model manager to check both the item and block atlas.
         - `specialBlockModelRenderer` now returns the raw renderer instead of a supplied value.
 - `net.minecraft.data.AtlasIds#ITEMS` - The item atlas identifier.
+- `net.minecraft.world.level.block.LeavesBlock#setCutoutLeaves` - Sets whether the leaves is using cutout rendering.
 
 ## Gizmos
 
@@ -2534,6 +2537,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 - `net.minecraft.util.profiling.jfr.event.ClientFpsEvent` - An event that keeps track of the client FPS.
 - `net.minecraft.util.profiling.jfr.stats.FpsStat` - A record containing the client FPS.
 - `net.minecraft.world`
+    - `LockCode#canUnlock` - Whether the given player can unlock this code.
     - `Stopwatch` - A record that holds the creation time and amount of time that has elapsed.
     - `Stopwatches` - A tracker for starting, managing, and stopping stopwatches.
 - `net.minecraft.world.effect`
@@ -3000,6 +3004,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `AmbientAdditionsSettings` is now a record
     - `AmbientMoodSettings` is now a record
     - `AmbientParticleSettings` is now a record
+- `net.minecraft.world.level.block.entity.BaseContainerBlockEntity#canUnlock` -> `sendChestLockedNotifications`, not one-to-one
 - `net.minecraft.world.level.border`
     - `BorderChangeListener#onLerpSize` now takes in an additional `long` for the game time
     - `WorldBorder` can now take in the `WorldBorder$Settings`
@@ -3107,6 +3112,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - Use `Monster#checkMonsterSpawnRules` instead
 - `net.minecraft.world.entity.animal.goat.GoatAi#getTemptations`
 - `net.minecraft.world.entity.animal.sniffer.SnifferAi#getTemptations`
+- `net.minecraft.world.entity.player.Player#playNotifySound`
 - `net.minecraft.world.entity.raid.Raid#TICKS_PER_DAY`
 - `net.minecraft.world.level`
     - `BaseCommandBlock`
