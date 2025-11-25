@@ -509,13 +509,27 @@ The block atlas no longer contains textures specifically for items. Those have b
 
 If a given `Material` can use both block and item textures, then it should be supplied with the `ModelManager#BLOCK_OR_ITEM` special case.
 
+- `com.mojang.blaze3d.buffers`
+    - `GpuBuffer`, `size` now uses a `long` for the size
+        - `slice` now uses `long`s for the length and offset
+    - `GpuBufferSlice` now uses `long`s for the length and offset
 - `com.mojang.blaze3d.opengl`
+    - `BufferStorage`
+        - `createBuffer` now uses in a `long` for the size
+        - `mapBuffer` now uses `long`s for the length and offset
+    - `DirectStateAccess`
+        - `bufferSubData` now uses in a `long` for the offset
+        - `mapBufferRange`, `flushMappedBufferRange`, `copyBufferSubData` now use `long`s for the length and offset
+    - `GlBuffer` now uses a `long` for the size
     - `GlDevice` now takes in a `ShaderSource` instead of a `BiFunction`
         - `getOrCompileShader` now takes in a `ShaderSource` instead of a `BiFunction`
     - `GlRenderPass`
         - `samplers` now is a hash map of strings to `GlRenderPass$TextureViewAndSampler`s
         - `$TextureViewAndSampler` - A record that defines a sampler with its sampled texture.
     - `GlSampler` - The OpenGL implementation of a gpu sampler.
+    - `GlStateManager`
+        - `_glBufferSubData` now uses in a `long` for the offset
+        - `_glMapBufferRange` now uses `long`s for the length and offset
     - `GlTexture#modesDirty`, `flushModeChanges` are removed
     - `GlTextureView#getFbo` - Gets the framebuffer object of a texture, using the cache if present.
 - `com.mojang.blaze3d.pipeline.RenderTarget#filterMode`, `setFilterMode` are removed
@@ -524,12 +538,14 @@ If a given `Material` can use both block and item textures, then it should be su
     - `fillEmptyAreasWithDarkColor` - Sets empty pixels to an empty pixel whose RGB value is the darkest color in the image.
 - `com.mojang.blaze3d.shaders.ShaderSource` - A functional interface that gets the shader source from its id and type as a string.
 - `com.mojang.blaze3d.systems`
+    - `CommandEncoder#copyTextureToBuffer` now uses a `long` for the offset
     - `GpuDevice`
         - `createSampler` - Creates a sampler for some source to destination with the desired address and filter modes.
         - `precompilePipeline` now takes in a `ShaderSource` instead of a `BiFunction`
         - `getMaxSupportedAnisotropy` - The maximum anisotropic filtering level supported by the hardware.
+        - `createBuffer` now uses in a `long` for the size
     - `RenderPass#bindTexture` now takes in a `GpuSampler`
-    - `RenderSystem`
+    - `RenderSystem`now uses in a `long` for the size
         - `samplerCache` - Returns a cache of samples containing all possible combinations.
         - `TEXTURE_COUNT` is removed
         - `setupOverlayColor`, `teardownOverlayColor` are removed
@@ -560,7 +576,7 @@ If a given `Material` can use both block and item textures, then it should be su
         - `$VertexInfo` is now a record
     - `ItemBlockRenderTypes#getRenderType(ItemStack)`
     - `LightTexture#turnOffLightLayer`, `turnOnLightLayer` are removed
-    - `LevelRenderer#onChangeMaxAnisotropy` - Resets the chunk layer sampler on anisotropic level change.
+    - `LevelRenderer#resetSampler` - Resets the chunk layer sampler.
     - `PostPass`
         - `$Input#bilinear` - Whether to use a bilinear filter.
         - `$TextureInput` now takes in a `boolean` representing whether to use a bilinear filter
@@ -644,7 +660,8 @@ If a given `Material` can use both block and item textures, then it should be su
     - `Stitcher` now takes in the anisotropic filtering level
         - `$Holder(T, int)` is removed
         - `$Region#walk` now takes in a padding `int`
-        - `$SpriteLoader#load` now takes in a padding `int`
+        - `$SpriteLoader` no longer takes in the minimum width/height
+            - `load` now takes in a padding `int`
     - `TextureAtlas` now implements `TickableTexture` instead of `Tickable`
     - `TextureAtlasSprite` now implements `AutoCloseable`
         - The constructor takes in a padding `int`
@@ -1221,6 +1238,7 @@ new Item(new Item.Properties.component(
     - `canInteractWithEntity` -> `isWithinEntityInteractionRange`
     - `isWithinAttackRange` - If the bounding box being targeted is within the player's range.
     - `canInteractWithBlock` -> `isWithinBlockInteractionRange`
+    - `CREATIVE_ENTITY_INTERACTION_RANGE_MODIFIER_VALUE` - A modifiers that increases the maximum range of an interaction by the given amount.
 - `net.minecraft.world.item`
     - `Item#getDamageSource` -> `getItemDamageSource`, now deprecated
     - `ItemStack`
@@ -2465,7 +2483,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `swingAnimationType` - The animation to play when swinging their hand.
         - `ticksUsingItem` - How many ticks the item has been used for.
         - `getUseItemStackForArm` - Returns the held item stack based on the arm.
-    - `LivingEntityRenderState#ticksSinceEnemyHit` - The amount of ticks since this entity was last hit.
+    - `LivingEntityRenderState#ticksSinceKineticHitFeedback` - The amount of ticks since this entity was hit with a kinetic weapon.
     - `NautilusRenderState` - The entity render state of a nautilus.
     - `UndeadRenderState` - The entity render state for an undead humanoid.
 - `net.minecraft.client.renderer.item.ItemModelResolver#swapAnimationScale` - Gets the scale of the swap animation for the stack.
@@ -2550,7 +2568,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `computeSpeed` - Computes last known speed and position of the entity.
         - `getKnownSpeed` - Gets the last known speed of the entity.
     - `EntityProcessor` - A post processor for an entity when loading.
-    - `EntityEvent#HIT` - An event fired when an entity is hit.
+    - `EntityEvent#KINETIC_HIT` - An event fired when an entity is hit with a kinetic weapon.
     - `HumanoidArm#STREAM_CODEC` - The network codec for the arm enum.
     - `LivingEntity`
         - `DEFAULT_KNOCKBACK` - The default knockback applied to an entity on hit.
@@ -2562,7 +2580,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `stabAttack` - Handles when a mob is stabbed by this entity.
         - `onAttack` - Handles when this entity has attacked another entity.
         - `getTicksUsingItem` - Returns the number of ticks this item has been used for.
-        - `getTicksSinceEnemyHit` - The number of ticks that has passed since this entity was last hit.
+        - `getTicksSinceLastKineticHitFeedback` - The number of ticks that has passed since this entity was last hit with a kinetic weapon.
         - `shouldTravelInFluid` - If this entity should travel in the given fluid.
         - `travelInWater` - Moves an entity as if they were in water.
     - `Mob#sunProtectionSlot` - The equipment slot that protects the entity from the sun.
