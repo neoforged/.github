@@ -1050,7 +1050,7 @@ new Item(new Item.Properties.component(
 
 ### Attack Range
 
-`DataComponents#ATTACK_RANGE` determines the range that an entity can attack another entity from when attacking with this item. If not set, it defaults to the entity's interaction range attribute. The range specified is for the player, with mob reach determined by the range times the mob factor.
+`DataComponents#ATTACK_RANGE` determines the range that an entity can attack another entity from when attacking with this item. If not set, it defaults to the entity's interaction range attribute. The range specified is for the player, with mob reach determined by the range times the mob factor. A range can also be specified for the player when in creative mode, overriding the default range.
 
 ```java
 // For some item registration
@@ -1063,6 +1063,16 @@ new Item(new Item.Properties.component(
         // The maximum range in blocks for this item to hit the entity.
         // Must be between [0,64]; defaults to 3.
         4.5f,
+        // The minimum range in blocks for this item to hit the entity,
+        // provided the holding entity is a player in creative mode.
+        // This supercedes the minimum range.
+        // Must be between [0, 64]; defaults to 0.
+        0f,
+        // The maximum range in blocks for this item to hit the entity,
+        // provided the holding entity is a player in creative mode.
+        // This supercedes the maximum range.
+        // Must be between [0,64]; defaults to 3.
+        5f,
         // The margin to inflate the hitbox by in blocks, compensating
         // for potential precision issues.
         // Must be between [0,1]; defaults to 0.3.
@@ -2604,6 +2614,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `NautilusAi` - The brain of a nautilus.
     - `ZombieNautilus` - The zombie nautilus entity.
     - `ZombieNautilusAi` - The brain of a zombie nautilus.
+- `net.minecraft.world.entity.decoration.HangingEntity#hasLevelCollision` - Whether this entity is colliding with a block or the border in a given bounds.
 - `net.minecraft.world.entity.monster.skeleton.Parched` - The parched entity.
 - `net.minecraft.world.entity.monster.zombie.Husk$HuskGroupData` - The group data for the husk.
 - `net.minecraft.world.entity.player.Player`
@@ -2634,7 +2645,11 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `ApplyEntityImpulse` - An entity effect that adds an impulse in the direction of the look angle.
     - `ApplyExhaustion` - An entity effect that applies food exhaustion to the player if they are using the enchanted item.
     - `ScaleExponentially` - A value effect that multiplies the value by a number raised to some exponent.
-- `net.minecraft.world.level.MoonPhase` - An enum representing the phases of the moon.
+- `net.minecraft.world.level`
+    - `CollisionGetter`
+        - `noEntityCollision` - Whether the entity is not colliding with another entity in the given bounds.
+        - `noBorderCollision` - Whether the entity is not colliding with the world border in the given bounds.
+    - `MoonPhase` - An enum representing the phases of the moon.
 - `net.minecraft.world.level.border.WorldBorder$MovingBorderExtent#getPreviousSize` - Gets the previous size of the border.
 - `net.minecraft.world.level.chunk.storage`
     - `IOWorker#STORE_EMPTY` - A supplied `null` tag.
@@ -2660,6 +2675,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `ScoreboardSaveData`
         - `getData`, `setData` - Handles the packed scoreboard.
         - `Packed$EMPTY` - Represents an empty scoreboard.
+- `net.minecraft.world.waypoints.Waypoint$Icon#copyFrom` - Copies the icon color and style from another icon.
 
 ### List of Changes
 
@@ -2680,6 +2696,9 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 - `net.minecraft`
     - `FileUtil#isValidStrictPathSegment` -> `containsAllowedCharactersOnly`, now private
         - Replaced by `isValidPathSegment`
+    - `Minecraft`
+        - `disconnectWithProgressScreen` now takes in a `boolean` of whether to stop the sound engine
+        - `disconnect` now takes in a `boolean` of whether to stop the sound engine
     - `SharedConstants`
         - `DEBUG_WATER` -> `DebugScreenEntries#VISUALIZE_WATER_LEVELS`, not one-to-one
         - `DEBUG_HEIGHTMAP` -> `DebugScreenEntries#VISUALIZE_HEIGHTMAP`, not one-to-one
@@ -3015,6 +3034,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `onUpdated` now takes in a `ServerLevel`
         - `createCommandSourceStack` now takes in a `ServerLevel`
         - `$CloseableCommandBlockSource` now takes in a `ServerLevel`, with its constructor protected
+    - `CollisionGetter#noBlockCollision` now has an overload that takes in an additional `boolean` of whether to check liquid collisions.
     - `Level#getGameTime` -> `LevelAccessor#getGameTime`
     - `LevelAccessor#getCurrentDifficultyAt` -> `ServerLevelAccessor#getCurrentDifficultyAt`
     - `LevelTimeAccess#getMoonPhase` now returns a `MoonPhase` instead of an `int`
