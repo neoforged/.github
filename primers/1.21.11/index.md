@@ -2577,6 +2577,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `updateDataBeforeSync` - Updates the data stored in the entity before syncing to the client.
         - `computeSpeed` - Computes last known speed and position of the entity.
         - `getKnownSpeed` - Gets the last known speed of the entity.
+        - `hasMovedHorizontallyRecently` - If the last known speed's horizontal distance is larger than 0, more specifically the margin of error.
     - `EntityProcessor` - A post processor for an entity when loading.
     - `EntityEvent#KINETIC_HIT` - An event fired when an entity is hit with a kinetic weapon.
     - `HumanoidArm#STREAM_CODEC` - The network codec for the arm enum.
