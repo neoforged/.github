@@ -2556,7 +2556,9 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
         - `longRange` - A long codec that validates whether it is between the provided range.
         - `STRING_RGB_COLOR`, `STRING_ARGB_COLOR` - A codec allowing for an (A)RGB value expressed in hex form as a string.
         - `MAX_PROPERTY_NAME_LENGTH`, `MAX_PROPERTY_VALUE_LENGTH`, `MAX_PROPERTY_SIGNATURE_LENGTH`, `MAX_PROPERTIES` - Constants related to serializing the property map.
-    - `Mth#cube` - Cubes a number.
+    - `Mth`
+        - `cube` - Cubes a number.
+        - `chessboardDistance` - Computes the absolute maximum difference between two pairs of coordinates; the larger axis difference is returned.
     - `SpecialDates` - A utility containing the dates that Mojang changes some behavior or rendering for.
     - `TriState`
         - `CODEC` - The codec for the tristate.
@@ -2647,9 +2649,11 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `ApplyExhaustion` - An entity effect that applies food exhaustion to the player if they are using the enchanted item.
     - `ScaleExponentially` - A value effect that multiplies the value by a number raised to some exponent.
 - `net.minecraft.world.level`
+    - `Chunk#isValid` - Whether the chunk pos is within the maximum allowed coordinate world (within the 30 million block radius).
     - `CollisionGetter`
         - `noEntityCollision` - Whether the entity is not colliding with another entity in the given bounds.
         - `noBorderCollision` - Whether the entity is not colliding with the world border in the given bounds.
+    - `Level#isInValidBounds` - Whether the block position is not outside the maximum allowed coordinate world (build height for Y axis, 30 million block radius for XZ axis).
     - `MoonPhase` - An enum representing the phases of the moon.
 - `net.minecraft.world.level.border.WorldBorder$MovingBorderExtent#getPreviousSize` - Gets the previous size of the border.
 - `net.minecraft.world.level.chunk.storage`
@@ -2964,6 +2968,7 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
     - `Mth`
         - `easeInOutSine` -> `Ease#inOutSine`
         - `sin`, `cos` now takes in a `double` instead of a `float`
+        - `absMax` now has overloads that uses `int`s or `float`s
     - `TriState` now implements `StringRepresentable`
 - `net.minecraft.util.profiling.jfr.Percentiles#evaluate` now has an overload that takes in an `int[]`
 - `net.minecraft.util.profiling.jfr.parse.JfrStatsResult` now takes in an FPS stat
