@@ -1340,9 +1340,8 @@ When calling `EnvironmentAttributeSystem#getValue`, the attribute value is obtai
 3. Apply the modifier from the biome, or do nothing if one does not exist.
 4. Apply the modifiers from all active timelines defined in the `DimensionType`, or do nothing if none exist. Timeline order is not guaranteed.
 5. If the dimension can have weather (skylight, no ceiling, and not the end), apply the modifiers from the `WeatherAttributes`.
-6. If the dimension can have weather, add a positional layer for the 'monsters burn' attribute for precipitation.
-7. If on the client (i.e. `ClientLevel`), apply the sky flashes modifier.
-8. Sanitize the final value to be in the range defined by the `EnvironmentAttribute`.
+6. If on the client (i.e. `ClientLevel`), apply the sky flashes modifier.
+7. Sanitize the final value to be in the range defined by the `EnvironmentAttribute`.
 
 This is highly oversimplified and introduces many new concepts, so let's break it down further by creating our own environment attribute and timeline.
 
