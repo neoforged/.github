@@ -10,6 +10,7 @@ Thank you to:
 
 - @xfacthd for some educated guesses regarding the usage annotations
 - @dinnerbone for pointing out gizmos can also be submitted on the server in singleplayer worlds
+- @thatgravyboat for pointing out the change in parameter orders for `Mth#clampedLerp`
 
 ## Pack Changes
 
@@ -2304,7 +2305,8 @@ Zombie nautilus are the newest addition to the variant datapack registry objects
 ### Specific Logic Changes
 
 - `net.minecraft.client.renderer.entity.EntityRenderState#lightCoords` now defaults to 0xF000F0.
-- `net.minecraft.client.gui.screens.inventory.AbstractContainerScreen#keyPressed` no longer returns `true` if the key is not handled by the screen, instead returning `false`
+- `net.minecraft.client.gui.screens.inventory.AbstractContainerScreen#keyPressed` no longer returns `true` if the key is not handled by the screen, instead returning `false`.
+- `net.minecraft.util.Mth#clampedLerp` parameters have been reordered for both overloads. The methods now take in the step, the original value, and the next value; instead of the original value, next value, and the step value.
 
 ### Tag Changes
 
