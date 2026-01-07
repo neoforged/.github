@@ -1233,6 +1233,84 @@ fluidState.is(FluidTags.WATER);
     - `holder` -> `typeHolder`
     - `getTags` -> `tags`
 
+### Entity Textures and Adult/Baby Models
+
+Entity textures within `assets/minecraft/textures/entity/*` have now been sorted into subdirectories (e.g., `entity/panda` for panda textures, or `entity/pig` for pig textures). Most textures have been named with the entity type starting followed by an underscore along with its variant (e.g., `arrow_tipped` for tipped arrow, `pig_cold` for the cold pig variant, or `panda_brown` for the brown panda variant).
+
+Additionally, some animal models have been split into separate classes for the baby and adult variant. These models either directly extend an abstract model implementation (e.g., `AbstractFelineModel`) or the original model class (e.g., `PigModel`).
+
+- `net.minecraft.client.model.QuadrupedModel` now has a constructor that takes in a function for the `RenderType`
+- `net.minecraft.client.model.animal.chicken`
+    - `AdultChickenModel` - Entity model for the adult chicken.
+    - `BabyChickenModel` - Entity model for the baby chicken.
+    - `ChickenModel` is now abstract
+        - `RED_THING` -> `AdultChickenModel#RED_THING`
+        - `BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyChickenModel`
+        - `createBodyLayer` -> `AdultChickenModel#REDcreateBodyLayer_THING`
+        - `createBaseChickenModel` -> `AdultChickenModel#createBaseChickenModel`
+    - `ColdChickenModel` now extends `AdultChickenModel`
+- `net.minecraft.client.model.animal.cow.BabyCowModel` - Entity model for the baby cow.
+- `net.minecraft.client.model.animal.feline`
+    - `CatModel` -> `AdultCatModel`, `BabyCatModel`; not one-to-one
+    - `FelineModel` -> `AbstractFelineModel`, not one-to-one
+        - Implementations in `AdultFelineModel` and `BabyFelineModel`
+    - `OcelotModel` -> `AdultOcelotModel`, `BabyOcelotModel`; not one-to-one
+- `net.minecraft.client.model.animal.pig.BabyPigModel` - Entity model for the baby pig.
+- `net.minecraft.client.model.animal.rabbit`
+    - `AdultRabbitModel` - Entity model for the adult rabbit.
+    - `BabyRabbitModel` - Entity model for the baby rabbit.
+    - `RabbitModel` is now abstract
+        - The constructor now takes in two animation definitions for the hop and idle head tilt
+        - `FRONT_LEGS`, `BACK_LEGS` - The child name for the entity legs.
+        - `LEFT_HAUNCH`, `RIGHT_HAUNCH` are now `protected`
+        - `createBodyLayer` -> `AdultRabbitModel#createBodyLayer`, `BabyRabbitModel#createBodyLayer`; not one-to-one
+- `net.minecraft.client.model.animal.sheep`
+    - `BabySheepModel` - Entity model for the baby sheep.
+    - `SheepModel#BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabySheepModel`
+- `net.minecraft.client.model.animal.wolf`
+    - `AdultWolfModel` - Entity model for the adult wolf.
+    - `BabyWolfModel` - Entity model for the baby wolf.
+    - `WolfModel` is now abstract
+        - `ModelPart` fields are now all protected
+        - `createMeshDefinition` -> `AdultWolfModel#createBodyLayer`, `BabyWolfModel#createBodyLayer`; not one-to-one
+        - `shakeOffWater` - Sets the body rotation when shaking off water.
+        - `setSittingPose` - Sets the sitting pose of the wolf.
+- `net.minecraft.client.model.geom.ModelLayers`
+    - `COLD_CHICKEN_BABY` is removed
+    - `COLD_PIG_BABY` is removed
+    - `PIG_BABY_SADDLE` is removed
+    - `SHEEP_BABY_WOOL_UNDERCOAT` is removed
+    - `WOLF_BABY_ARMOR` is removed
+- `net.minecraft.client.renderer.entity`
+    - `CatRenderer` now takes in an `AbstractFelineModel` for its generic
+    - `OcelotRenderer` now takes in an `AbstractFelineModel` for its generic
+- `net.minecraft.client.renderer.entity.layers.CatCollarLayer` now takes in an `AbstractFelineModel` for its generic
+- `net.minecraft.client.renderer.entity.state.RabbitRenderState`
+    - `hopAnimationState` - The state of the hop the entity is performing.
+    - `idleHeadTiltAnimationState` - The state of the head tilt when performing the idle animation.
+- `net.minecraft.world.entity.animal.chicken.ChickenVariant` now takes in a resource for the baby texture
+- `net.minecraft.world.entity.animal.cow.CowVariant` now takes in a resource for the baby texture
+- `net.minecraft.world.entity.animal.cat.CatVariant` now takes in a resource for the baby texture
+    - `CatVariant#assetInfo` - Gets the entity texture based on whether the entity is a baby.
+- `net.minecraft.world.entity.animal.pig.PigVariant` now takes in a resource for the baby texture
+- `net.minecraft.world.entity.animal.rabbit.Rabbit`
+    - `hopAnimationState` - The state of the hop the entity is performing.
+    - `idleHeadTiltAnimationState` - The state of the head tilt when performing the idle animation.
+- `net.minecraft.world.entity.animal.wolf`
+    - `WolfSoundVariant` -> `WolfSoundVariant$WolfSoundSet`
+        - The class itself now holds two sound sets for the adult wolf and baby wolf.
+    - `WolfSoundVariants$SoundSet#getSoundEventSuffix` -> `getSoundEventIdentifier`
+- `net.minecraft.world.entity.animal.wolf.WolfVariant` now takes in an asset info for the baby variant
+
+### ChunkPos, now a record
+
+`ChunkPos` is now a record. The `BlockPos` constructor has been replaced by `ChunkPos#containing` while the packed `long` constructor has been replaced by `ChunkPose#unpack`.
+
+- `net.minecraft.world.level.ChunkPos` is now a record
+    - `ChunkPos(BlockPos)` -> `containing`
+    - `ChunkPos(long)` -> `unpack`
+    - `toLong`, `asLong` -> `pack`
+
 ### Environment Attribute Additions
 
 - `visual/block_light_tint` - Tints the color of the light emitted by a block.
@@ -1249,6 +1327,8 @@ fluidState.is(FluidTags.WATER);
     - `trades/snow_special` is removed
     - `trades/swamp_special` is removed
     - `trades/taiga_special` is removed
+- `minecraft:item`
+    - `metal_nuggets`
 - `minecraft:potion`
     - `tradable`
 
@@ -1273,6 +1353,9 @@ fluidState.is(FluidTags.WATER);
 - `net.minecraft.client`
     - `Minecraft#sendLowDiskSpaceWarning` - Sends a system toast for low disk space.
     - `Options#keyDebugLightmapTexture` - A key mapping to show the lightmap texture.
+- `net.minecraft.client.animation.definitions`
+    - `BabyRabbitAnimation` - Animations for the baby rabbit.
+    - `RabbitAnimation` - Animations for the rabbit.
 - `net.minecraft.client.gui.components`
     - `AbstractScrollArea`
         - `scrollbarWidth` - The width of the scrollbar.
@@ -1294,12 +1377,17 @@ fluidState.is(FluidTags.WATER);
 - `net.minecraft.client.renderer`
     - `LightmapRenderStateExtractor` - Extracts the render state for the lightmap.
     - `UiLightmap` - The lightmap when in an user interface.
-- `net.minecraft.client.renderer.state.LightmapRenderState` - The render state for the lightmap.
+- `net.minecraft.client.renderer.state`
+    - `LevelRenderState#lastEntityRenderStateCount` - The number of entities being rendered to the screen.
+    - `LightmapRenderState` - The render state for the lightmap.
 - `net.minecraft.core.component.DataComponents#ADDITIONAL_TRADE_COST` - A modifier that offsets the trade cost by the specified amount.
 - `net.minecraft.core.component.predicates`
     - `DataComponentPredicates#VILLAGER_VARIANT` - A predicate that checks a villager type.
     - `VillagerTypePredicate` - A predicate that checks a villager's type.
 - `net.minecraft.core.registries.ConcurrentHolderGetter` - A getter that reads references from a local cache, synchronizing to the original when necessary.
+- `net.minecraft.gametest.framework`
+    - `GameTestHelper#getBoundsWithPadding` - Gets the bounding box of the test area with the specified padding.
+    - `GameTestInstance#padding` - The number of blocks spaced around each game test.
 - `net.minecraft.network.protocol.game`
     - `ClientboundLowDiskSpaceWarningPacket` - A packet sent to the client warning about low disk space on the machine.
     - `ClientGamePacketListener#handleLowDiskSpaceWarning` - Handles the warning packet about low disk space.
@@ -1407,6 +1495,7 @@ fluidState.is(FluidTags.WATER);
 - `net.minecraft.gametest.framework`
     - `GameTestHelper#assertBlockPresent` now has an overload that only takes in the block to check for
     - `GameTestServer#create` now takes in an `int` for the number of times to run all matching tests
+    - `TestData` now takes in an `int` for the number of blocks padding around the test
 - `net.minecraft.network.chat.LastSeenMessages#EMPTY` is now final
 - `net.minecraft.network.protocol.game.ServerboundContainerClickPacket` now takes in a `ContainerInput` instead of a `ClickType`
 - `net.minecraft.resources.RegistryDataLoader#load` now returns a `CompletableFuture` of the frozen registry access
@@ -1453,7 +1542,17 @@ fluidState.is(FluidTags.WATER);
 - `net.minecraft.world.entity.monster.piglin.PiglinAi#isZombified` now takes in the `Entity` instead of the `EntityType`
 - `net.minecraft.world.entity.monster.warden.Warden#roarAnimationState`, `sniffAnimationState`, `emergeAnimationState`, `diggingAnimationState`, `attackAnimationState`, `sonicBoomAnimationState` are now final
 - `net.minecraft.world.entity.monster.zombie.Zombie#handleAttributes` now takes in the `EntitySpawnReason`
-- `net.minecraft.world.entity.player.Input#EMPTY` is now final
+- `net.minecraft.world.entity.player`
+    - `Input#EMPTY` is now final
+    - `Player`
+        - `currentImpulseImpactPos` -> `LivingEntity#currentImpulseImpactPos`
+        - `currentExplosionCause` -> `LivingEntity#currentExplosionCause`
+        - `setIgnoreFallDamageFromCurrentImpulse` -> `LivingEntity#setIgnoreFallDamageFromCurrentImpulse`
+        - `applyPostImpulseGraceTime` -> `LivingEntity#applyPostImpulseGraceTime`
+        - `isIgnoringFallDamageFromCurrentImpulse` -> `LivingEntity#isIgnoringFallDamageFromCurrentImpulse`
+        - `tryResetCurrentImpulseContext` -> `LivingEntity#tryResetCurrentImpulseContext`
+        - `resetCurrentImpulseContext` -> `LivingEntity#resetCurrentImpulseContext`
+        - `isInPostImpulseGraceTime` -> `LivingEntity#isInPostImpulseGraceTime`
 - `net.minecraft.world.entity.vehicle.minecart.NewMinecartBehavior$MinecartStep#EMPTY` is now final
 - `net.minecraft.world.inventory.AbstractContainerMenu#getQuickCraftPlaceCount` now takes in the number of quick craft slots instead of the set of slots itself
 - `net.minecraft.world.item`
@@ -1480,6 +1579,9 @@ fluidState.is(FluidTags.WATER);
 - `net.minecraft.world.level.block`
     - `FireBlock#setFlammable` is now `private` from `public`
     - `MultifaceSpreader$DefaultSpreaderConfig#block` is now final
+- `net.minecraft.world.level.block.entity.TestInstanceBlockEntity`  
+    - `getTestBoundingBox` - The bounding box of the test inflated by its padding.
+    - `getTestBounds` -  The axis aligned bounding box of the test inflated by its padding.
 - `net.minecraft.world.level.block.entity.vault`
     - `VaultConfig#DEFAULT`, `CODEC` are now final
     - `VaultServerData#CODEC` is now final
