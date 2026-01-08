@@ -1380,7 +1380,7 @@ Additionally, some animal models have been split into separate classes for the b
 - `net.minecraft.client.gui.navigation.FocusNavigationEvent$ArrowNavigation#with` - Sets the previous focus of the navigation.
 - `net.minecraft.client.renderer`
     - `LightmapRenderStateExtractor` - Extracts the render state for the lightmap.
-    - `UiLightmap` - The lightmap when in an user interface.
+    - `UiLightmap` - The lightmap when in a user interface.
 - `net.minecraft.client.renderer.state`
     - `LevelRenderState#lastEntityRenderStateCount` - The number of entities being rendered to the screen.
     - `LightmapRenderState` - The render state for the lightmap.
