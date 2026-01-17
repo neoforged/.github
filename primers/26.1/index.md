@@ -6,6 +6,10 @@ This primer is licensed under the [Creative Commons Attribution 4.0 Internationa
 
 If there's any incorrect or missing information, please file an issue on this repository or ping @ChampionAsh5357 in the Neoforged Discord server.
 
+Thank you to:
+
+- @Shnupbups for some grammatical fixes
+
 ## Pack Changes
 
 There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=26.1&tab=changelog).
@@ -20,7 +24,7 @@ Vanilla has also returned to being deobfuscated, meaning that all value types no
 
 ## Loot Type Unrolling
 
-Loot pool entires, item functions, item conditions, nbt providers, number providers, and score providers no longer use a wrapping object type to act as the registered instance. Now, the registries directly take in the `MapCodec` used for the serialization and deserialization process. As such, `Loot*Type` classes that held the codec have been removed. `getType` is now renamed to `codec`, taking in the registered `MapCodec`.
+Loot pool entries, item functions, item conditions, nbt providers, number providers, and score providers no longer use a wrapping object type to act as the registered instance. Now, the registries directly take in the `MapCodec` used for the serialization and deserialization process. As such, `Loot*Type` classes that held the codec have been removed. `getType` is now renamed to `codec`, taking in the registered `MapCodec`.
 
 ```java
 // The following is an example with LootItemFunctions, but can roughly apply to the other instances as well
@@ -201,7 +205,7 @@ public record ExampleObject() implements Validatable {
     - `Validatable` - An interface which handles the validation of its instance within the given context.
     - `ValidationContext`
         - `forField` - Creates a context for a given field.
-        - `forIndexedField` - Creates a context for a given entry in an list.
+        - `forIndexedField` - Creates a context for a given entry in a list.
         - `forMapField` - Creates a context for a given key in a map.
         - `setContextKeySet` is removed
     - `ValidationContextSource` - The source for the defined context where the validation is taking place.
@@ -320,9 +324,9 @@ The trades themselves are within `data/<namespace>/villager_trade/<path>`. Typic
             }
         }
     },
-    // A list of loot item function that modifies the item
+    // A list of loot item functions that modify the item
     // offered from `gives` to the player.
-    // If not specified, `gives` is not modifier.
+    // If not specified, `gives` is not modified.
     "given_item_modifiers": [
         {
             // Chooses a random enchantment from the provided tag
@@ -725,7 +729,7 @@ The equivalent would be:
             ]
         },
         {
-            // Make sure the enchantment was added successfully wih the given level.
+            // Make sure the enchantment was added successfully with the given level.
             "function": "minecraft:filtered",
             "item_filter": {
                 "items": "minecraft:enchanted_book",
@@ -1620,7 +1624,7 @@ The usage of `AbstractContainerScreen`s has changed slightly, requiring some min
 public class ExampleContainerScreen extends AbstractContainerScreen<ExampleContainerMenu> {
 
     // Constructor
-    public ExampleContainerScreen(ExampleContainerMenu meu, Inventory playerInventory, Component title) {
+    public ExampleContainerScreen(ExampleContainerMenu menu, Inventory playerInventory, Component title) {
         // Specify image width and height as the last two parameters in the constructor
         super(menu, playerInventory, title, 256, 256);
     }
@@ -1732,7 +1736,7 @@ fluidState.is(FluidTags.WATER);
 
 Entity textures within `assets/minecraft/textures/entity/*` have now been sorted into subdirectories (e.g., `entity/panda` for panda textures, or `entity/pig` for pig textures). Most textures have been named with the entity type starting followed by an underscore along with its variant (e.g., `arrow_tipped` for tipped arrow, `pig_cold` for the cold pig variant, or `panda_brown` for the brown panda variant).
 
-Additionally, some animal models have been split into separate classes for the baby and adult variant. These models either directly extend an abstract model implementation (e.g., `AbstractFelineModel`) or the original model class (e.g., `PigModel`).
+Additionally, some animal models have been split into separate classes for the baby and adult variants. These models either directly extend an abstract model implementation (e.g., `AbstractFelineModel`) or the original model class (e.g., `PigModel`).
 
 - `net.minecraft.client.model.QuadrupedModel` now has a constructor that takes in a function for the `RenderType`
 - `net.minecraft.client.model.animal.chicken`
@@ -1741,7 +1745,7 @@ Additionally, some animal models have been split into separate classes for the b
     - `ChickenModel` is now abstract
         - `RED_THING` -> `AdultChickenModel#RED_THING`
         - `BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyChickenModel`
-        - `createBodyLayer` -> `AdultChickenModel#REDcreateBodyLayer_THING`
+        - `createBodyLayer` -> `AdultChickenModel#createBodyLayer`
         - `createBaseChickenModel` -> `AdultChickenModel#createBaseChickenModel`
     - `ColdChickenModel` now extends `AdultChickenModel`
 - `net.minecraft.client.model.animal.cow.BabyCowModel` - Entity model for the baby cow.
@@ -1920,7 +1924,7 @@ The tripwire render pipeline has been completely removed. Now, tripwires make us
 - `com.mojang.blaze3d.platform.NativeImage#isClosed` - Whether the image is closed or deallocated.
 - `com.mojang.blaze3d.shaders.GpuDebugOptions` - The debug options for the GPU pipeline.
 - `com.mojang.blaze3d.systems`
-    - `BackendCreationException` - An exception throw when the GPU backend couldn't be created.
+    - `BackendCreationException` - An exception thrown when the GPU backend couldn't be created.
     - `GpuBackend` - An interface responsible for creating the used GPU device and window to display to.
     - `GpuDevice`
         - `setVsync` - Sets whether VSync is enabled.
@@ -1956,8 +1960,8 @@ The tripwire render pipeline has been completely removed. Now, tripwires make us
 - `net.minecraft.client.multiplayer.MultiPlayerGameMode#spectate` - Sends a packet to the server that the player will spectate the given entity.
 - `net.minecraft.client.renderer`
     - `LightmapRenderStateExtractor` - Extracts the render state for the lightmap.
+    - `UiLightmap` - The lightmap when in a user interface.
     - `RenderPipelines#LINES_DEPTH_BIAS` - A render pipeline that sets the polygon depth offset factor to -1 and the units to -1.
-    - `UiLightmap` - The lightmap when in an user interface.
 - `net.minecraft.client.renderer.state`
     - `LevelRenderState#lastEntityRenderStateCount` - The number of entities being rendered to the screen.
     - `LightmapRenderState` - The render state for the lightmap.
@@ -2137,7 +2141,7 @@ The tripwire render pipeline has been completely removed. Now, tripwires make us
     - `VanillaPackResourcesBuilder#setMetadata` now takes in a `ResourceMetadata` instead of a `BuiltInMetadata`
 - `net.minecraft.tags.TagLoader`
     - `loadTagsFromNetwork` now takes in a `Registry` instead of a `WritableRegistry`, returning a map of tag keys to a list of holder entries
-    - `loadTagsForRegistry` now has an overload which takes in registry key along with a element lookup, returning a map of tag keys to a list of holder entries
+    - `loadTagsForRegistry` now has an overload which takes in registry key along with an element lookup, returning a map of tag keys to a list of holder entries
 - `net.minecraft.util.Brightness`
     - `pack` -> `LightCoordsUtil#pack`
     - `block` -> `LightCoordsUtil#block`
