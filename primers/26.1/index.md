@@ -1396,7 +1396,9 @@ public class ExampleRecipeBuilder implements RecipeBuilder {
 
 ## World Clocks and Time Markers
 
-World clocks are objects that represent some time that increases every tick from when the world first loads. These clocks are used as timers to properly handle timing-based events (e.g., the current day, sleeping). Creating a clock is rather simple: just an empty, datapack registry object in `world_clock`.
+World clocks are objects that represent some time that increases every tick from when the world first loads. These clocks are used as timers to properly handle timing-based events (e.g., the current day, sleeping). Vanilla provides two world clocks: one for `minecraft:overworld` and one for `minecraft:the_end`.
+
+Creating a clock is rather simple: just an empty, datapack registry object in `world_clock`.
 
 ```json5
 // For some world clock 'examplemod:EXAMPLE_CLOCK'
@@ -1552,6 +1554,7 @@ boolean timeSet = clockManager.skipToTimeMarker(clock, EXAMPLE_MARKER);
         - `setTimeFromServer` no longer takes in the `long` day time nor the `boolean` of whether to tick the day time
         - `$ClientLevelData#setDayTime` is removed
     - `ClientPacketListener#clockManager` - Gets the client clock manager.
+- `net.minecraft.client.renderer.EndFlashState#tick` now takes in the end clock time instead of the game time
 - `net.minecraft.commands.arguments.ResourceArgument`
     - `getClock` - Gets a reference to the world clock given the string resource identifier.
     - `getTimeline` - Gets a reference to the timeline given the string resource identifier.
@@ -1576,6 +1579,7 @@ boolean timeSet = clockManager.skipToTimeMarker(clock, EXAMPLE_MARKER);
 - `net.minecraft.world.level.Level`
     - `getDayTime` -> `getOverworldClockTime`, not one-to-one
     - `clockManager` - The clock manager.
+    - `getDefaultClockTime` - Gets the clock time for the current dimension.
 - `net.minecraft.world.level.dimension.DimensionType` now takes in a default, holder-wrapped `WorldClock`
 - `net.minecraft.world.level.storage`
     - `LevelData#getDayTime` is removed
@@ -1613,7 +1617,7 @@ The blocks to determine whether a plantable can survive or be placed on has been
     - `FungusBlock` -> `NetherFungusBlock`, not one-to-one
     - `RootsBlock` -> `NetherRootsBlock`, not one-to-one
     - `WaterlilyBlock` -> `LilyPadBlock`, not one-to-one
-    - `StemBlock` now takes in a `TagKey` for the blocks it can be placed on
+    - `StemBlock` now takes in a `TagKey` for the blocks it can be placed on, and a `TagKey` for the blocks its fruit can be placed on
 
 ### Container Screen Changes
 
@@ -1749,6 +1753,12 @@ Additionally, some animal models have been split into separate classes for the b
         - `createBaseChickenModel` -> `AdultChickenModel#createBaseChickenModel`
     - `ColdChickenModel` now extends `AdultChickenModel`
 - `net.minecraft.client.model.animal.cow.BabyCowModel` - Entity model for the baby cow.
+- `net.minecraft.client.model.animal.equine`
+    - `AbstractEquineModel#BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyDonkeyModel`
+    - `BabyDonkeyModel` - Entity model for the baby donkey.
+    - `DonkeyModel#createBabyLayer` -> `BabyDonkeyModel#createBabyLayer`
+    - `EquineSaddleModel#createFullScaleSaddleLayer` is removed
+        Merged into `createSaddleLayer`, with the baby variant removed
 - `net.minecraft.client.model.animal.feline`
     - `CatModel` -> `AdultCatModel`, `BabyCatModel`; not one-to-one
     - `FelineModel` -> `AbstractFelineModel`, not one-to-one
@@ -1780,9 +1790,24 @@ Additionally, some animal models have been split into separate classes for the b
     - `PIG_BABY_SADDLE` is removed
     - `SHEEP_BABY_WOOL_UNDERCOAT` is removed
     - `WOLF_BABY_ARMOR` is removed
+    - `DONKEY_BABY_SADDLE` is removed
+    - `HORSE_BABY_ARMOR` is removed
+    - `HORSE_BABY_SADDLE` is removed
+    - `MULE_BABY_SADDLE` is removed
+    - `SKELETON_HORSE_BABY_SADDLE` is removed
+    - `UNDEAD_HORSE_BABY_ARMOR` is removed
+    - `ZOMBIE_HORSE_BABY_SADDLE` is removed
 - `net.minecraft.client.renderer.entity`
     - `CatRenderer` now takes in an `AbstractFelineModel` for its generic
+    - `DonkeyRenderer` now takes in an `EquipmentClientInfo$LayerType` and `ModelLayerLocation` for the saddle layer and model, and splits the `DonkeyRenderer$Type` into the adult type and baby type
+        - `$Type`
+            - `DONKEY_BABY` - A baby variant of the donkey.
+            - `MULE_BABY` - A baby variant of the mule.
     - `OcelotRenderer` now takes in an `AbstractFelineModel` for its generic
+    - `UndeadHorseRenderer` now takes in an `EquipmentClientInfo$LayerType` and `ModelLayerLocation` for the saddle layer and model, and splits the `UndeadHorseRenderer$Type` into the adult type and baby type
+        - `$Type`
+            - `SKELETON_BABY` - A baby variant of the skeleton horse.
+            - `ZOMBIE_BABY` - A baby variant of the zombie horse.
 - `net.minecraft.client.renderer.entity.layers.CatCollarLayer` now takes in an `AbstractFelineModel` for its generic
 - `net.minecraft.client.renderer.entity.state.RabbitRenderState`
     - `hopAnimationState` - The state of the hop the entity is performing.
@@ -1791,6 +1816,7 @@ Additionally, some animal models have been split into separate classes for the b
 - `net.minecraft.world.entity.animal.cow.CowVariant` now takes in a resource for the baby texture
 - `net.minecraft.world.entity.animal.cat.CatVariant` now takes in a resource for the baby texture
     - `CatVariant#assetInfo` - Gets the entity texture based on whether the entity is a baby.
+- `net.minecraft.world.entity.animal.equine.AbstractHorse#BABY_SCALE` - The scale of the baby size compared to an adult.
 - `net.minecraft.world.entity.animal.pig.PigVariant` now takes in a resource for the baby texture
 - `net.minecraft.world.entity.animal.rabbit.Rabbit`
     - `hopAnimationState` - The state of the hop the entity is performing.
@@ -1826,6 +1852,26 @@ Now, `interact` is called with the entity hit
     - `interactAt` is removed
 - `net.minecraft.world.entity.player.Player#interactOn` now takes in a `Vec3` for the location of the interaction
 
+### Solid and Translucent Features
+
+Feature rendering has been further split into two passes: one for solid render types, and one for translucent render types. As such, most `render` methods now have a `renderSolid` and `renderTranslucent` method, respectively. Those which only render solid or translucent data only have one of the methods.
+
+- `net.minecraft.client.renderer.SubmitNodeCollector$ParticleGroupRenderer`
+    - `isEmpty` - Whether there are no particles to render in this group.
+    - `prepare` now takes whether the particles are being prepared for the translucent layer
+    - `render` no longer takes in the translucent `boolean`
+- `net.minecraft.client.renderer.features`
+    - Feature `render` methods have been split into `renderSolid` for solid render types, and `renderTranslucent` for see-through render types
+    - `FeatureRenderDispatcher`
+        - `renderAllFeatures` has been split into `renderSolidFeatures` and `renderTranslucentFeatures`
+            - The original method now calls both of these methods, first solid then translucent 
+        - `clearSubmitNodes` - Clears the submit node storage
+    - `FlameFeatureRenderer#render` -> `renderSolid`
+    - `LeashFeatureRenderer#render` -> `renderSolid`
+    - `NameTagFeatureRenderer#render` -> `renderTranslucent`
+    - `ShadowFeatureRenderer#render` -> `renderTranslucent`
+    - `TextFeatureRenderer#render` -> `renderTranslucent`
+
 ### ChunkPos, now a record
 
 `ChunkPos` is now a record. The `BlockPos` constructor has been replaced by `ChunkPos#containing` while the packed `long` constructor has been replaced by `ChunkPose#unpack`.
@@ -1844,6 +1890,69 @@ The tripwire render pipeline has been completely removed. Now, tripwires make us
     - `ChunkSectionLayer#TRIPWIRE` is removed
     - `ChunkSectionLayerGroup#TRIPWIRE` is removed
 - `net.minecraft.client.renderer.rendertype.RenderTypes#tripwireMovingBlock` is removed
+
+### Activities and Brains
+
+Activities, which define how a living entity behaves during a certain phase, now are stored and passed around through `ActivityData`. This contains the activity type, the behaviors to perform along with their priorities, the conditions on when this activity activates, and the memories to erase when the activity has stopped. `Brain#provider` now takes in the list of `ActivityData` the entity performs. As such, existing entity AIs no longer create the brain or the provider, but rather just the activities, opting to pass them directly into `LivingEntity#brainProvider` like so:
+
+```java
+// For some LivingEntity subclass
+@Override
+protected Brain.Provider<?> brainProvider() {
+    return Brain.provider(
+        // The list of memories the entity stores
+        ImmutableList.of(),
+        // The list of sensors the entity uses
+        ImmutableList.of(),
+        // The list of activities the entity performs
+        ImmutableList.of(
+            new ActivityData(...)
+        )
+    );
+}
+```
+
+- `net.minecraft.world.entity.ai`
+    - `ActivityData` - A record containing the activity being performed, the behaviors to perform during that activity, any memory conditions, and what memories to erase once stopped.
+    - `Brain` now takes in a list of `ActivityData`
+        - `provider` now has an overload that only takes in the sensor types, defaulting the memory types to an empty list
+            - Some `provider` methods also take in a list of `ActivtyData` to perform
+        - `addActivityAndRemoveMemoryWhenStopped`, `addActivityWithConditions` merged into `addActivity`
+            - Alternatively use `ActivityData#create`
+        - `coptWithoutBehaviors` -> `copyMemoryValuesFrom`, not one-to-one
+        - `$Provider#makeBrain` now has an overload that takes in nothing
+- `net.minecraft.world.entity.animal.allay.AllayAi#makeBrain` -> `getActivities`, not one-to-one
+- `net.minecraft.world.entity.animal.armadillo.ArmadilloAi#makeBrain`, `brainProvider` -> `getActivities`, now `protected`, not one-to-one
+- `net.minecraft.world.entity.animal.axolotl.AxolotlAi`
+    - `makeBrain` -> `getActivities`, not one-to-one
+    - `initPlayDeadActivity`, now `protected`, no longer taking in anything
+    - `initFightActivity`, now `protected`, no longer taking in anything
+    - `initCoreActivity`, now `protected`, no longer taking in anything
+    - `initIdleActivity`, now `protected`, no longer taking in anything
+- `net.minecraft.world.entity.animal.camel.CamelAi#makeBrain`, `brainProvider` -> `getActivities`, now `protected`, not one-to-one
+- `net.minecraft.world.entity.animal.frog.FrogAi#makeBrain` -> `getActivities`, not one-to-one
+- `net.minecraft.world.entity.animal.frog.TadpoleAi#makeBrain` -> `getActivities`, now `public`, not one-to-one
+- `net.minecraft.world.entity.animal.goat.GoatAi#makeBrain` -> `getActivities`, not one-to-one
+- `net.minecraft.world.entity.animal.golem.CopperGolemAi#makeBrain`, `brainProvider` -> `getActivities`, now `protected`, not one-to-one
+- `net.minecraft.world.entity.animal.happyghast.HappyGhastAi#makeBrain`, `brainProvider` -> `getActivities`, now `protected`, not one-to-one
+- `net.minecraft.world.entity.animal.nautilus`
+    - `NautilusAi`
+        - `SENSOR_TYPES` -> `Nautilus#SENSOR_TYPES`
+        - `MEMORY_TYPES` -> `Nautilus#MEMORY_TYPES`
+        - `makeBrain`, `brainProvider` -> `getActivities`, now `public`, not one-to-one
+    - `ZombieNautilusAi`
+        - `SENSOR_TYPES` -> `ZombieNautilus#SENSOR_TYPES`
+        - `MEMORY_TYPES` -> `ZombieNautilus#MEMORY_TYPES`
+        - `makeBrain`, `brainProvider` -> `getActivities`, now `public`, not one-to-one
+- `net.minecraft.world.entity.animal.sniffer.SnifferAi#makeBrain` -> `getActivities`, now `public`, not one-to-one
+- `net.minecraft.world.entity.monster.Zoglin#getActivities` - The activities the zoglin performs.
+- `net.minecraft.world.entity.monster.breeze.BreezeAi#makeBrain` -> `getActivities`, not one-to-one
+- `net.minecraft.world.entity.monster.creaking.CreakingAi#makeBrain`, `brainProvider` -> `getActivities`, now `protected`, not one-to-one
+- `net.minecraft.world.entity.monster.hoglin.HoglinAi#makeBrain` -> `getActivities`, not one-to-one
+- `net.minecraft.world.entity.monster.piglin`
+    - `PiglinAi#makeBrain` -> `getActivities`, now `public`, not one-to-one
+    - `PiglinBruteAi#makeBrain` -> `getActivities`, now `public`, not one-to-one
+- `net.minecraft.world.entity.monster.warden.WardenAi#makeBrain` -> `getActivities`, not one-to-one
 
 ### Specific Logic Changes
 
@@ -1872,8 +1981,11 @@ The tripwire render pipeline has been completely removed. Now, tripwires make us
     - `supports_vegetation`
     - `supports_crops`
     - `supports_stem_crops`
+    - `supports_stem_fruit`
     - `supports_pumpkin_stem`
     - `supports_melon_stem`
+    - `supports_pumpkin_stem_fruit`
+    - `supports_melon_stem_fruit`
     - `supports_sugar_cane`
     - `supports_sugar_cane_adjacently`
     - `supports_cactus`
@@ -1962,6 +2074,7 @@ The tripwire render pipeline has been completely removed. Now, tripwires make us
     - `LightmapRenderStateExtractor` - Extracts the render state for the lightmap.
     - `UiLightmap` - The lightmap when in a user interface.
     - `RenderPipelines#LINES_DEPTH_BIAS` - A render pipeline that sets the polygon depth offset factor to -1 and the units to -1.
+- `net.minecraft.client.renderer.rendertype.RenderType#hasBlending` - Whether the pipeline has a defined blend function.
 - `net.minecraft.client.renderer.state`
     - `LevelRenderState#lastEntityRenderStateCount` - The number of entities being rendered to the screen.
     - `LightmapRenderState` - The render state for the lightmap.
@@ -1971,15 +2084,19 @@ The tripwire render pipeline has been completely removed. Now, tripwires make us
     - `VillagerTypePredicate` - A predicate that checks a villager's type.
 - `net.minecraft.core.dispenser.SpawnEggItemBehavior` - The dispenser behavior for spawn eggs.
 - `net.minecraft.core.registries.ConcurrentHolderGetter` - A getter that reads references from a local cache, synchronizing to the original when necessary.
-- `net.minecraft.data.BlockFamily`
-    - `$Builder#tiles`, `$Variant#TILES` - The block that acts as the tiles variant for some base block.
-    - `$Builder#bricks`, `$Variant#BRICKS` - The block that acts as the bricks variant for some base block.
+- `net.minecraft.data`
+    - `BlockFamily`
+        - `$Builder#tiles`, `$Variant#TILES` - The block that acts as the tiles variant for some base block.
+        - `$Builder#bricks`, `$Variant#BRICKS` - The block that acts as the bricks variant for some base block.
+    - `DataGenerator$Uncached` - A data generator which does not cache any information about the files generated.
 - `net.minecraft.data.recipes.RecipeProvider#bricksBuilder`, `tilesBuilder` - Builders for the bricks and tiles block variants.
 - `net.minecraft.gametest.framework`
+    - `GameTestEvent#createWithMinimumDelay` - Creates a test event with some minimum delay.
     - `GameTestHelper`
         - `getBoundsWithPadding` - Gets the bounding box of the test area with the specified padding.
         - `runBeforeTestEnd` - Runs the runnable at one tick before the test ends.
     - `GameTestInstance#padding` - The number of blocks spaced around each game test.
+    - `GameTestSequence#thenWaitAtLeast` - Waits for at least the specified number of ticks before running the runnable.
 - `net.minecraft.network.protocol.game`
     - `ClientboundGameRuleValuesPacket` - A packet that sends the game rule values in string form to the client.
     - `ClientboundGamePacketListener#handleGameRuleValues` - Handles the game rule values sent from the server.
@@ -2007,6 +2124,7 @@ The tripwire render pipeline has been completely removed. Now, tripwires make us
 - `net.minecraft.world.InteractionHand#STREAM_CODEC` - The network codec for the interaction hand.
 - `net.minecraft.world.entity`
     - `Entity$Flags` - An annotation that marks a particular value as a bitset of flags for an entity.
+    - `LivingEntity#getLiquidCollisionShape` - Return's the bounds of the entity when attempting to collide with a liquid.
     - `Mob`
         - `asValidTarget` - Checks whether an entity is a valid target (can attack) for this entity.
         - `getTargetUnchecked` - Gets the raw target without checking if its valid.
@@ -2018,13 +2136,15 @@ The tripwire render pipeline has been completely removed. Now, tripwires make us
 - `net.minecraft.world.entity.ai.behavior.declarative.BehaviorBuilder$TriggerWithResult#memories` - The list of memories required by the behavior.
 - `net.minecraft.world.entity.ai.memory.NearestVisibleLivingEntities#nearbyEntities` - The list of entities within the follow range of this one.
 - `net.minecraft.world.entity.monster.piglin`
-    - `Piglin`
-        - `INVENTORY_SLOT_OFFSET` - The slot index offset for the inventory.
-        - `INVENTORY_SIZE` - The size of a piglin's inventory. 
-    - `PiglinAi#findNearbyAdultPiglins` - Returns a list of all adult piglins in this piglin's memory.
+    - `PiglinAi`
+        - `MAX_TIME_BETWEEN_HUNTS` - The maximum number of seconds before a piglin begins to hunt again.
+        - `findNearbyAdultPiglins` - Returns a list of all adult piglins in this piglin's memory.
 - `net.minecraft.world.entity.raid.Raid`
     - `getBannerComponentPatch` - Gets the components of the banner pattern.
     - `getOminousBannerTemplate` - Gets the stack template for the omnious banner.
+- `net.minecraft.world.inventory.SlotRanges`
+    - `MOB_INVENTORY_SLOT_OFFSET` - The start index of a mob's inventory.
+    - `MOB_INVENTORY_SIZE` - The size of a mob's inventory.
 - `net.minecraft.world.item.DyeColor#VALUES` - A list of all dye colors.
 - `net.minecraft.world.item.component.BundleContents#BEEHIVE_WEIGHT` - The weight of a beehive.
 - `net.minecraft.world.item.enchantment.EnchantmentTarget#NON_DAMAGE_CODEC` - A codec that only allows the attacker and victim enchantment targets.
@@ -2115,6 +2235,13 @@ The tripwire render pipeline has been completely removed. Now, tripwires make us
 - `net.minecraft.client.renderer.state.BlockBreakingRenderState#progress` is now final
 - `net.minecraft.client.resources.sounds.AbstractSoundInstance#random` is now final
 - `net.minecraft.core.WritableRegistry#bindTag` -> `bindTags`, now taking in a map of keys to holder lists instead of one mapping
+- `net.minecraft.data`
+    - `DataGenerator` is now abstract
+        - The constructor now only takes in the `Path` output, not the `WorldVersion` or whether to always generate
+            - The original implementation can be founded in `DataGenerator$Cached`
+        - `run` is now abstract
+    - `Main#addServerProviders` -> `addServerDefinitionProviders`, no longer taking in the dev `boolean`, not one-to-one
+    - The remaining logic has been put into `addServerConverters`, taking in the dev `boolean` but not the report `boolean`
 - `net.minecraft.data.loot.BlockLootSubProvider`
     - `explosionResistant` is now private
     - `enabledFeatures` is now private
@@ -2166,12 +2293,12 @@ The tripwire render pipeline has been completely removed. Now, tripwires make us
         - `canAttackType` -> `canAttack`, not one-to-one, taking in the `LivingEntity` instead of the `EntityType`
         - `lungeForwardMaybe` -> `postPiercingAttack`
         - `entityAttackRange` -> `getAttackRangeWith`, now taking in the `ItemStack` used to attack
-- `net.minecraft.world.entity.ai.Brain#provider` now has an overload that only takes in the sensor types, defaulting the memory types to an empty list
 - `net.minecraft.world.entity.ai.behavior`
     - `GoAndGiveItemsToTarget` now takes in the `$ItemThrower`
         - `throwItem` -> `BehaviorUtils#throwItem`, not one-to-one
     - `SpearAttack` no longer takes in the approach distance `float`
     - `TryLaySpawnOnWaterNearLand` -> `TryLaySpawnOnFluidNearLand`, not one-to-one
+- `net.minecraft.world.entity.ai.behavior.declarative.BehaviorBuilder#sequence` now takes in a `Oneshot` for the second entry instead of a `Trigger`
 - `net.minecraft.world.entity.ai.goal`
     - `BoatGoals` -> `FollowPlayerRiddenEntityGoal$FollowEntityGoal`
         - `BOAT` is replaced by `ENTITY`
@@ -2277,4 +2404,5 @@ The tripwire render pipeline has been completely removed. Now, tripwires make us
 - `net.minecraft.world.item.component.BundleContents`
     - `getItemUnsafe`
     - `hasSelectedItem`
+- `net.minecraft.world.level.block.LiquidBlock#SHAPE_STABLE`
 - `net.minecraft.world.level.storage.loot.functions.SetOminousBottleAmplifierFunction#amplifier`
