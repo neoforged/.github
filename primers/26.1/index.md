@@ -1225,6 +1225,7 @@ Since data components now hold the true values from being lazily initialized aft
         - `$Properties`
             - `delayedComponent` - Sets the component lazily, providing the `HolderLookup$Provider` to get any dynamic elements.
             - `delayedHolderComponent` - Sets the component lazily for some holder-wrapped registry object.
+    - `ItemStack#validateComponents` is now `private` from `public`
     - `JukeboxPlayable` now holds a holder-wrapped `JukeboxSong` instead of an `EitherHolder`-wrapped variant
     - `JukeboxSong#fromStack` no longer takes in the `HolderLookup$Provider`
     - `SpawnEggItem`
@@ -1317,8 +1318,17 @@ public class ExampleRecipeBuilder implements RecipeBuilder {
     - `Advancement$Builder#display` now takes in an `ItemStackTemplate` instead of an `ItemStack`
     - `DisplayInfo` now takes in an `ItemStackTemplate` instead of an `ItemStack`
         - `getIcon` now returns an `ItemStackTemplate` instead of an `ItemStack`
-- `net.minecraft.advancements.criterion.ItemPredicate` now implements a predicate of `ItemInstance` instead of `ItemStack`
+- `net.minecraft.advancements.criterion`
+    - `AnyBlockInteractionTrigger#trigger` now takes in an `ItemInstance` instead of an `ItemStack`
+    - `ItemPredicate` now implements a predicate of `ItemInstance` instead of `ItemStack`
+    - `ItemUsedOnLocationTrigger#trigger` now takes in an `ItemInstance` instead of an `ItemStack`
 - `net.minecraft.client.particle.BreakingItemParticle$ItemParticleProvider#getSprite` now takes in an `ItemStackTemplate` instead of an `ItemStack`
+- `net.minecraft.commands.arguments.item`
+    - `ItemInput` is now a record
+        - `serialize` is removed
+        - `createItemStack` no longer takes in the `boolean` to check the size
+    - `ItemParser#parse` now returns an `ItemResult` instead of an `ItemParser$ItemResult`
+        - `$ItemResult` merged into `ItemInput`
 - `net.minecraft.core.component.predicates`
     - `BundlePredicate` now deals with an iterable of `ItemInstance`s rather than `ItemStack`s
     - `ContainerPredicate` now deals with an iterable of `ItemInstance`s rather than `ItemStack`s
@@ -1346,8 +1356,13 @@ public class ExampleRecipeBuilder implements RecipeBuilder {
     - `SmithingTransformRecipeBuilder` now takes in an `ItemStackTemplate` for the result instead of an `Item`
     - `TransmuteRecipeBuilder` now takes in an `ItemStackTemplate` for the result instead of a `Holder<Item>`
         - The constructor is `private`
+        - `transmute` now has an overload that takes in the `ItemStackTemplate` for the result
+        - `addMaterialCountToOutput`, `setMaterialCount` - Handles the size of the result stack based on the number of materials used.
 - `net.minecraft.network.chat.HoverEvent$ShowItem` now takes in an `ItemStackTemplate` instead of an `ItemStack`
 - `net.minecraft.server.dialog.body.ItemBody` now takes in an `ItemStackTemplate` instead of an `ItemStack`
+- `net.minecraft.world.entity.LivingEntity`
+    - `dropFromEntityInteractLootTable` now takes in an `ItemInstance` instead of an `ItemStack` for the tool
+    - `dropFromShearingLootTable` now takes in an `ItemInstance` instead of an `ItemStack` for the tool
 - `net.minecraft.world.item`
     - `BundleItem#getSelectedItemStack` -> `getSelectedItem`, now returning an `ItemStackTemplate` instead of an `ItemStack`
     - `Item`
@@ -1388,11 +1403,173 @@ public class ExampleRecipeBuilder implements RecipeBuilder {
     - `StonecutterRecipe` now takes in an `ItemStackTemplate` instead of an `ItemStack` for the result
     - `TransmuteRecipe` now takes in an `ItemStackTemplate` instead of an `ItemStack` for the result
     - `TransmuteResult` -> `ItemStackTemplate`, not one-to-one
-        - `isResultUnchanged` -> `TransmuteRecipe#isResultUnchanged`, not one-to-one
+        - `isResultUnchanged` is removed
         - `apply` -> `TransmuteRecipe#createWithOriginalComponents`, not one-to-one
 - `net.minecraft.world.item.crafting.display.SlotDisplay$ItemStackSlotDisplay` now takes in an `ItemStackTemplate` instead of an `ItemStack`
+- `net.minecraft.world.item.enchantment.EnchantmentHelper#getItemEnchantmentLevel` now takes in an `ItemInstance` instead of an `ItemStack`
+- `net.minecraft.world.level.block.Block`
+    - `dropFromBlockInteractLootTable` now takes in an `ItemInstance` instead of an `ItemStack`
+    - `getDrops` now takes in an `ItemInstance` instead of an `ItemStack`
 - `net.minecraft.world.level.block.entity.DecoratedPotBlockEntity#createdDecoratedPotItem` -> `createdDecoratedPotInstance`
     - `createDecoratedPotTemplate` creates the `ItemStackTemplate` instead of the `ItemStack`
+- `net.minecraft.world.level.storage.loot`
+    - `LootContext$ItemStackTarget` now implements an `ItemInstance` generic for the argument getter instead of the `ItemStack`
+    - `LootContextArg$ArgCodecBuilder#anyItemStack` now requires a function taking in an `ItemInstance` context key instead of an `ItemStack` context key
+- `net.minecraft.world.level.storage.loot.parameters.LootContextParams#TOOL` is now an `ItemInstance` context key instead of an `ItemStack` context key
+
+## Serializer Records and Recipe Info
+
+Recipes have been slightly reworked in their implementation. First, `RecipeSerializer` is now a record taking in the `MapCodec` and `StreamCodec` used to serialize and deserialize the recipe. As such, `Serializer` classes have been removed in their entirety, replaced with providing the codecs to the record during registration:
+
+```java
+// Assume some ExampleRecipe implements Recipe
+// We'll say there's also only one INSTANCE
+public static final RecipeSerializer<ExampleRecipe> EXAMPLE_RECIPE = new RecipeSerializer<>(
+    // The map codec for reading the recipe to/from disk.
+    MapCodec.unit(INSTANCE),
+    // The stream codec for reading the recipe to/from the network.
+    StreamCodec.unit(INSTANCE)
+);
+```
+
+Second, some common data regarding the recipe settings and book information have been sectioned into separate objects. These objects are passed into the recipe as part of the constructor and used to more cleanly handle similar implementations across all recipes.
+
+Vanilla provides four of these common object classes, split into two separate categories. `Recipe$CommonInfo` is used for general recipe settings. Meanwhile, `Recipe$BookInfo` is used for recipe book information, with `CraftingRecipe$CraftingBookInfo` for crafting recipes, and `AbstractCookingRecipe$CookingBookInfo` for cooking recipes (e.g., smelting, blasting, etc.). The common object classes provide methods for constructing the codecs as required, which can then be passed into the relevant recipe codec.
+
+These classes are typically passed through the `Recipe` subclasses, used as boilerplate to implement abstract methods. None of the data in these objects are directly available outside the implementation itself, only through the methods defined in the `Recipe` interface. Because of this, classes like `NormalCraftingRecipe`, `CustomRecipe`, `SimpleSmithingRecipe`, and `SingleItemRecipe`, and `AbstractCookingRecipe` can be used to create a new recipe implementation by implementing a few methods.
+
+Note that these common info classes are a design philosophy, which you can choose to implement if desired. It's only when building off existing recipe subtypes that you are required to make use of them.
+
+- `net.minecraft.data.recipes`
+    - `CustomCraftingRecipeBuilder` - A recipe builder that creates an arbitrary crafting recipe from some common and crafting book information.
+    - `RecipeBuilder`
+        - `determineBookCategory` -> `determineCraftingBookCategory`
+        - `createCraftingCommonInfo` - Creates the common recipe info.
+        - `createCraftingBookInfo` - Creates the crafting book info.
+    - `RecipeUnlockAdvancementBuilder` - An advancement builder for unlocking a recipe.
+    - `SpecialRecipeBuilder`, `special` now takes in a supplied `Recipe` instead of a function of `CraftingBookCategory` to `Recipe`
+        - `unlockedBy` - The criteria required to unlock the recipe advancement.
+- `net.minecraft.world.item.crafting`
+    - `AbstractCookingRecipe` now takes in the `Recipe$CommonInfo` and `$CookingBookInfo` instead of the group and `CookingBookCategory`
+        - `$Factory#create` now takes in the `Recipe$CommonInfo` and `$CookingBookInfo` instead of the group and `CookingBookCategory`
+        - `$Serializer` replaced by `cookingMapCodec`, `cookingStreamCodec`
+        - `$CookingBookInfo` - A record containing the common cooking information for the recipe book.
+    - `BannerDuplicateRecipe` now takes in the banner `Ingredient` and the `ItemStackTemplate` result instead of the `CraftingBookCategory`
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `BlastingRecipe` now takes in the `Recipe$CommonInfo` and `$AbstractCookingRecipeCookingBookInfo` instead of the group and `CookingBookCategory`
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `BookCloningRecipe` now takes in the `Ingredient` source and material, the `MinMaxBounds$Int`s defining the generations that can be copied, and the `ItemStackTemplate` result instead of the `CraftingBookCategory`
+        - `ALLOWED_BOOK_GENERATION_RANGES`, `DEFAULT_BOOK_GENERATION_RANGES` - Ranges for the book generation cloning.
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `CampfireCookingRecipe` now takes in the `Recipe$CommonInfo` and `AbstractCookingRecipe$CookingBookInfo` instead of the group and `CookingBookCategory`
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `CraftingRecipe$CraftingBookInfo` - A record containing the common crafting information for the recipe book.
+    - `CustomRecipe` no longer takes in anything to its constructor
+        - `$Serializer` is removed, replaced by its implementation's codecs
+    - `DecoratedPotRecipe` now takes in the `Ingredient` patterns for each side along with the `ItemStackTemplate` result instead of the `CraftingBookCategory`
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `DyeRecipe` now takes in the `Recipe$CommonInfo` and `CraftingRecipe$CraftingBookInfo` along with the `Ingredient` target and dye and the `ItemStackTemplate` result instead of the `CraftingBookCategory`
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `FireworkRocketRecipe` now takes in the `Ingredient` shell, fuel, and star along with the `ItemStackTemplate` result instead of the `CraftingBookCategory`
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `FireworkStarFadeRecipe` now takes in the `Ingredient` target and dye along with the `ItemStackTemplate` result instead of the `CraftingBookCategory`
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `FireworkStarRecipe` now takes in the `$Shape` to `Ingredient` map; the `Ingredient` trail, twinkle, fuel, and dye; along with the `ItemStackTemplate` result instead of the `CraftingBookCategory`
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `MapCloningRecipe` replaced with `TransmuteRecipe`
+    - `MapExtendingRecipe` now extends `CustomRecipe` instead of `ShapedRecipe`
+        - The constructor now takes in the `Ingredient` map and material along with the `ItemStackTemplate` result instead of the `CraftingBookCategory`
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `NormalCraftingRecipe` - A class that defines the standard implementation for a crafting recipe.
+    - `Recipe`
+        - `showNotification`, `group` are no longer default
+        - `$BookInfo` - The information for the recipe book.
+        - `$CommonInfo` - The common information across all recipes.
+    - `RecipeSerializer` is now a record containing the `MapCodec` and `StreamCodec`
+        - The registered entries have been moved to `RecipeSerializers`
+        - `register` is removed
+    - `RecipeSerializers` - All vanilla serializers for recipes.
+    - `RepairItemRecipe` no longer takes in anything
+        - `INSTANCE` - The recipe serializer singleton.
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `ShapedRecipe` now extends `NormalCraftingRecipe` instead of implementing `CraftingRecipe`
+        - The constructor now takes in the `Recipe$CommonInfo` and `CraftingRecipe$CraftingBookInfo` instead of the group and `CraftingBookCategory`
+        - `$Serializer` -> `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER`; not one-to-one
+    - `ShapelessRecipe` now extends `NormalCraftingRecipe` instead of implementing `CraftingRecipe`
+        - The constructor now takes in the `Recipe$CommonInfo` and `CraftingRecipe$CraftingBookInfo` instead of the group and `CraftingBookCategory`
+        - `$Serializer` -> `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER`; not one-to-one
+    - `ShieldDecorationRecipe` now takes in the `Ingredient` banner and target along with the `ItemStackTemplate` result instead of the `CraftingBookCategory`
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `SimpleSmithingRecipe` - A class that defines the standard implementation of a smithing recipe.
+    - `SingleItemRecipe` now takes in the `Recipe$CommonInfo` instead of the group
+        - `commonInfo` - The common information for the recipe.
+        - `$Factory#create` now takes in the `Recipe$CommonInfo` instead of the group
+        - `$Serializer` -> `simpleMapCodec`, `simpleStreamCodec`; not one-to-one
+    - `SmeltingRecipe` now takes in the `Recipe$CommonInfo` and `AbstractCookingRecipe$CookingBookInfo` instead of the group and `CookingBookCategory`
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `SmithingTransformRecipe` now extends `SimpleSmithingRecipe` instead of implementing `SmithingRecipe`
+        - The constructor now takes in the `Recipe$CommonInfo`
+        - `$Serializer` -> `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER`; not one-to-one
+    - `SmithingTrimRecipe` now extends `SimpleSmithingRecipe` instead of implementing `SmithingRecipe`
+        - The constructor now takes in the `Recipe$CommonInfo`
+        - `$Serializer` -> `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER`; not one-to-one
+    - `SmokingRecipe` now takes in the `Recipe$CommonInfo` and `AbstractCookingRecipe$CookingBookInfo` instead of the group and `CookingBookCategory`
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `StonecutterRecipe` now takes in the `Recipe$CommonInfo` instead of the group
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `TippedArrowRecipe` -> `ImbueRecipe`, not one-to-one
+        - The constructor now takes in the `Recipe$CommonInfo` and `CraftingRecipe$CraftingBookInfo` along with the `Ingredient` source and material and the `ItemStackTemplate` result instead of the `CraftingBookCategory`
+        - `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER` - Serializers for the recipe.
+    - `TransmuteRecipe` now extends `NormalCraftingRecipe` instead of implementing `CraftingRecipe`
+        - The constructor now takes in the `Recipe$CommonInfo` and `CraftingRecipe$CraftingBookInfo` along with the `MinMaxBounds$Ints` and `boolean` handling the material count and adding it to the result instead of the group and `CraftingBookCategory`
+        - `$Serializer` -> `MAP_CODEC`, `STREAM_CODEC`, `SERIALIZER`; not one-to-one
+- `net.minecraft.world.item.crafting.display.SlotDisplay`
+    - `$OnlyWithComponent` - A display only with the contents having the desired components.
+    - `$WithAnyPotion` - A display with the contents having any potion contents component.
+- `net.minecraft.world.level.storage.loot.functions.SmeltItemFunction#smelted` now can take in whether to use the input material count
+
+## Dye Component
+
+Specifying whether an item can be used as a dye material is now handled through the `DYE` data component. The component specifies a `DyeColor`, which can be set via `Item$Properties#component`:
+
+```java
+public static final Item EXAMPLE_DYE = new Item(new Item.Properties().component(
+    DataComponents.DYE, DyeColor.WHITE
+));
+```
+
+However, a dye material's behavior is not fully encompassed by the component alone. In most cases, the component is used in conjunction with some other tag or subclass to get the desired behavior.
+
+### Entities and Signs
+
+Dying sheeps and signs are handled purely through the `DyeItem` subclass, checking if the item has the `DYE` component. 
+
+Dying the collars of wolfs and cats, on the other hand, can be any item, assuming it has the `DYE` component. Additionally, the item must be in the `ItemTags#WOLF_COLLAR_DYES` or `ItemTags#CAT_COLLAR_DYES` tag, respectively.
+
+### Dye Recipes
+
+The `DyeRecipe`, formerly named `ArmorDyeRecipe`, can take any target ingredient and apply the colors of the dye ingredients to obtain the desired result with the associated `DYED_COLOR` component. Any item can be considered a dye; however, those without the `DYE` component will default to `DyeColor#WHITE`. Armor makes used of `RecipeProvider#dyedItem` to allow any item in the `ItemTags#DYES` tag to dye armor. However, bundles and shulker boxes have their color components as different items, meaning instead the default recipes are tied directly to the vanilla `DyeItem`, meaning a separate recipe will need to be generated for applying dyes to those items.
+
+The loom, firework star, and firework star face recipes on the other hand expect any dye material to have the `DYE` component. The loom has an additional requirement of the item being in the `ItemTags#LOOM_DYES` tag.
+
+- `net.minecraft.core.component.DataComponents#DYE` - Represents that an item can act as a dye for the specific color.
+- `net.minecraft.data.recipes.RecipeProvider`
+    - `dyedItem` - Creates a dyed item recipe.
+    - `dyedShulkerBoxRecipe` - Creates a dyed shulker box recipe.
+    - `dyedBundleRecipe` - Creates a dyed bundle recipe.
+- `net.minecraft.world.item`
+    - `BundleItem`
+        - `getAllBundleItemColors`, `getByColor` are removed
+    - `DyeColor#VALUES` - A list of all dye colors.
+    - `DyeItem` no longer takes in the `DyeColor`
+        - `getDyeColor`, `byColor` are removed
+- `net.minecraft.world.item.component.DyedItemColor#applyDyes` now takes in a list of `DyeColor`s instead of `DyeItem`s
+    - An overload can also take in a `DyedItemColor` component instead of the `ItemStack`
+- `net.minecraft.world.item.crafting.ArmorDyeRecipe` -> `DyeRecipe`, not one-to-one
+- `net.minecraft.world.item.crafting.display.SlotDisplay$DyedSlotDemo` - A display for demoing dying an item.
+- `net.minecraft.world.level.block`
+    - `BannerBlock#byColor` is removed
+    - `ShulkerBoxBlock#getBlockByColor`, `getColoredItemStack` are removed
 
 ## World Clocks and Time Markers
 
@@ -1742,7 +1919,9 @@ Entity textures within `assets/minecraft/textures/entity/*` have now been sorted
 
 Additionally, some animal models have been split into separate classes for the baby and adult variants. These models either directly extend an abstract model implementation (e.g., `AbstractFelineModel`) or the original model class (e.g., `PigModel`).
 
+- `net.minecraft.client.animation.definitions.BabyAxolotlAnimation` - Animations for the baby axolotl.
 - `net.minecraft.client.model.QuadrupedModel` now has a constructor that takes in a function for the `RenderType`
+- `net.minecraft.client.model.animal.axolotl.AxolotlModel` -> `AdultAxolotlModel`, `BabyAxolotlModel`
 - `net.minecraft.client.model.animal.chicken`
     - `AdultChickenModel` - Entity model for the adult chicken.
     - `BabyChickenModel` - Entity model for the baby chicken.
@@ -1753,6 +1932,7 @@ Additionally, some animal models have been split into separate classes for the b
         - `createBaseChickenModel` -> `AdultChickenModel#createBaseChickenModel`
     - `ColdChickenModel` now extends `AdultChickenModel`
 - `net.minecraft.client.model.animal.cow.BabyCowModel` - Entity model for the baby cow.
+- `net.minecraft.client.model.animal.dolphin.BabyDolphinModel` - Entity model for the baby dolphin.
 - `net.minecraft.client.model.animal.equine`
     - `AbstractEquineModel#BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyDonkeyModel`
     - `BabyDonkeyModel` - Entity model for the baby donkey.
@@ -1776,6 +1956,15 @@ Additionally, some animal models have been split into separate classes for the b
 - `net.minecraft.client.model.animal.sheep`
     - `BabySheepModel` - Entity model for the baby sheep.
     - `SheepModel#BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabySheepModel`
+- `net.minecraft.client.model.animal.squid`
+    - `BabySquidModel` - Entity model for the baby squid.
+    - `SquidModel#createTentacleName` is now protected from private
+- `net.minecraft.client.model.animal.turtle`
+    - `AdultTurtleModel` - Entity model for the adult turtle.
+    - `BabyTurtleModel` - Entity model for the baby turtle.
+    - `TurtleModel` is now abstract
+        - `BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyTurtleModel`
+        - `createBodyLayer` -> `AdultTurtleModel#createBodyLayer`, `BabyTurtleModel#createBodyLayer`
 - `net.minecraft.client.model.animal.wolf`
     - `AdultWolfModel` - Entity model for the adult wolf.
     - `BabyWolfModel` - Entity model for the baby wolf.
@@ -1798,6 +1987,7 @@ Additionally, some animal models have been split into separate classes for the b
     - `UNDEAD_HORSE_BABY_ARMOR` is removed
     - `ZOMBIE_HORSE_BABY_SADDLE` is removed
 - `net.minecraft.client.renderer.entity`
+    - `AxolotlRenderer` now takes in an `EntityModel<AxolotlRenderState>` for its generic
     - `CatRenderer` now takes in an `AbstractFelineModel` for its generic
     - `DonkeyRenderer` now takes in an `EquipmentClientInfo$LayerType` and `ModelLayerLocation` for the saddle layer and model, and splits the `DonkeyRenderer$Type` into the adult type and baby type
         - `$Type`
@@ -1809,9 +1999,25 @@ Additionally, some animal models have been split into separate classes for the b
             - `SKELETON_BABY` - A baby variant of the skeleton horse.
             - `ZOMBIE_BABY` - A baby variant of the zombie horse.
 - `net.minecraft.client.renderer.entity.layers.CatCollarLayer` now takes in an `AbstractFelineModel` for its generic
-- `net.minecraft.client.renderer.entity.state.RabbitRenderState`
-    - `hopAnimationState` - The state of the hop the entity is performing.
-    - `idleHeadTiltAnimationState` - The state of the head tilt when performing the idle animation.
+- `net.minecraft.client.renderer.entity.state`
+    - `AxolotlRenderState`
+        - `swimAnimation` - The state of swimming.
+        - `walkAnimationState` - The state of walking on the ground, not underwater.
+        - `walkUnderWaterAnimationState` - The state of walking underwater.
+        - `idleUnderWaterAnimationState` - The state of idling underwater but not on the ground.
+        - `idleUnderWaterOnGroundAnimationState` - The state of idling underwater while touching the seafloor.
+        - `idleOnGroundAnimationState` - The state of idling on the ground, not underwater.
+    - `RabbitRenderState`
+        - `hopAnimationState` - The state of the hop the entity is performing.
+        - `idleHeadTiltAnimationState` - The state of the head tilt when performing the idle animation.
+- `net.minecraft.world.entity.animal.axolotl.Axolotl`
+    - `swimAnimation` - The state of swimming.
+    - `walkAnimationState` - The state of walking on the ground, not underwater.
+    - `walkUnderWaterAnimationState` - The state of walking underwater.
+    - `idleUnderWaterAnimationState` - The state of idling underwater but not on the ground.
+    - `idleUnderWaterOnGroundAnimationState` - The state of idling underwater while touching the seafloor.
+    - `idleOnGroundAnimationState` - The state of idling on the ground, not underwater.
+    - `$AnimationState` -> `$AxolotlAnimationState`
 - `net.minecraft.world.entity.animal.chicken.ChickenVariant` now takes in a resource for the baby texture
 - `net.minecraft.world.entity.animal.cow.CowVariant` now takes in a resource for the baby texture
 - `net.minecraft.world.entity.animal.cat.CatVariant` now takes in a resource for the baby texture
@@ -1865,7 +2071,8 @@ Feature rendering has been further split into two passes: one for solid render t
     - `FeatureRenderDispatcher`
         - `renderAllFeatures` has been split into `renderSolidFeatures` and `renderTranslucentFeatures`
             - The original method now calls both of these methods, first solid then translucent 
-        - `clearSubmitNodes` - Clears the submit node storage
+        - `clearSubmitNodes` - Clears the submit node storage.
+        - `renderTranslucentParticles` - Renders collected translucent particles.
     - `FlameFeatureRenderer#render` -> `renderSolid`
     - `LeashFeatureRenderer#render` -> `renderSolid`
     - `NameTagFeatureRenderer#render` -> `renderTranslucent`
@@ -1893,70 +2100,136 @@ The tripwire render pipeline has been completely removed. Now, tripwires make us
 
 ### Activities and Brains
 
-Activities, which define how a living entity behaves during a certain phase, now are stored and passed around through `ActivityData`. This contains the activity type, the behaviors to perform along with their priorities, the conditions on when this activity activates, and the memories to erase when the activity has stopped. `Brain#provider` now takes in the list of `ActivityData` the entity performs. As such, existing entity AIs no longer create the brain or the provider, but rather just the activities, opting to pass them directly into `LivingEntity#brainProvider` like so:
+Activities, which define how a living entity behaves during a certain phase, now are stored and passed around through `ActivityData`. This contains the activity type, the behaviors to perform along with their priorities, the conditions on when this activity activates, and the memories to erase when the activity has stopped. `Brain#provider` now takes in an `$ActivitySupplier` to construct a list of `ActivityData` the entity performs. 
+
+Brains have also changed slightly. First, the `Brain` itself is not directly serializable. Instead, the brain is `$Packed` into the record, holding a map of its current memories. To get the memory types used, they are typically extracted from those that the `Sensor#requires`. Additionally, `LivingEntity#brainProvider` no longer exists, instead opting to store the provider in a static constant on the entity itself. This means that brains are now completely constructed through the `makeBrain` method, taking in the previous `$Packed` data:
 
 ```java
-// For some LivingEntity subclass
-@Override
-protected Brain.Provider<?> brainProvider() {
-    return Brain.provider(
-        // The list of memories the entity stores
-        ImmutableList.of(),
-        // The list of sensors the entity uses
-        ImmutableList.of(),
-        // The list of activities the entity performs
-        ImmutableList.of(
-            new ActivityData(...)
+// For some ExampleEntity extends LivingEntity
+// Assume extends Mob subclass
+private static final Brain.Provider<ExampleEntity> BRAIN_PROVIDER = Brain.provider(
+    // The list of sensors the entity uses.
+    ImmutableList.of(),
+    // A function that takes in the entity and returns a list of activities.
+    entity -> List.of(
+        new ActivityData(
+            // The activity type
+            Activity.CORE,
+            // A list of priority and behavior pairs
+            ImmutableList.of(Pair.of(0, new MoveToTargetSink())),
+            // A set of memory conditions for the activity to run
+            // For example, this memory value must be present
+            ImmutableSet.of(Pair.of(MemoryModuleType.ATTACK_TARGET, MemoryStatus.VALUE_PRESENT)),
+            // The set of memories to erase when the activity has stopped
+            ImmutableSet.of(MemoryModuleType.ATTACK_TARGET)
         )
-    );
+    )
+);
+
+@Override
+protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
+    // Make the brain, populating any previous memories
+    return BRAIN_PROVIDER.makeBrain(this, packedBrain);
 }
 ```
 
+- `net.minecraft.world.entity.LivingEntity`
+    - `brainProvider` is removed
+    - `makeBrain` now takes in a `Brain$Packed` instead of a `Dynamic`
 - `net.minecraft.world.entity.ai`
     - `ActivityData` - A record containing the activity being performed, the behaviors to perform during that activity, any memory conditions, and what memories to erase once stopped.
-    - `Brain` now takes in a list of `ActivityData`
+    - `Brain` is now protected, taking in a list of `ActivityData`, a `MemoryMap` instead of an immutable list of memories, and not the supplied `Codec`
+        - The public constructor no longer takes in anything
         - `provider` now has an overload that only takes in the sensor types, defaulting the memory types to an empty list
-            - Some `provider` methods also take in a list of `ActivtyData` to perform
+            - Some `provider` methods also take in the `Brain$ActivitySupplier` to perform
+        - `codec`, `serializeStart` are replaced by `pack`, `Brain$Packed`
         - `addActivityAndRemoveMemoryWhenStopped`, `addActivityWithConditions` merged into `addActivity`
             - Alternatively use `ActivityData#create`
-        - `coptWithoutBehaviors` -> `copyMemoryValuesFrom`, not one-to-one
-        - `$Provider#makeBrain` now has an overload that takes in nothing
-- `net.minecraft.world.entity.animal.allay.AllayAi#makeBrain` -> `getActivities`, not one-to-one
-- `net.minecraft.world.entity.animal.armadillo.ArmadilloAi#makeBrain`, `brainProvider` -> `getActivities`, now `protected`, not one-to-one
-- `net.minecraft.world.entity.animal.axolotl.AxolotlAi`
+        - `coptWithoutBehaviors` is removed
+        - `$ActivitySupplier` - Creates a list of activities for the entity.
+        - `$MemoryValue` is removed
+        - `$Packed` - A record containing the data to serialize the brain to disk.
+        - `$Provider#makeBrain` now takes in the entity and the `Brain$Packed` to deserialize the memories
+- `net.minecraft.world.entity.ai.behavior.VillagerGoalPackages#get*Package` no longer take in the `VillagerProfession`
+- `net.minecraft.world.entity.ai.memory.MemoryMap` - A map linking the memory type to its stored value.
+- `net.minecraft.world.entity.animal.allay.AllayAi`
+    - `SENSOR_TYPES`, `MEMORY_TYPES` -> `BRAIN_PROVIDER`, now private; not one-to-one
     - `makeBrain` -> `getActivities`, not one-to-one
-    - `initPlayDeadActivity`, now `protected`, no longer taking in anything
-    - `initFightActivity`, now `protected`, no longer taking in anything
-    - `initCoreActivity`, now `protected`, no longer taking in anything
-    - `initIdleActivity`, now `protected`, no longer taking in anything
+- `net.minecraft.world.entity.animal.armadillo.ArmadilloAi#makeBrain`, `brainProvider` -> `getActivities`, now `protected`, not one-to-one
+- `net.minecraft.world.entity.animal.axolotl`
+    - `AxolotlSENSOR_TYPES` -> `BRAIN_PROVIDER`, now private; not one-to-one
+    - `AxolotlAi`
+        - `makeBrain` -> `getActivities`, not one-to-one
+        - `initPlayDeadActivity`, now `protected`, no longer taking in anything
+        - `initFightActivity`, now `protected`, no longer taking in anything
+        - `initCoreActivity`, now `protected`, no longer taking in anything
+        - `initIdleActivity`, now `protected`, no longer taking in anything
 - `net.minecraft.world.entity.animal.camel.CamelAi#makeBrain`, `brainProvider` -> `getActivities`, now `protected`, not one-to-one
-- `net.minecraft.world.entity.animal.frog.FrogAi#makeBrain` -> `getActivities`, not one-to-one
+- `net.minecraft.world.entity.animal.frog`
+    - `Frog#SENSOR_TYPES` -> `BRAIN_PROVIDER`, now private; not one-to-one
+    - `FrogAi#makeBrain` -> `getActivities`, not one-to-one
+    - `Tadpole#SENSOR_TYPES` -> `BRAIN_PROVIDER`, now private; not one-to-one
 - `net.minecraft.world.entity.animal.frog.TadpoleAi#makeBrain` -> `getActivities`, now `public`, not one-to-one
-- `net.minecraft.world.entity.animal.goat.GoatAi#makeBrain` -> `getActivities`, not one-to-one
+- `net.minecraft.world.entity.animal.goat`
+    - `Goat#SENSOR_TYPES` -> `BRAIN_PROVIDER`, now private; not one-to-one
+    - `GoatAi#makeBrain` -> `getActivities`, not one-to-one
 - `net.minecraft.world.entity.animal.golem.CopperGolemAi#makeBrain`, `brainProvider` -> `getActivities`, now `protected`, not one-to-one
 - `net.minecraft.world.entity.animal.happyghast.HappyGhastAi#makeBrain`, `brainProvider` -> `getActivities`, now `protected`, not one-to-one
 - `net.minecraft.world.entity.animal.nautilus`
     - `NautilusAi`
-        - `SENSOR_TYPES` -> `Nautilus#SENSOR_TYPES`
-        - `MEMORY_TYPES` -> `Nautilus#MEMORY_TYPES`
+        - `SENSOR_TYPES`,`MEMORY_TYPES` -> `Nautilus#BRAIN_PROVIDER`, now private, not one-to-one
         - `makeBrain`, `brainProvider` -> `getActivities`, now `public`, not one-to-one
     - `ZombieNautilusAi`
-        - `SENSOR_TYPES` -> `ZombieNautilus#SENSOR_TYPES`
-        - `MEMORY_TYPES` -> `ZombieNautilus#MEMORY_TYPES`
+        - `SENSOR_TYPES`,`MEMORY_TYPES` -> `ZombieNautilus#BRAIN_PROVIDER`, now private, not one-to-one
         - `makeBrain`, `brainProvider` -> `getActivities`, now `public`, not one-to-one
 - `net.minecraft.world.entity.animal.sniffer.SnifferAi#makeBrain` -> `getActivities`, now `public`, not one-to-one
-- `net.minecraft.world.entity.monster.Zoglin#getActivities` - The activities the zoglin performs.
+- `net.minecraft.world.entity.monster.Zoglin`
+    - `SENSOR_TYPES` -> `BRAIN_PROVIDER`, now private, not one-to-one
+    - `getActivities` - The activities the zoglin performs.
 - `net.minecraft.world.entity.monster.breeze.BreezeAi#makeBrain` -> `getActivities`, not one-to-one
 - `net.minecraft.world.entity.monster.creaking.CreakingAi#makeBrain`, `brainProvider` -> `getActivities`, now `protected`, not one-to-one
-- `net.minecraft.world.entity.monster.hoglin.HoglinAi#makeBrain` -> `getActivities`, not one-to-one
+- `net.minecraft.world.entity.monster.hoglin`
+    - `Hoglin#SENSOR_TYPES` -> `BRAIN_PROVIDER`, now private; not one-to-one
+    - `HoglinAi#makeBrain` -> `getActivities`, not one-to-one
 - `net.minecraft.world.entity.monster.piglin`
+    - `Piglin#SENSOR_TYPES`,`MEMORY_TYPES` -> `BRAIN_PROVIDER`, now private, not one-to-one
     - `PiglinAi#makeBrain` -> `getActivities`, now `public`, not one-to-one
+    - `PiglinBrute#SENSOR_TYPES`,`MEMORY_TYPES` -> `BRAIN_PROVIDER`, now private, not one-to-one
     - `PiglinBruteAi#makeBrain` -> `getActivities`, now `public`, not one-to-one
 - `net.minecraft.world.entity.monster.warden.WardenAi#makeBrain` -> `getActivities`, not one-to-one
 
+### Blaze3d Backends
+
+`CommandEncoder`, `GpuDevice`, and `RenderPassBackend` has been split into the `*Backend` interface, which functions similarly to the previous interface, and the wrapper class, which holds the backend and provides delegate calls, performing any validation necessary. The `*Backend` interfaces now explicitly perform the operation without checking whether the operation is valid.
+
+- `com.mojang.blaze3d.opengl`
+    - `GlCommandEncoder` now implements `CommandEncoderBackend` instead of `CommandEncoder`, the class now package-private
+        - `getDevice` is removed
+    - `GlDevice` now implements `GpuDeviceBackend` instead of `GpuDevice`, the class now package-private
+    - `GlRenderPass` now implements `RenderPassBackend` instead of `RenderPass`, the class now package-private
+        - The constructor now takes in the `GlDevice`
+- `com.mojang.blaze3d.systems`
+    - `CommandEncoder` -> `CommandEncoderBackend`
+        - The original interface is now a class wrapper around the interface, delegating to the backend after performing validation checks
+     - `GpuDevice` -> `GpuDeviceBackend`
+        - The original interface is now a class wrapper around the interface, delegating to the backend after performing validation checks
+     - `RenderPass` -> `RenderPassBackend`
+        - The original interface is now a class wrapper around the interface, delegating to the backend after performing validation checks
+
 ### Specific Logic Changes
 
+- Some shaders within `assets/minecraft/shaders/core` now use `texture` over `texelFetch`.
+    - `entity.vsh`
+    - `rendertype_entity_decal.vsh`
+    - `rendertype_item_entity_translucent_cull.vsh`
+    - `rendertype_leash.vsh`
+    - `rendertype_text.vsh`
+    - `rendertype_text_background.vsh`
+    - `rendertype_text_intensity.vsh`
+    - `rendertype_translucent_moving_block.vsh`
+- Picture-In-Picture submission calls are now taking in `0xF000F0` instead of `0x000000` for the light coordinates.
 - `net.minecraft.client.multiplayer.RegistryDataCollector#collectGameRegistries` `boolean` parameter now handles only updating components from synchronized registries along with tags.
+- `net.minecraft.client.renderer.RenderPipelines#VIGNETTE` now blends the alpha with a source of zero and a destination of one.
 - `net.minecraft.world.entity.EntitySelector#CAN_BE_PICKED` can now find entities in spectator mode, assuming `Entity#isPickable` is true.
 - `net.minecraft.world.entity.ai.sensing.NearestVisibleLivingEntitySensor#requires` is no longer implemented by default.
 
@@ -2016,6 +2289,8 @@ protected Brain.Provider<?> brainProvider() {
     - `trades/snow_special` is removed
     - `trades/swamp_special` is removed
     - `trades/taiga_special` is removed
+- `minecraft:entity_type`
+    - `cannot_be_age_locked`
 - `minecraft:fluid`
     - `supports_sugar_cane_adjacently`
     - `supports_lily_pad`
@@ -2023,6 +2298,13 @@ protected Brain.Provider<?> brainProvider() {
     - `bubble_column_can_occupy`
 - `minecraft:item`
     - `metal_nuggets`
+    - `dyeable` is removed, split between:
+        - `dyes`
+        - `loom_dyes`
+        - `loom_patterns`
+        - `cauldron_can_remove_due`
+        - `cat_collar_dyes`
+        - `wolf_collar_dyes`
 - `minecraft:potion`
     - `tradable`
 
@@ -2043,7 +2325,11 @@ protected Brain.Provider<?> brainProvider() {
         - `presentFrame` - Swaps the front and back buffers of the window to display the present frame.
         - `isZZeroToOne` - Whether the 0 to 1 Z range is used instead of -1 to 1.
     - `WindowAndDevice` - A record containing the window handle and the `GpuDevice`
-- `net.minecraft.advancements.criterion.FoodPredicate` - A criterion predicate that can check the food level and saturation.
+- `net.minecraft.advancements.criterion`
+    - `FoodPredicate` - A criterion predicate that can check the food level and saturation.
+    - `MinMaxBounds`
+        - `validateContainedInRange` - Returns a function which validates the target range and returns as a data result.
+        - `$Bounds#asRange` - Converts the bounds into a `Range`.
 - `net.minecraft.client`
     - `Minecraft#sendLowDiskSpaceWarning` - Sends a system toast for low disk space.
     - `Options#keyDebugLightmapTexture` - A key mapping to show the lightmap texture.
@@ -2065,10 +2351,15 @@ protected Brain.Provider<?> brainProvider() {
         - `component` - The component of a tooltip to display.
         - `style` - The identifier used to compute the tooltip background and frame.
 - `net.minecraft.client.gui.components.debug`
+    - `DebugEntryLookingAt#getHitResult` - Gets the hit result of the camera entity.
     - `DebugEntryLookingAtEntityTags` - A debug entry for displaying an entity's tags.
     - `DebugScreenEntries#LOOKING_AT_ENTITY_TAGS` - The identifier for the entity tags debug entry.
 - `net.minecraft.client.gui.navigation.FocusNavigationEvent$ArrowNavigation#with` - Sets the previous focus of the navigation.
-- `net.minecraft.client.gui.screens.options.WorldOptionsScreen` - A screen containing the options for the current world the player is in.
+- `net.minecraft.client.gui.screens.options
+    - `DifficultyButtons` - A class containing the layout element to create the difficulty buttons.
+    - `HasGamemasterPermissionReaction` - An interface marking an option screen as able to respond to changing gamemaster permissions.
+    - `OptionsScreen#getLastScreen` - Returns the previous screen that navigated to this one.
+    - `WorldOptionsScreen` - A screen containing the options for the current world the player is in.
 - `net.minecraft.client.multiplayer.MultiPlayerGameMode#spectate` - Sends a packet to the server that the player will spectate the given entity.
 - `net.minecraft.client.renderer`
     - `LightmapRenderStateExtractor` - Extracts the render state for the lightmap.
@@ -2085,11 +2376,18 @@ protected Brain.Provider<?> brainProvider() {
 - `net.minecraft.core.dispenser.SpawnEggItemBehavior` - The dispenser behavior for spawn eggs.
 - `net.minecraft.core.registries.ConcurrentHolderGetter` - A getter that reads references from a local cache, synchronizing to the original when necessary.
 - `net.minecraft.data`
+    - `BlockFamilies`
+        - `END_STONE` - A family for end stone variants.
+        - `getFamily` - Gets the family for the base block, when present.
     - `BlockFamily`
         - `$Builder#tiles`, `$Variant#TILES` - The block that acts as the tiles variant for some base block.
         - `$Builder#bricks`, `$Variant#BRICKS` - The block that acts as the bricks variant for some base block.
     - `DataGenerator$Uncached` - A data generator which does not cache any information about the files generated.
-- `net.minecraft.data.recipes.RecipeProvider#bricksBuilder`, `tilesBuilder` - Builders for the bricks and tiles block variants.
+- `net.minecraft.data.recipes.RecipeProvider`
+    - `bricksBuilder`, `tilesBuilder` - Builders for the bricks and tiles block variants.
+    - `generateCraftingRecipe`, `generateStonecutterRecipe` - Generates the appropriate recipes for the given block family.
+    - `getBaseBlock` -> `getBaseBlockForCrafting`
+    - `bredAnimal` - Unlocks the recipe if the player has bred two animals together.
 - `net.minecraft.gametest.framework`
     - `GameTestEvent#createWithMinimumDelay` - Creates a test event with some minimum delay.
     - `GameTestHelper`
@@ -2123,11 +2421,16 @@ protected Brain.Provider<?> brainProvider() {
     - `ProblemReporter$MapEntryPathElement` - A path element for some entry key in a map.
 - `net.minecraft.world.InteractionHand#STREAM_CODEC` - The network codec for the interaction hand.
 - `net.minecraft.world.entity`
+    - `AgeableMob`
+        - `AGE_LOCK_COOLDOWN_TICKS` - The number of ticks to wait before the entity can be age locked/unlocked.
+        - `ageLockParticleTimer` - The time for displaying particles while age locking/unlocking.
     - `Entity$Flags` - An annotation that marks a particular value as a bitset of flags for an entity.
     - `LivingEntity#getLiquidCollisionShape` - Return's the bounds of the entity when attempting to collide with a liquid.
     - `Mob`
         - `asValidTarget` - Checks whether an entity is a valid target (can attack) for this entity.
         - `getTargetUnchecked` - Gets the raw target without checking if its valid.
+        - `canAgeUp` - If the entity can grow up into a more mature variant.
+        - `setAgeLocked`, `isAgeLocked` - Whether the entity cannot grow up.
     - `NeutralMob#getTargetUnchecked` - Gets the raw target without checking if its valid.
     - `TamableAnimal#feed` - The player gives the stack as food, healing them either based on the stored component or some default value.
 - `net.minecraft.world.entity.ai.behavior`
@@ -2145,12 +2448,12 @@ protected Brain.Provider<?> brainProvider() {
 - `net.minecraft.world.inventory.SlotRanges`
     - `MOB_INVENTORY_SLOT_OFFSET` - The start index of a mob's inventory.
     - `MOB_INVENTORY_SIZE` - The size of a mob's inventory.
-- `net.minecraft.world.item.DyeColor#VALUES` - A list of all dye colors.
 - `net.minecraft.world.item.component.BundleContents#BEEHIVE_WEIGHT` - The weight of a beehive.
 - `net.minecraft.world.item.enchantment.EnchantmentTarget#NON_DAMAGE_CODEC` - A codec that only allows the attacker and victim enchantment targets.
 - `net.minecraft.world.level.dimension.DimensionDefaults`
     - `BLOCK_LIGHT_TINT` - The default tint for the block light.
     - `NIGHT_VISION_COLOR` - The default color when in night vision.
+    - `TURTLE_EGG_HATCH_CHANCE` - The chance of a turtle egg hatching on a random tick.
 - `net.minecraft.world.level.material`
     - `FluidState#isFull` - If the fluid amount is eight.
     - `LavaFluid#LIGHT_EMISSION` - The amount of light the lava fluid emits.
@@ -2166,7 +2469,9 @@ protected Brain.Provider<?> brainProvider() {
 - `com.mojang.blaze3d.opengl`
     - `GlDevice` now takes in a `GpuDebugOptions` containing the log level, whether to use synchronous logs, and whether to use debug labels instead of those parameters being passed in directly
     - `GlProgram#BUILT_IN_UNIFORMS`, `INVALID_PROGRAM` are now final
-- `com.mojang.blaze3d.platform.Window` now takes in a list of `GpuBackend`s, the default `ShaderSource`, and the `GpuDebugOptions` instead of the `ScreenManager`
+- `com.mojang.blaze3d.platform`
+    - `ClientShutdownWatchdog` now takes in the `Minecraft` instance
+    - `Window` now takes in a list of `GpuBackend`s, the default `ShaderSource`, and the `GpuDebugOptions` instead of the `ScreenManager`
 - `com.mojang.blaze3d.systems.RenderSystem`
     - `pollEvents` is now public
     - `flipFrame` no longer takes in the `Window`
@@ -2188,6 +2493,7 @@ protected Brain.Provider<?> brainProvider() {
         - `scrollBarY` is now public
         - `scrollRate` is now longer abstract
     - `AbstractTextAreaWidget` now takes in an `AbstractScrollArea$ScrollbarSettings`
+    - `PopupScreen$Builder#setMessage` -> `addMessage`, not one-to-one
     - `ScrollableLayout$Container` now takes in an `AbstractScrollArea$ScrollbarSettings`
     - `Tooltip#create` now has an overload that takes in an optional `TooltipComponent` and style `Identifier`
 - `net.minecraft.client.gui.components.debug`
@@ -2201,10 +2507,16 @@ protected Brain.Provider<?> brainProvider() {
 - `net.minecraft.client.gui.components.tabs.TabNavigationBar#setWidth` -> `updateWidth`, not one-to-one
 - `net.minecraft.client.gui.navigation.FocusNavigationEvent$ArrowNavigation` now takes in a nullable `ScreenRectangle` for the previous focus
 - `net.minecraft.client.gui.render.state.GuiItemRenderState` no longer takes in the `String` name
-- `net.minecraft.client.gui.screens.ConfirmScreen#layout` is now final
+- `net.minecraft.client.gui.screens`
+    - `ConfirmScreen#layout` is now final
+    - `DemoIntroScreen` replaced by `ClientPacketListener#openDemoIntroScreen`, now private
 - `net.minecraft.client.gui.screens.inventory.AbstractMountInventoryScreen#mount` is now final
-- `net.minecraft.client.gui.screens.options.OptionsScreen` now takes in a `boolean` for if the player is currently in a world
-    - `createDifficultyButton` now handles within `WorldOptionsScreen#createDifficultyButtons`, not one-to-one
+- `net.minecraft.client.gui.screens.options`
+    - `OptionsScreen` now implements `HasGamemasterPermissionReaction`
+        - The constructor now takes in a `boolean` for if the player is currently in a world
+        - `createDifficultyButton` now handles within `WorldOptionsScreen#createDifficultyButtons`, not one-to-one
+    - `WorldOptionsScreen` now implements `HasGamemasterPermissionReaction`
+        - `createDifficultyButtons` -> `DifficultyButtons#create`, now public
 - `net.minecraft.client.gui.screens.worldselection.EditGameRulesScreen` -> `AbstractGameRulesScreen`
     - Implementations in `.screens.options.InWorldGameRulesScreen` and `WorldCreationGameRulesScreen`
 - `net.minecraft.client.multiplayer.MultiPlayerGameMode#handleInventoryMouseClick` now takes in a `ContainerInput` instead of a `ClickType`
@@ -2236,6 +2548,9 @@ protected Brain.Provider<?> brainProvider() {
 - `net.minecraft.client.resources.sounds.AbstractSoundInstance#random` is now final
 - `net.minecraft.core.WritableRegistry#bindTag` -> `bindTags`, now taking in a map of keys to holder lists instead of one mapping
 - `net.minecraft.data`
+    - `BlockFamily`
+        - `shouldGenerateRecipe` -> `shouldGenerateCraftingRecipe`, `shouldGenerateStonecutterRecipe`
+        - `$Builder#dontGenerateRecipe` -> `dontGenerateCraftingRecipe`, `generateStonecutterRecipe`
     - `DataGenerator` is now abstract
         - The constructor now only takes in the `Path` output, not the `WorldVersion` or whether to always generate
             - The original implementation can be founded in `DataGenerator$Cached`
@@ -2246,6 +2561,9 @@ protected Brain.Provider<?> brainProvider() {
     - `explosionResistant` is now private
     - `enabledFeatures` is now private
     - `map` is now private
+- `net.minecraft.data.recipes`
+    - `RecipeProvider$FamilyRecipeProvider` -> `$FamilyCraftingRecipeProvider`, `$FamilyStonecutterRecipeProvider`
+    - `SingleItemRecipeBuilder#stonecutting` moved to a parameter on the `BlockFamily`
 - `net.minecraft.gametest.framework`
     - `GameTestHelper#assertBlockPresent` now has an overload that only takes in the block to check for
     - `GameTestServer#create` now takes in an `int` for the number of times to run all matching tests
@@ -2329,6 +2647,7 @@ protected Brain.Provider<?> brainProvider() {
     - `EnderpearlItem#PROJECTILE_SHOOT_POWER` is now final
     - `Items#register*` methods are now `private` from `public`
     - `ItemUtils#onContainerDestroyed` now takes in a `Stream` of `ItemStack`s instead of an `Iterable`
+    - `SignApplicator#tryApplyToSign`, `canApplyToSign` now take in the `ItemStack` being used
     - `SnowballItem#PROJECTILE_SHOOT_POWER` is now final
     - `ThrowablePotionItem#PROJECTILE_SHOOT_POWER` is now final
     - `WindChargeItem#PROJECTILE_SHOOT_POWER` is now final
@@ -2342,6 +2661,7 @@ protected Brain.Provider<?> brainProvider() {
     - `BundleContents`
         - `weight` now returns a `DataResult`-wrapped `Fraction` instead of the raw object
         - `getSelectedItem` -> `getSelectedItemIndex`
+    - `WrittenBookContent#tryCraftCopy` -> `craftCopy`
 - `net.minecraft.world.item.enchantment`
     - `ConditionalEffect#codec` no longer takes in the `ContextKeySet`
     - `Enchantment#doLunge` -> `doPostPiercingAttack`
@@ -2391,6 +2711,7 @@ protected Brain.Provider<?> brainProvider() {
 - `net.minecraft.client.renderer.rendertype.RenderTypes#weather`
 - `net.minecraft.data.loot.BlockLootSubProvider(Set, FeatureFlagSet, Map, HolderLookup$Provider)`
 - `net.minecraft.server.packs.AbstractPackResources#getMetadataFromStream`
+- `net.minecraft.util.LightCoordsUtil#UI_FULL_BRIGHT`
 - `net.minecraft.world`
     - `ContainerListener`
     - `SimpleContainer#addListener`, `removeListener`
@@ -2401,8 +2722,10 @@ protected Brain.Provider<?> brainProvider() {
 - `net.minecraft.world.item`
     - `BundleItem#hasSelectedItem`
     - `Item#getName()`
-- `net.minecraft.world.item.component.BundleContents`
-    - `getItemUnsafe`
-    - `hasSelectedItem`
+- `net.minecraft.world.item.component`
+    - `BundleContents`
+        - `getItemUnsafe`
+        - `hasSelectedItem`
+    - `WrittenBookContent#MAX_CRAFTABLE_GENERATION`
 - `net.minecraft.world.level.block.LiquidBlock#SHAPE_STABLE`
 - `net.minecraft.world.level.storage.loot.functions.SetOminousBottleAmplifierFunction#amplifier`
