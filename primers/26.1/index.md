@@ -1753,10 +1753,12 @@ boolean timeSet = clockManager.skipToTimeMarker(clock, EXAMPLE_MARKER);
     - `ServerClockManager` - Manages the ticking of the world clocks on the server side.
     - `WorldClock` - An empty record that represents a key for timing some location.
     - `WorldClocks` - All vanilla world clocks.
-- `net.minecraft.world.level.Level`
-    - `getDayTime` -> `getOverworldClockTime`, not one-to-one
-    - `clockManager` - The clock manager.
-    - `getDefaultClockTime` - Gets the clock time for the current dimension.
+- `net.minecraft.world.level`
+    - `Level`
+        - `getDayTime` -> `getOverworldClockTime`, not one-to-one
+        - `clockManager` - The clock manager.
+        - `getDefaultClockTime` - Gets the clock time for the current dimension.
+    - `LevelReader#getEffectiveSkyBrightness` - Gets the sky brightness with the current darkening factor.
 - `net.minecraft.world.level.dimension.DimensionType` now takes in a default, holder-wrapped `WorldClock`
 - `net.minecraft.world.level.storage`
     - `LevelData#getDayTime` is removed
@@ -1779,6 +1781,151 @@ boolean timeSet = clockManager.skipToTimeMarker(clock, EXAMPLE_MARKER);
         - `createTrackSampler` now takes in a `ClockManager` instead of a `LongSupplier` for the day time getter
         - `$Builder#addTimeMarker` - Adds a time markers at the given tick, along with whether the marker can be suggested in commands.
     - `Timelines#DAY` -> `OVERWORLD_DAY`
+
+## Splitting the Primary Level Data into Saved Data
+
+Some of the `WorldData` settings have been moved into `SavedData`, allowing for levels / dimensions to have more customizability. This addition also brings along some changes to how `SavedData` is referenced and queried.
+
+### Saved Data Changes
+
+`SavedDataType` now identifies some `SavedData` using an `Identifier`, which is resolved against the data folder. This change allows subdirectories within the data folder, as the data storage will first create all missing parent directories before attempting to write the file.
+
+```java
+public class ExampleData extends SavedData {
+
+    public static final SavedDataType<ExampleData> TYPE = new SavedDataType<>(
+        // The identifier for the saved data to resolve against
+        // Data can be found in:
+        // `<world_folder>/dimensions/<dimension_namespace>/<dimension_path>/data/examplemod/example/data.dat`
+        Identifier.fromNamespaceAndPath("examplemod", "example/data"),
+        // The constructor to create a new saved data
+        ExampleData::new,
+        // The codec to serialize the new saved data
+        MapCodec.unitCodec(ExampleData::new),
+        // The data fixer type
+        // Either some patched enum value or null depending on mod loader implementation.
+        null
+    );
+}
+```
+
+The `SavedData` can then be queried through the `SavedDataStorage`, renamed from `DimensionDataStorage`. This was renamed because the `MinecraftServer` instance now has its own data storage for global instances in addition to the levels. This means that any global saved data should be stored on the server instance rather than the overworld.
+
+```java
+// Given a MinecraftServer server
+ExampleData data = server.getDataStorage().computeIfAbsent(ExampleData.TYPE);
+
+
+// Given a ServerLevel level
+ExampleData data = level.getDataStorage().computeIfAbsent(ExampleData.TYPE);
+```
+
+### Additional Saved Data
+
+The following information is now stored as saved data:
+
+- Custom boss events
+- Ender dragon fight
+- Game rules
+- Wandering trader spawning
+- Weather
+- World generation settings
+
+Of these, only the ender dragon fight is on a per-level / dimension basis. The rest are still stored and accessed through the server data storage. Custom boss events, on the other hand, remain unique as it is up to the implementer to determine what players are part of the event.
+
+- `net.minecraft.client.Minecraft#doWorldLoad` now takes in the optional `GameRules`
+- `net.minecraft.client.gui.screens.worldselection`
+    - `CreateWorldCallback` now takes in the `LevelDataAndDimensions$WorldDataAndGenSettings` and the optional `GameRules` instead of the `PrimaryLevelData`
+    - `EditGameRulesScreen` -> `AbstractGameRulesScreen`
+        - Implementations in `.screens.options.InWorldGameRulesScreen` and `WorldCreationGameRulesScreen`
+    - `WorldOpenFlows`
+        - `createLevelFromExistingSettings` now takes in the `LevelDataAndDimensions$WorldDataAndGenSettings` and the optional `GameRules` instead of the `WorldData`
+        - `loadWorldStem` now takes in the `LevelStorageSource$LevelStorageAccess`
+- `net.minecraft.client.server.IntegratedServer` now takes in the optional `GameRules`
+- `net.minecraft.server`
+    - `MinecraftServer` now takes in the optional `GameRules`
+        - `getGlobalGameRules` - Gets the game rules for the overworld dimension.
+        - `getWorldGenSettings` - Gets the generation settings for the world.
+        - `getWeatherData` - Gets the weather data for the server.
+        - `getDataStorage` - Gets the saved data storage for the server.
+        - `getGameRules` - Gets the game rules for the server.
+    - `WorldStem` now takes in the `LevelDataAndDimensions$WorldDataAndGenSettings` instead of the `WorldData`
+- `net.minecraft.server.bossevents`
+    - `CustomBossEvent` now takes in a `UUID` for the identifier along with a `Runnable` for the callback
+        - `getTextId` -> `customId`
+        - `addOfflinePlayer` is removed
+        - `getValue` -> `value`
+        - `getMax` -> `max`
+        - `load` now takes in the `UUID` identifier along with a `Runnable` for the callback
+    - `CustomBossEvents` now extends `SavedData`
+        - `create` now takes in a `RandomSource`
+        - `save`, `load` -> `TYPE`, not one-to-one
+- `net.minecraft.server.dedicated.DedicatedServer` now takes in the optional `GameRules`
+- `net.minecraft.server.level`
+    - `ChunkMap#getChunkDataFixContextTag` now takes in an optional `Identifier` instead of a `ResourceKey`
+    - `ServerBossEvent` now takes in an `UUID` for the id
+        - `setDirty` - Marks the boss event as dirty for saving.
+    - `ServerLevel` no longer takes in the `RandomSequences`
+        - `setWeatherParameters` -> `MinecraftServer#setWeatherParameters`
+        - `getWeatherData` - Gets the weather data for the server.
+        - `getRandomSequence` -> `MinecraftServer#getRandomSequence`
+        - `getRandomSequences` -> `MinecraftServer#getRandomSequences`
+- `net.minecraft.world.entity.npc.wanderingtrader.WanderingTraderSpawner` now takes in the `SavedDataStorage` instead of the `ServerLevelData`
+    - `MIN_SPAWN_CHANCE` is now `public` from `private`
+- `net.minecraft.world.entity.raid.Raids#TYPE_END`, `getType` are removed
+- `net.minecraft.world.level`
+    - `Level#prepareWeather` is removed
+    - `LevelSettings` is now a record
+        - The constructor now takes in the `$DifficultySettings` instead of just the `Difficulty`
+        - `withDifficultyLock` - The settings with whether the difficulty is locked.
+        - `copy` - Copies the settings.
+        - `$DifficultySettings` - The settings for the difficulty.
+- `net.minecraft.world.level.dimension.DimensionType` now takes in a `boolean` for whether the dimension can have an ender dragon fight
+- `net.minecraft.world.level.dimension.end`
+    - `DragonRespawnAnimation` -> `DragonRespawnStage`, not one-to-one
+    - `EndDragonFight` -> `EnderDragonFight`, not one-to-one
+- `net.minecraft.world.level.gamerules.GameRuleMap` now extends `SavedData`
+    - `TYPE` - The saved data type.
+    - `reset` - Resets the rule to its default value.
+- `net.minecraft.world.level.levelgen.WorldGenSettings` is now a final class instead of a record, extending `SavedData`
+    - `encode`, `decode` replaced with `TYPE`
+    - `of` - Constructs the generation settings.
+- `net.minecraft.world.level.saveddata`
+    - `SavedDataType` now takes in an `Identifier` instead of a string for the id
+    - `WanderingTraderData` - The saved data for the wandering trader.
+    - `WeatherData` - The saved data for the weather.
+- `net.minecraft.world.level.storage`
+    - `DimensionDataStorage` -> `SavedDataStorage`, not one-to-one
+    - `LevelData#isThundering`, `isRaining`, `setRaining` now in `WeatherData`
+    - `LevelDataAndDimensions` now takes in a `$WorldDataAndGenSettings` instead of the `WorldData`
+        - `$WorldDataAndGenSettings` - Holds the world data and generation settings.
+    - `LevelResource` is now a record
+    - `PrimaryLevelData` fields have been moved to their respective saved data classes
+        - `PLAYER` -> `OLD_PLAYER`
+        - `SINGLEPLAYER_UUID` - A string that represents the UUID of the player in a singleplayer world.
+        - `WORLD_GEN_SETTINGS` -> `OLD_WORLD_GEN_SETTINGS`
+        - `writeLastPlayed` - Writes the last played player.
+        - `writeVersionTag` - Writes the data version tag.
+    - `ServerLevelData`
+        - `setThundering`, `getRainTime`, `setRainTime`, `setThunderTime`, `getThunderTime`, `getClearWeatherTime`, `setClearWeatherTime` moved to `WeatherData`
+        - `getWanderingTraderSpawnDelay`, `setWanderingTraderSpawnDelay`, `getWanderingTraderSpawnChance`, `setWanderingTraderSpawnChance`, `getWanderingTraderId`, `setWanderingTraderId` moved to `WanderingTraderData`
+        - `getLegacyWorldBorderSettings`, `setLegacyWorldBorderSettings` replaced by `WorldBorder`
+        - `getScheduledEvents` -> `MinecraftServer#getScheduledEvents`
+        - `getGameRules` replaced by `GameRuleMap`
+    - `WorldData`
+        - `getCustomBossEvents`, `setCustomBossEvents` replaced by `CustomBossEvents`
+        - `createTag` no longer takes in the `RegistryAccess`
+        - `getGameRules` replaced by `GameRuleMap`
+        - `getLoadedPlayerTag` -> `getSinglePlayerUUID`, not one-to-one
+        - `endDragonFightData`, `setEndDragonFightData` replaced by `EnderDragonFight`
+        - `worldGenOptions` replaced by `WorldGenSettings` saved data
+- `net.minecraft.world.level.timers.TimerQueue` now extends `SavedData`
+    - The constructor now takes in the `$Packed` events instead of the `TimerCallbacks` and `Stream` of event data
+    - `store` replaced by `CODEC`, `TYPE`, `codec`
+    - `loadEvent`, `storeEvent` replaced by `$Event$Packed#codec`
+    - `$Event` is now a record
+        - `$Packed` - The packed event data.
+    - `$Packed` - The packed time queue.
 
 ## Minor Migrations
 
@@ -1919,9 +2066,40 @@ Entity textures within `assets/minecraft/textures/entity/*` have now been sorted
 
 Additionally, some animal models have been split into separate classes for the baby and adult variants. These models either directly extend an abstract model implementation (e.g., `AbstractFelineModel`) or the original model class (e.g., `PigModel`).
 
-- `net.minecraft.client.animation.definitions.BabyAxolotlAnimation` - Animations for the baby axolotl.
+- `net.minecraft.client.animation.definitions`
+    - `BabyArmadilloAnimation` - Animations for the baby armadillo.
+    - `BabyAxolotlAnimation` - Animations for the baby axolotl.
+    - `BabyRabbitAnimation` - Animations for the baby rabbit.
+    - `CamelBabyAnimation` - Animations for the baby camel.
+    - `FoxBabyAnimation` - Animations for the baby fox.
+    - `RabbitAnimation` - Animations for the rabbit.
 - `net.minecraft.client.model.QuadrupedModel` now has a constructor that takes in a function for the `RenderType`
+- `net.minecraft.client.model.animal.armadillo`
+    - `AdultArmadilloModel` - Entity model for the adult armadillo.
+    - `ArmadilloModel` is now abstract
+        - The constructor now takes in the definitions for the walk, roll out/up, and peek animations
+        - `BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyArmadilloModel`
+        - `HEAD_CUBE`, `RIGHT_EAR_CUBE`, `LEFT_EAR_CUBE` are now `protected` instead of `private`
+        - `createBodyLayer` -> `AdultArmadilloModel#createBodyLayer`, `BabyArmadilloModel#createBodyLayer`
+    - `BabyArmadilloModel` - Entity model for the baby armadillo.
 - `net.minecraft.client.model.animal.axolotl.AxolotlModel` -> `AdultAxolotlModel`, `BabyAxolotlModel`
+- `net.minecraft.client.model.animal.bee`
+    - `AdultBeeModel` - Entity model for the adult bee.
+    - `BabyBeeModel` - Entity model for the baby bee.
+    - `BeeModel` is now abstract
+        - `BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyBeeModel`
+        - `BONE`, `STINGER`, `FRONT_LEGS`, `MIDDLE_LEGS`, `BACK_LEGS` are now `protected` instead of `private`
+        - `bone` is now `protected` instead of `private`
+        - `createBodyLayer` -> `AdultBeeModel#createBodyLayer`, `BabyBeeModel#createBodyLayer`
+        - `bobUpAndDown` - Bobs the bee up and down at the desired speed, depending on its current age.
+- `net.minecraft.client.model.animal.camel`
+    - `AdultCamelModel` - Entity model for the adult camel.
+    - `BabyCamelModel` - Entity model for the baby camel.
+    - `CamelModel` is now abstract
+        - The constructor now takes in the definitions for the walk, sit with/without pose, standup, idle, and dash animations
+        - `BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyCamelModel`
+        - `createBodyLayer` -> `AdultCamelModel#createBodyLayer`, `BabyCamelModel#createBodyLayer`
+    - `CameSaddleModel` now extends `AdultCamelModel` instead of `CamelModel`
 - `net.minecraft.client.model.animal.chicken`
     - `AdultChickenModel` - Entity model for the adult chicken.
     - `BabyChickenModel` - Entity model for the baby chicken.
@@ -1944,7 +2122,24 @@ Additionally, some animal models have been split into separate classes for the b
     - `FelineModel` -> `AbstractFelineModel`, not one-to-one
         - Implementations in `AdultFelineModel` and `BabyFelineModel`
     - `OcelotModel` -> `AdultOcelotModel`, `BabyOcelotModel`; not one-to-one
+- `net.minecraft.client.model.animal.fox`
+    - `AdultFoxModel` - Entity model for the adult fox.
+    - `BabyFoxModel` - Entity model for the baby fox.
+    - `FoxModel` is now abstract
+        - `BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyFoxModel`
+        - `body`, `rightHindLeg`, `leftHindLeg`, `rightFontLeg`, `leftFrontLeg`, `tail` are now `protected` instead of `private`
+        - `createBodyLayer` -> `AdultFoxModel#createBodyLayer`, `BabyFoxModel#createBodyLayer`
+        - `set*Pose` - Methods for setting the current pose of the fox.
+- `net.minecraft.client.model.animal.goat`
+    - `BabyGoatModel` - Entity model for the baby goat.
+    - `GoatModel#BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyGoatModel`
+- `net.minecraft.client.model.animal.llama`
+    - `BabyLlamaModel` - Entity model for the baby llama.
+    - `LlamaModel#createBodyLayer` no longer takes in the `boolean` for if the entity is a baby
 - `net.minecraft.client.model.animal.pig.BabyPigModel` - Entity model for the baby pig.
+- `net.minecraft.client.model.animal.polarbear`
+    - `BabyPolarBearModel` - Entity model for the baby polar bear.
+    - `PolarBearModel#BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyPolarBearModel`
 - `net.minecraft.client.model.animal.rabbit`
     - `AdultRabbitModel` - Entity model for the adult rabbit.
     - `BabyRabbitModel` - Entity model for the baby rabbit.
@@ -1988,6 +2183,8 @@ Additionally, some animal models have been split into separate classes for the b
     - `ZOMBIE_HORSE_BABY_SADDLE` is removed
 - `net.minecraft.client.renderer.entity`
     - `AxolotlRenderer` now takes in an `EntityModel<AxolotlRenderState>` for its generic
+    - `CamelHuskRenderer` now extends `MobRenderer` instead of `CamelRenderer`
+    - `CamelRenderer#createCamelSaddleLayer` is now `static`
     - `CatRenderer` now takes in an `AbstractFelineModel` for its generic
     - `DonkeyRenderer` now takes in an `EquipmentClientInfo$LayerType` and `ModelLayerLocation` for the saddle layer and model, and splits the `DonkeyRenderer$Type` into the adult type and baby type
         - `$Type`
@@ -2007,9 +2204,14 @@ Additionally, some animal models have been split into separate classes for the b
         - `idleUnderWaterAnimationState` - The state of idling underwater but not on the ground.
         - `idleUnderWaterOnGroundAnimationState` - The state of idling underwater while touching the seafloor.
         - `idleOnGroundAnimationState` - The state of idling on the ground, not underwater.
+        - `playDeadAnimationState` - The state of playing dead.
     - `RabbitRenderState`
         - `hopAnimationState` - The state of the hop the entity is performing.
         - `idleHeadTiltAnimationState` - The state of the head tilt when performing the idle animation.
+- `net.minecraft.world.entity.AgeableMob`
+    - `canUseGoldenDandelion` - Whether a golden dandelion can be used to agelock an entity.
+    - `setAgeLocked` - Sets the entity as agelocked.
+    - `makeAgeLockedParticle` - Creates the particles when agelocking an entity.
 - `net.minecraft.world.entity.animal.axolotl.Axolotl`
     - `swimAnimation` - The state of swimming.
     - `walkAnimationState` - The state of walking on the ground, not underwater.
@@ -2017,12 +2219,17 @@ Additionally, some animal models have been split into separate classes for the b
     - `idleUnderWaterAnimationState` - The state of idling underwater but not on the ground.
     - `idleUnderWaterOnGroundAnimationState` - The state of idling underwater while touching the seafloor.
     - `idleOnGroundAnimationState` - The state of idling on the ground, not underwater.
+    - `playDeadAnimationState` - The state of playing dead.
     - `$AnimationState` -> `$AxolotlAnimationState`
 - `net.minecraft.world.entity.animal.chicken.ChickenVariant` now takes in a resource for the baby texture
 - `net.minecraft.world.entity.animal.cow.CowVariant` now takes in a resource for the baby texture
 - `net.minecraft.world.entity.animal.cat.CatVariant` now takes in a resource for the baby texture
     - `CatVariant#assetInfo` - Gets the entity texture based on whether the entity is a baby.
 - `net.minecraft.world.entity.animal.equine.AbstractHorse#BABY_SCALE` - The scale of the baby size compared to an adult.
+- `net.minecraft.world.entity.animal.frog.Tadpole`
+    - `ageLockParticleTimer` - A timer for how long the particles for the agelocked entity should spawn.
+    - `setAgeLocked`, `isAgeLocked` - Handles agelocking for the tadpole.
+- `net.minecraft.world.entity.animal.goat.Goat#addHorns`, `removeHorns` are removed
 - `net.minecraft.world.entity.animal.pig.PigVariant` now takes in a resource for the baby texture
 - `net.minecraft.world.entity.animal.rabbit.Rabbit`
     - `hopAnimationState` - The state of the hop the entity is performing.
@@ -2032,6 +2239,7 @@ Additionally, some animal models have been split into separate classes for the b
         - The class itself now holds two sound sets for the adult wolf and baby wolf.
     - `WolfSoundVariants$SoundSet#getSoundEventSuffix` -> `getSoundEventIdentifier`
 - `net.minecraft.world.entity.animal.wolf.WolfVariant` now takes in an asset info for the baby variant
+- `net.minecraft.world.item.equipment.EquipmentAssets#TRADER_LLAMA_BABY` - Equipment asset for baby trader llamas.
 
 ### The Removal of interactAt
 
@@ -2138,20 +2346,27 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
     - `makeBrain` now takes in a `Brain$Packed` instead of a `Dynamic`
 - `net.minecraft.world.entity.ai`
     - `ActivityData` - A record containing the activity being performed, the behaviors to perform during that activity, any memory conditions, and what memories to erase once stopped.
-    - `Brain` is now protected, taking in a list of `ActivityData`, a `MemoryMap` instead of an immutable list of memories, and not the supplied `Codec`
+    - `Brain` is now protected, taking in a list of `ActivityData`, a `MemoryMap` instead of an immutable list of memories, a `RandomSource`, and not the supplied `Codec`
         - The public constructor no longer takes in anything
         - `provider` now has an overload that only takes in the sensor types, defaulting the memory types to an empty list
             - Some `provider` methods also take in the `Brain$ActivitySupplier` to perform
         - `codec`, `serializeStart` are replaced by `pack`, `Brain$Packed`
         - `addActivityAndRemoveMemoryWhenStopped`, `addActivityWithConditions` merged into `addActivity`
             - Alternatively use `ActivityData#create`
-        - `coptWithoutBehaviors` is removed
+        - `copyWithoutBehaviors` is removed
+        - `getMemories` replaced by `forEach`
         - `$ActivitySupplier` - Creates a list of activities for the entity.
         - `$MemoryValue` is removed
         - `$Packed` - A record containing the data to serialize the brain to disk.
         - `$Provider#makeBrain` now takes in the entity and the `Brain$Packed` to deserialize the memories
+        - `$Visitor` - Visits the memories within a brain, whether defined but empty, present, or present with some timer.
 - `net.minecraft.world.entity.ai.behavior.VillagerGoalPackages#get*Package` no longer take in the `VillagerProfession`
-- `net.minecraft.world.entity.ai.memory.MemoryMap` - A map linking the memory type to its stored value.
+- `net.minecraft.world.entity.ai.memory`
+    - `ExpirableValue` -> `MemorySlot`, not one-to-one
+        - The original `ExpirableValue` is now a record that defines when a memory should expire, rather than be updated itself
+    - `MemoryMap` - A map linking the memory type to its stored value.
+    - `MemoryModuleType` - Whether a memory can be serialized.
+- `net.minecraf.tworld.entity.ai.sensing.Sensor#randomlyDelayStart` - How long to delay a sensor.
 - `net.minecraft.world.entity.animal.allay.AllayAi`
     - `SENSOR_TYPES`, `MEMORY_TYPES` -> `BRAIN_PROVIDER`, now private; not one-to-one
     - `makeBrain` -> `getActivities`, not one-to-one
@@ -2216,12 +2431,132 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
      - `RenderPass` -> `RenderPassBackend`
         - The original interface is now a class wrapper around the interface, delegating to the backend after performing validation checks
 
+### File Fixer Upper
+
+The file fixer upper is a new system to help with upgrading game files between versions, in conjunction with the data fixer upper. Similar to how the data within files can be modified or 'upgraded' between Minecraft versions via data fixers, file fixers can modify anything within a world directory, from moving files and directories to deleting them outright. As such, file fixers are always applied before data fixers.
+
+Unlike when upgrading when data fixers, file fixers change the structure of the world folder. Because of this, downgrading is rarely possible, as the file names and locations will have likely changed location.
+
+File fixers are applied through a `FileFix`, which defines some operation(s) to perform on a file using `makeFixer`. This is done typically through the `addFileContentFix`, providing access to the desired files through the `FileAccess`, and then modifying the data like any other `Dynamic` instance. Operations are commonly defined as `FileFixOperation`s, which can move the file structure around.
+
+The file fixes are then applied through the `FileFixerUpper`, which uses a copy-on-write file system to operate on the files. The fixer is constructed using the `$Builder`, using `addSchema` and `addFixer` to apply the fixers for the desired version. During the upgrade process, the files are created in a temporary folder, then moved to the world folder. The original world folder is moved to another folder before being deleted.
+
+- `net.minecraft.client.gui.screens.worldselection.FileFixerProgressScreen` - A screen that's displayed when attempting to show the progress of upgrading and fixing the world files.
+- `net.minecraft.server.packs.linkfs`
+    - `DummyFileAttributes` -> `.minecraft.util.DummyFileAttributes`
+    - `LinkFSPath`
+        - `DIRECTORY_ATTRIBUTES` -> `DummyFileAttributes#DIRECTORY`
+        - `FILE_ATTRIBUTES` -> `DummyFileAttributes#FILE`
+- `net.minecraft.util`
+    - `FileUtil#isPathNormalized`, `createPathToResource` are removed
+    - `Util#safeMoveFile` - Safely moves a file from some source to a destination with the given options.
+- `net.minecraft.util.filefix`
+    - `FileFix` - A fixer that performs some operation on a file. 
+    - `FileFixerUpper` - The file fixers to perform operations with. 
+    - `FileFixUtil` - A utility for performing some file operations.
+- `net.minecraft.util.filefix.access`
+    - `ChunkNbt` - Handles upgrading a chunk nbt.
+    - `CompressedNbt` - Handles upgrading a compressed nbt file.
+    - `FileAccess` - Provides an reference to some file resource(s), given its relation.
+    - `FileAccessProvider` - A provider of file accesses, given some relation to the origin.  
+    - `FileRelation` - A definition of how a file relates to some origin bpath.
+    - `FileResourceType` - Defines the type of resource to access.
+    - `FileResourceTypes` - All defined file resource types.
+    - `LevelDat` - Handles upgrading a level dat.
+    - `PlayerData` - Handles upgrading the player data.
+    - `SavedDataNbt` - Handles upgrading the saved data.
+- `net.minecraft.util.filefix.fixes.*` - The vanilla fixes to apply to the file(s).
+- `net.minecraft.util.filefix.operations`
+    - `ApplyInFolders` - Applies the given operations within the related folders.
+    - `DeleteFileOrEmptyDirectory` - Deletes the target file or empty directory.
+    - `FileFixOperation` - An operation performed within some base directory.
+    - `FileFixOperations` - All vanilla file fix operations.
+    - `GroupMove` - Moves some directory, applying any move operation on its contents.
+    - `ModifyContent` - Modifies the content of a file.
+    - `Move` - Moves a file from some source to some destination.
+    - `RegexMove` - Moves all files that match the given source pattern to the destination, replacing the matched sections.
+- `net.minecraft.util.filefix.virtualfilesystem`
+    - `CopyOnWriteFileStore` - A file store using the copy-on-write principle.
+    - `CopyOnWriteFileSystem` - A file system using the copy-on-write principle.
+    - `CopyOnWriteFSPath` - A path using the copy-on-write principle.
+    - `CopyOnWriteFSProvider` - A file system provider using the copy-on-write principle.
+    - `DirectoryNode` - A directory node for some copy-on-write file system path.
+    - `FileNode` - A file node for some copy-on-write file system path.
+    - `Node` - A node for some copy-on-write file system path.
+- `net.minecraft.util.filefix.virtualfilesystem.exception`
+    - `CowFSCreationException` - A `CowFSFileSystemException` when the file system cannot be created.
+    - `CowFSDirectoryNotEmptyException` - A `DirectoryNotEmptyException` specifically for a copy-on-write system.
+    - `CowFSFileAlreadyExistsException` - A `FileAlreadyExistsException` specifically for a copy-on-write system.
+    - `CowFSFileSystemException` - A `FileSystemException` specifically for a copy-on-write system.
+    - `CowFSIllegalArgumentException` - An `IllegalArgumentException` when attempting to operate upon a copy-on-write system.
+    - `CowFSNoSuchFileException` - A `NoSuchFileException` specifically for a copy-on-write system.
+    - `CowFSNotDirectoryException` - A `NotDirectoryException` specifically for a copy-on-write system.
+    - `CowFSSymlinkException` - A `CowFSCreationException` when attempting to use the copy-on-write system with a symlink.
+- `net.minecraft.util.worldupdate`
+    - `UpgradeProgress`
+        - `getTotalFiles` -> `getTotalFileFixState`, not one-to-one
+        - `addTotalFiles` -> `addTotalFileFixOperations`, not one-to-one
+        - `getTypeFileFixStats`, `getRunningFileFixerStats` - Gets the fixer stats for the specific file group.
+        - `incrementFinishedOperations`, `incrementFinishedOperationsBy` - Increments the number of operations that have finished.
+        - `setType`, `getType` - Gets the type of the upgrade progress.
+        - `setApplicableFixerAmount` - Sets the total number of finished operations for the running file fixers.
+        - `incrementRunningFileFixer` - Increments the number of finished operations.
+        - `logProgress` - Logs the progress of the upgrade every second.
+        - `$FileFixStats` - A counter for the operations performed / finished.
+        - `$Type` - The type of upgrade being performed on the world data.
+    - `WorldUpgrader` no longer takes in the `WorldData`
+        - `STATUS_*` messages have been combined in `UpgradeStatusTranslator`
+            - This also contains the specific datafix type
+        - `running`, `finished`, `progress`, `totalChunks`, `totalFiles`, `converted`, `skipped`, `progressMap`, `status` have all been moved into `UpgradeProgress`, stored in `upgradeProgress`
+        - `getProgress` -> `getTotalProgress`, not one-to-one
+        - `$AbstractUpgrader`, `$SimpleRegionStorageUpgrader` -> `RegionStorageUpgrader`, no longer taking in the supplied `LegacyTagFixer`, not one-to-one
+            - `$ChunkUpgrader`, `$EntityUpgrader`, `$PoiUpgrader` are now just constructed within `WorldUpgrader#work`
+            - `$Builder#setLegacyFixer` is removed
+        - `$ChunkUpgrader#tryProcessOnePosition` has been partially abstracted into `getDataFixContentTag`, `verifyChunkPosAndEraseCache`, `verifyChunkPos`
+        - `$FileToUpgrade` -> `FileToUpgrade`
+- `net.minecraft.world.level.ChunkPos#getRegionX`, `getRegionZ` - Gets the region the chunk is in.
+- `net.minecraft.world.level.chunk.ChunkGenerator#getTypeNameForDataFixer` now returns an optional `Identifier` instead of a `ResourceKey`
+- `net.minecraft.world.level.chunk.storage`
+    - `LegacyTagFixer` interface is removed
+    - `RecreatingSimpleRegionStorage` no longer takes in the supplied `LegacyTagFixer`
+    - `SimpleRegionStorage` no longer takes in the supplied `LegacyTagFixer`
+        - `markChunkDone` is removed
+- `net.minecraft.world.level.levelgen.structure`
+    - `LegacyStructureDataHandler` class is removed
+    - `StructureFeatureIndexSavedData` class is removed
+- `net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager`
+    - `STRUCTURE_RESOURCE_DIRECTORY_NAME` -> `STRUCTURE_DIRECTORY_NAME`, not one-to-one
+    - `WORLD_STRUCTURE_LISTER`, `RESOURCE_TEXT_STRUCTURE_LISTER` - Id converters for the structure nbts.
+    - `save` now has an overload that takes in the path, `StructureTemplate`, and `boolean` for whether to write the data as text
+    - `createAndValidatePathToGeneratedStructure` -> `TemplatePathFactory#createAndValidatePathToStructure`, not one-to-one
+    - `worldTemplates`, `testTemplates` - The template path factories.
+- `net.minecraft.world.level.levelgen.structure.templatesystem.loader`
+    - `DirectoryTemplateSource` - A template source for some directory.
+    - `ResourceManagerTemplateSource` - A template source for the resource manager.
+    - `TemplatePathFactory` - A factory that gets the path to some structure.
+    - `TemplateSource` - A loader for structure templates. 
+- `net.minecraft.world.level.storage`
+    - `LevelStorageSource`
+        - `getLevelDataAndDimensions` now takes in the `$LevelStorageAccess`
+        - `readExistingSavedData` - Reads any existing saved data.
+        - `writeGameRules` - Writes the game rules to the saved data.
+        - `$LevelStorageAccess#releaseTemporarilyAndRun` - Releases the access and runs before recreating the lock.
+            - `collectIssues` - Collects any issues when attempting to upgrade the data.
+            - `getSummary` -> `fixAndGetSummary`, `fixAndGetSummaryFromTag`; not one-to-one
+            - `getDataTag` -> `getUnfixedDataTag`, not one-to-one
+            - `getDataTagFallback` -> `getUnfixedDataTagWithFallback`, not one-to-one
+            - `saveDataTag` no longer takes in the `RegistryAccess`
+            - `saveLevelData` - Saves the level dat.
+    - `LevelSummary` now takes in whether it requires file fixing
+        - `UPGRADE_AND_PLAY_WORLD` - A component telling the user to upgrade their world and play.
+        - `requiresFileFixing` - Whether the level requires file fixing.
+        - `$BackupStatus#FILE_FIXING_REQUIRED` - Whether file fixing is require to play this level on this version.
+
 ### Specific Logic Changes
 
 - Some shaders within `assets/minecraft/shaders/core` now use `texture` over `texelFetch`.
     - `entity.vsh`
-    - `rendertype_entity_decal.vsh`
-    - `rendertype_item_entity_translucent_cull.vsh`
+    - `item.vsh`
     - `rendertype_leash.vsh`
     - `rendertype_text.vsh`
     - `rendertype_text_background.vsh`
@@ -2230,8 +2565,14 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
 - Picture-In-Picture submission calls are now taking in `0xF000F0` instead of `0x000000` for the light coordinates.
 - `net.minecraft.client.multiplayer.RegistryDataCollector#collectGameRegistries` `boolean` parameter now handles only updating components from synchronized registries along with tags.
 - `net.minecraft.client.renderer.RenderPipelines#VIGNETTE` now blends the alpha with a source of zero and a destination of one.
+- `net.minecraft.client.renderer.item.BlockModelWrapper` now uses `Sheets#cutoutBlockItemSheet` insteed of `cutoutBlockSheet` for non-translucent block items.
+- `net.minecraft.server.packs.PathPackResources#getResource`, `listPath`, `listResources` resolves the path using the identifier's namespace first.
 - `net.minecraft.world.entity.EntitySelector#CAN_BE_PICKED` can now find entities in spectator mode, assuming `Entity#isPickable` is true.
 - `net.minecraft.world.entity.ai.sensing.NearestVisibleLivingEntitySensor#requires` is no longer implemented by default.
+- `net.minecraft.world.level.levelgen.WorldOptions#generate_features` field in JSON has been renamed to `generate_structures` to match its java field name.
+- `net.minecraft.world.level.timers`
+    - `FunctionCallback`, `FunctionTagCallback` now use `id` instead of `Name` when serializing
+    - `TimerCallbacks` now uses `type` instead of `Type` when serializing
 
 ### Environment Attribute Additions
 
@@ -2281,6 +2622,17 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
     - `cannot_support_seagrass`
     - `cannot_support_kelp`
     - `grows_crops`
+    - `mud`
+    - `moss_blocks`
+    - `grass_blocks`
+    - `substrate_overworld`
+    - `beneath_tree_podzol_replaceable`
+    - `beneath_bamboo_podzol_replaceable`
+    - `cannot_replace_below_tree_trunk`
+    - `ice_spike_replaceable`
+    - `forest_rock_can_place_on`
+    - `huge_brown_mushroom_can_place_on`
+    - `huge_red_mushroom_can_place_on`
 - `minecraft:enchantment`
     - `trades/desert_special` is removed
     - `trades/jungle_special` is removed
@@ -2305,6 +2657,9 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
         - `cauldron_can_remove_due`
         - `cat_collar_dyes`
         - `wolf_collar_dyes`
+    - `mud`
+    - `moss_blocks`
+    - `grass_blocks`
 - `minecraft:potion`
     - `tradable`
 
@@ -2333,9 +2688,6 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
 - `net.minecraft.client`
     - `Minecraft#sendLowDiskSpaceWarning` - Sends a system toast for low disk space.
     - `Options#keyDebugLightmapTexture` - A key mapping to show the lightmap texture.
-- `net.minecraft.client.animation.definitions`
-    - `BabyRabbitAnimation` - Animations for the baby rabbit.
-    - `RabbitAnimation` - Animations for the rabbit.
 - `net.minecraft.client.gui.components`
     - `AbstractScrollArea`
         - `scrollbarWidth` - The width of the scrollbar.
@@ -2355,16 +2707,26 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
     - `DebugEntryLookingAtEntityTags` - A debug entry for displaying an entity's tags.
     - `DebugScreenEntries#LOOKING_AT_ENTITY_TAGS` - The identifier for the entity tags debug entry.
 - `net.minecraft.client.gui.navigation.FocusNavigationEvent$ArrowNavigation#with` - Sets the previous focus of the navigation.
-- `net.minecraft.client.gui.screens.options
+- `net.minecraft.client.gui.render`
+    - `DynamicAtlasAllocator` - An allocator for handling a dynamically sized texture atlas.
+    - `GuiItemAtlas` - An atlas for all items displayed in a user interface.
+- `net.minecraft.client.gui.screens.GenericWaitingScreene#createWaitingWithoutButton` - Creates a waiting screen without showing the button to cancel.
+- `net.minecraft.client.gui.screens.options`
     - `DifficultyButtons` - A class containing the layout element to create the difficulty buttons.
     - `HasGamemasterPermissionReaction` - An interface marking an option screen as able to respond to changing gamemaster permissions.
     - `OptionsScreen#getLastScreen` - Returns the previous screen that navigated to this one.
     - `WorldOptionsScreen` - A screen containing the options for the current world the player is in.
+- `net.minecraft.client.gui.screens.worldselection.EditWorldScreen#conditionallyMakeBackupAndShowToast` - Only makes the backup and shows a toast if the passed in `boolean` is true; otherwise, returns a `false` future.
 - `net.minecraft.client.multiplayer.MultiPlayerGameMode#spectate` - Sends a packet to the server that the player will spectate the given entity.
 - `net.minecraft.client.renderer`
     - `LightmapRenderStateExtractor` - Extracts the render state for the lightmap.
     - `UiLightmap` - The lightmap when in a user interface.
-    - `RenderPipelines#LINES_DEPTH_BIAS` - A render pipeline that sets the polygon depth offset factor to -1 and the units to -1.
+    - `RenderPipelines`
+        - `LINES_DEPTH_BIAS` - A render pipeline that sets the polygon depth offset factor to -1 and the units to -1.
+        - `ENTITY_CUTOUT_DISSOLVE` - A render pipeline that dissolves an entity model into the background using a mask sampler.
+    - `Sheets`
+        - `translucentBlockSheet` - A cullable entity item translucent render type using the block atlas.
+        - `cutoutBlockItemSheet` - An item cutout render type using the block atlas.
 - `net.minecraft.client.renderer.rendertype.RenderType#hasBlending` - Whether the pipeline has a defined blend function.
 - `net.minecraft.client.renderer.state`
     - `LevelRenderState#lastEntityRenderStateCount` - The number of entities being rendered to the screen.
@@ -2408,10 +2770,15 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
         - `handleAttack` - Handles the player's attack on an entity.
         - `handleSpectateEntity` - Handles the player wanting to spectate an entity.
         - `handleSetGameRule` - Handles setting the game rules from the client.
+- `net.minecraft.resources`
+    - `FileToIdConverter#extensionMatches` - Checks if the identifier ends with the specified extension.
+    - `Identifier`
+        - `ALLOWED_NAMESPACE_CHARACTERS` - The characters allowed in an identifier's namespace.
+        - `resolveAgainst` - Resolves the path from the given root by checking `/<namespace>/<path>`.
 - `net.minecraft.server.MinecraftServer`
+    - `DEFAULT_GAME_RULES` - The supplied default game rules for a server.
     - `warnOnLowDiskSpace` - Sends a warning if the disk space is below 64 MiB.
     - `sendLowDiskSpaceWarning` - Sends a warning for low disk space.
-    - `getGlobalGameRules` - Gets the game rules for the overworld dimension.
 - `net.minecraft.server.commands.SwingCommand` - A command that calls `LivingEntity#swing` for all targets.
 - `net.minecraft.server.packs.AbstractPackResources#loadMetadata` - Loads the root `pack.mcmeta`.
 - `net.minecraft.server.packs.resources.ResourceMetadata$MapBased` - A resource metadata that stores the sections in a map.
@@ -2454,6 +2821,8 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
     - `BLOCK_LIGHT_TINT` - The default tint for the block light.
     - `NIGHT_VISION_COLOR` - The default color when in night vision.
     - `TURTLE_EGG_HATCH_CHANCE` - The chance of a turtle egg hatching on a random tick.
+- `net.minecraft.world.level.levelgen.feature.configurations.BlockBlobConfiguration` - The configuration for the block blob feature.
+- `net.minecraft.world.level.levelgen.feature.stateproviders.RuleBasedBlockStateProvider#ifTrueThenProvide` - If the predicate is true, provide the given block.
 - `net.minecraft.world.level.material`
     - `FluidState#isFull` - If the fluid amount is eight.
     - `LavaFluid#LIGHT_EMISSION` - The amount of light the lava fluid emits.
@@ -2466,6 +2835,10 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
 
 ### List of Changes
 
+- `assets/minecraft/shaders/core`
+    - `block.vsh#minecraft_sample_lightmap` -> `smooth_lighting.glsl#minecraft_sample_lightmap`
+    - `rendertype_entity_alpha`, `rendertype_entity_decal` merged into `entity.fsh` using a `DissolveMaskSampler`
+    - `rendertype_item_entity_translucent_cull` -> `item`, not one-to-one
 - `com.mojang.blaze3d.opengl`
     - `GlDevice` now takes in a `GpuDebugOptions` containing the log level, whether to use synchronous logs, and whether to use debug labels instead of those parameters being passed in directly
     - `GlProgram#BUILT_IN_UNIFORMS`, `INVALID_PROGRAM` are now final
@@ -2506,10 +2879,13 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
     - `DebugScreenEntryList` now takes in a `DataFixer`
 - `net.minecraft.client.gui.components.tabs.TabNavigationBar#setWidth` -> `updateWidth`, not one-to-one
 - `net.minecraft.client.gui.navigation.FocusNavigationEvent$ArrowNavigation` now takes in a nullable `ScreenRectangle` for the previous focus
+- `net.minecraft.client.gui.render.GuiRenderer#incrementFrameNumber` -> `endFrame`, not one-to-one
 - `net.minecraft.client.gui.render.state.GuiItemRenderState` no longer takes in the `String` name
 - `net.minecraft.client.gui.screens`
+    - `BackupConfirmScreen` now takes in a `boolean` of whether to force the backup
     - `ConfirmScreen#layout` is now final
     - `DemoIntroScreen` replaced by `ClientPacketListener#openDemoIntroScreen`, now private
+    - `GenericWaitingScreen` now takes in three `boolean`s for showing the loading dots, the cancel button, and whether the screen should close on escape
 - `net.minecraft.client.gui.screens.inventory.AbstractMountInventoryScreen#mount` is now final
 - `net.minecraft.client.gui.screens.options`
     - `OptionsScreen` now implements `HasGamemasterPermissionReaction`
@@ -2517,8 +2893,6 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
         - `createDifficultyButton` now handles within `WorldOptionsScreen#createDifficultyButtons`, not one-to-one
     - `WorldOptionsScreen` now implements `HasGamemasterPermissionReaction`
         - `createDifficultyButtons` -> `DifficultyButtons#create`, now public
-- `net.minecraft.client.gui.screens.worldselection.EditGameRulesScreen` -> `AbstractGameRulesScreen`
-    - Implementations in `.screens.options.InWorldGameRulesScreen` and `WorldCreationGameRulesScreen`
 - `net.minecraft.client.multiplayer.MultiPlayerGameMode#handleInventoryMouseClick` now takes in a `ContainerInput` instead of a `ClickType`
 - `net.minecraft.client.particle.Particle#getLightColor` -> `getLightCoords`
 - `net.minecraft.client.renderer`
@@ -2533,6 +2907,15 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
         - `block` -> `LightCoordsUtil#block`
         - `sky` -> `LightCoordsUtil#sky`
         - `lightCoordsWithEmission` -> `LightCoordsUtil#lightCoordsWithEmission`
+    - `RenderPipelines`
+        - `ENTITY_CUTOUT_NO_CULL` -> `ENTITY_CUTOUT`
+            - The original cutout with cull is replaced by `ENTITY_CUTOUT_CULL`
+        - `ENTITY_CUTOUT_NO_CULL_Z_OFFSET` -> `ENTITY_CUTOUT_Z_OFFSET`
+        - `ENTITY_SMOOTH_CUTOUT` -> `END_CRYSTAL_BEAM`
+        - `ENTITY_NO_OUTLINE` replaced by `ENTITY_TRANSLUCENT`, render type constructed with affects outline being false
+        - `ENTITY_DECAL`, `DRAGON_EXPLOSION_ALPHA` -> `ENTITY_CUTOUT_DISSOLVE`, not one-to-one
+        - `ITEM_ENTITY_TRANSLUCENT_CULL` -> `ENTITY_TRANSLUCENT_CULL`, `ITEM_CUTOUT`, `ITEM_TRANSLUCENT`; not one-to-one
+    - `Sheets#bannerSheet` -> `RenderTypes#entityTranslucent`, not one-to-one
     - `VirtualScreen` replaced by `GpuBackend`
     - `WeatherEffectRenderer#render` no longer takes in the `MultiBufferSource`
 - `net.minecraft.client.renderer.block.ModelBlockRenderer$Cache#getLightColor` -> `getLightCoords`
@@ -2544,6 +2927,14 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
     - `FallingBlockRenderState#movingBlockRenderState` is now final
     - `HumanoidRenderState#attackArm` -> `ArmedEntityRenderState#attackArm`
     - `WitherRenderState#xHeadRots`, `yHeadRots` are now final
+- `net.minecraft.client.renderer.rendertype.RenderTypes`
+    - `entityCutoutNoCull` -> `entityCutout`
+        - The original cutout with cull is replaced by `entityCutoutCull`
+        - `entityCutoutNoCullZOffset` -> `entityCutoutZOffset`
+        - `entitySmoothCutout` -> `endCrystalBeam`
+        - `entityNoOutline` -> `entityTranslucent` with `affectsOutline` as `false`
+        - `entityDecal`, `dragonExplosionAlpha` -> `entityCutoutDissolve`, not one-to-one
+        - `itemEntityTranslucentCull` -> `entityTranslucentCullItemTarget`, `itemCutout`, `itemTranslucent`; not one-to-one
 - `net.minecraft.client.renderer.state.BlockBreakingRenderState#progress` is now final
 - `net.minecraft.client.resources.sounds.AbstractSoundInstance#random` is now final
 - `net.minecraft.core.WritableRegistry#bindTag` -> `bindTags`, now taking in a map of keys to holder lists instead of one mapping
@@ -2564,10 +2955,15 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
 - `net.minecraft.data.recipes`
     - `RecipeProvider$FamilyRecipeProvider` -> `$FamilyCraftingRecipeProvider`, `$FamilyStonecutterRecipeProvider`
     - `SingleItemRecipeBuilder#stonecutting` moved to a parameter on the `BlockFamily`
+- `net.minecraft.data.structures.SnbtToNbt` now has an overload that takes in a single input folder path
 - `net.minecraft.gametest.framework`
     - `GameTestHelper#assertBlockPresent` now has an overload that only takes in the block to check for
     - `GameTestServer#create` now takes in an `int` for the number of times to run all matching tests
+    - `StructureUtils#testStructuresDir` split into `testStructuresTargetDir`, `testStructuresSourceDir`
     - `TestData` now takes in an `int` for the number of blocks padding around the test
+- `net.minecraft.nbt.NbtUtils`
+    - `addDataVersion` now uses a generic for the `Dynamic` instead of the explicit nbt tag
+    - `getDataVersion` now has an overload that defaults to -1 if the version is not specified
 - `net.minecraft.network.FriendlyByteBuf`
     - `readVec3`, `writeVec3` replaced with `Vec3#STREAM_CODEC`
     - `readLpVec3`, `writeLpVec3` replaced with `Vec3#LP_STREAM_CODEC`
@@ -2576,14 +2972,18 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
     - `ClientboundSetEntityMotionPacket` is now a record
     - `ServerboundContainerClickPacket` now takes in a `ContainerInput` instead of a `ClickType`
     - `ServerboundInteractPacket` is now a record, now taking in the `Vec3` interaction location
-- `net.minecraft.resources.RegistryDataLoader#load` now returns a `CompletableFuture` of the frozen registry access
+- `net.minecraft.resources`
+    - `FileToIdConverter` is now a record
+    - `RegistryDataLoader#load` now returns a `CompletableFuture` of the frozen registry access
 - `net.minecraft.server.commands.ChaseCommand#DIMENSION_NAMES` is now final
 - `net.minecraft.server.dedicated.DedicatedServerProperties#acceptsTransfers` is now final
 - `net.minecraft.server.packs`
     - `BuiltInMetadata` has been merged in `ResourceMetadata`
         - `get` -> `ResourceMetadata#getSection`
         - `of` -> `ResourceMetadata#of`
+    - `PathPackResources#getNamespaces` now has a static overload that takes in the root directory `Path`
     - `VanillaPackResourcesBuilder#setMetadata` now takes in a `ResourceMetadata` instead of a `BuiltInMetadata`
+- `net.minecraft.server.players.OldUsersConverter#serverReadyAfterUserconversion` replaced by `areOldUserListsRemoves`, now `public`
 - `net.minecraft.tags.TagLoader`
     - `loadTagsFromNetwork` now takes in a `Registry` instead of a `WritableRegistry`, returning a map of tag keys to a list of holder entries
     - `loadTagsForRegistry` now has an overload which takes in registry key along with an element lookup, returning a map of tag keys to a list of holder entries
@@ -2591,15 +2991,6 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
     - `pack` -> `LightCoordsUtil#pack`
     - `block` -> `LightCoordsUtil#block`
     - `sky` -> `LightCoordsUtil#sky`
-- `net.minecraft.util.worldupdate.WorldUpgrader` no longer takes in the `WorldData`
-    - `STATUS_*` messages have been combined in `UpgradeStatusTranslator`
-        - This also contains the specific datafix type
-    - `running`, `finished`, `progress`, `totalChunks`, `totalFiles`, `converted`, `skipped`, `progressMap`, `status` have all been moved into `UpgradeProgress`, stored in `upgradeProgress`
-    - `getProgress` -> `getTotalProgress`, not one-to-one
-    - `$AbstractUpgrader`, `$SimpleRegionStorageUpgrader` -> `RegionStorageUpgrader`, not one-to-one
-        - `$ChunkUpgrader`, `$EntityUpgrader`, `$PoiUpgrader` are now just constructed within `WorldUpgrader#work`
-    - `$ChunkUpgrader#tryProcessOnePosition` has been partially abstracted into `getDataFixContentTag`, `verifyChunkPosAndEraseCache`, `verifyChunkPos`
-    - `$FileToUpgrade` -> `FileToUpgrade`
 - `net.minecraft.world.InteractionResult$ItemContext#NONE`, `DEFAULT` are now final
 - `net.minecraft.world.entity`
     - `Entity`
@@ -2688,6 +3079,37 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
 - `net.minecraft.world.level.levelgen.blockpredicates`
     - `TrueBlockPredicate#INSTANCE` is now final
     - `UnobstructedPredicate#INSTANCE` is now final
+- `net.minecraft.world.level.levelgen.feature`
+    - `AbstractHugeMushrromFeature#isValidPosition` now takes in a `WorldGenLevel` instead of the `LevelAccessor`
+    - `BlockBlobFeature` now uses a `BlockBlobConfiguration` generic
+    - `Feature`
+        - `FOREST_ROCK` replaced by `BLOCK_BLOB`
+        - `ICE_SPIKE` replaced by `SPIKE`
+    - `IceSpikeFeature` -> `SpikeFeature`, not one-to-one
+        - `SpikeFeature` is now `EndSpikeFeature`, not one-to-one
+            - `NUMBER_OF_SPIKES` -> `EndSpikeFeature#NUMBER_OF_SPIKES`
+            - `getSpikesForLevel` -> `EndSpikeFeature#getSpikesForLevel`
+- `net.minecraft.world.level.levelgen.feature.configurations`
+    - `HugeMushroomFeatureConfiguration` is now a record, taking in a can place on `BlockPredicate`
+    - `SpikeConfiguration` -> `EndSpikeConfiguration` is now a record
+        - The original `SpikeConfiguration` is now for the ice spike, taking in the blocks to use, along with predicates of where to place and whether it can replace a block present
+    - `TreeConfiguration#dirtProvider`, `forceDirt` have been replaced by `belowTrunkProvider`
+        - `dirtProvider` commonly uses `CAN_PLACE_BELOW_OVERWORLD_TRUNKS`
+        - `forceDirt` commonly uses `PLACE_BELOW_OVERWORLD_TRUNKS`
+        - `$TreeConfigurationBuilder#dirtProvider`, `dirt`, `forceDirt` have been replaced by `belowTrunkProvider`
+- `net.minecraft.world.level.levelgen.feature.stateproviders.RuleBasedBlockStateProvider` can now take in a nullable fallback `BlockStateProvider`
+    - `simple` -> `always`
+- `net.minecraft.world.level.levelgen.feature.treedecorators`
+    - `AlterGroundDecorator` now takes in a `RuleBasedBlockStateProvider` instead of a `BlockStateProvider`
+    - `TreeDecorator$Context` now takes in a `WorldGenLevel` instead of the `LevelSimulatedReader`
+        - `level` now returns a `WorldGenLevel` instead of the `LevelSimulatedReader`
+- `net.minecraft.world.level.levelgen.feature.trunkplacers.TrunkPlacer`
+    - `placeTrunk` now takes in a `WorldGenLevel` instead of the `LevelSimulatedReader`
+    - `setDirtAt` -> `placeBelowTrunkBlock`, now taking in a `WorldGenLevel` instead of the `LevelSimulatedReader`
+    - `placeLog` now takes in a `WorldGenLevel` instead of the `LevelSimulatedReader`
+    - `placeLogIfFree` now takes in a `WorldGenLevel` instead of the `LevelSimulatedReader`
+    - `validTreePos` now takes in a `WorldGenLevel` instead of the `LevelSimulatedReader`
+    - `isFree` now takes in a `WorldGenLevel` instead of the `LevelSimulatedReader`
 - `net.minecraft.world.level.levelgen.placement.BiomeFilter#CODEC` is now final
 - `net.minecraft.world.level.levelgen.structure.TemplateStructurePiece#template`, `placeSettings` are now final
 - `net.minecraft.world.level.levelgen.structure.pools.alias`
@@ -2695,6 +3117,7 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
     - `RandomGroupPoolAlias#CODEC` is now final
     - `RandomPoolAlias#CODEC` is now final
 - `net.minecraft.world.level.levelgen.structure.templatesystem.LiquidSettings#CODEC` is now final
+- `net.minecraft.world.level.saveddata.maps.MapItemSavedData#tickCarriedBy` now takes in a nullable `ItemFrame`
 - `net.minecraft.world.level.storage.loot.functions`
     - `EnchantRandomlyFunction` now takes in a `boolean` of whether to include the additional trade cost component from the stack being enchanted
         - Set via `$Builder#includeAdditionalCostComponent`
@@ -2708,12 +3131,26 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
 - `net.minecraft.client.data.models.BlockModelGenerators#createGenericCube`
 - `net.minecraft.client.gui.components.EditBox#setFilter`
 - `net.minecraft.client.gui.render.state.GuiItemRenderState#name`
+- `net.minecraft.client.multiplayer.ClientPacketListener#getId`
+- `net.minecraft.client.renderer.Sheets`
+    - `shieldSheet`
+    - `bedSheet`
+    - `shulkerBoxSheet`
+    - `signSheet`
+    - `hangingSignSheet`
+    - `chestSheet`
 - `net.minecraft.client.renderer.rendertype.RenderTypes#weather`
 - `net.minecraft.data.loot.BlockLootSubProvider(Set, FeatureFlagSet, Map, HolderLookup$Provider)`
+- `net.minecraft.gametest.framework.StructureUtils#DEFAULT_TEST_STRUCTURES_DIR`
+- `net.minecraft.nbt.NbtUtils#addCurrentDataVersion`
 - `net.minecraft.server.packs.AbstractPackResources#getMetadataFromStream`
-- `net.minecraft.util.LightCoordsUtil#UI_FULL_BRIGHT`
+- `net.minecraft.server.players.PlayerList#getSingleplayerData`
+- `net.minecraft.util`
+    - `Mth#createInsecureUUID`
+    - `LightCoordsUtil#UI_FULL_BRIGHT`
 - `net.minecraft.world`
     - `ContainerListener`
+    - `Difficulty#getKey`
     - `SimpleContainer#addListener`, `removeListener`
 - `net.minecraft.world.entity.ai.memory.MemoryModuleType#INTERACTABLE_DOORS`
 - `net.minecraft.world.entity.monster.Zoglin#MEMORY_TYPES`
@@ -2722,10 +3159,15 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
 - `net.minecraft.world.item`
     - `BundleItem#hasSelectedItem`
     - `Item#getName()`
+    - `ItemStack`
+        - `isFramed`, `getFrame`
+        - `setEntityRepresentation`, `getEntityRepresentation`
 - `net.minecraft.world.item.component`
     - `BundleContents`
         - `getItemUnsafe`
         - `hasSelectedItem`
     - `WrittenBookContent#MAX_CRAFTABLE_GENERATION`
 - `net.minecraft.world.level.block.LiquidBlock#SHAPE_STABLE`
+- `net.minecraft.world.level.levelgen.feature`
+    - `Feature#isStone`, `isDirt`, `isGrassOrDirt`
 - `net.minecraft.world.level.storage.loot.functions.SetOminousBottleAmplifierFunction#amplifier`
