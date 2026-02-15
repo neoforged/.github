@@ -9,6 +9,7 @@ If there's any incorrect or missing information, please file an issue on this re
 Thank you to:
 
 - @Shnupbups for some grammatical fixes
+- @cassiancc for information about Java 25 IDE support
 
 ## Pack Changes
 
@@ -19,6 +20,8 @@ There are a number of user-facing changes that are part of vanilla which are not
 26.1 introduces two new changes into the general pipeline.
 
 First, the Java Development Kit has been upgraded from 21 to 25. Vanilla makes use of these new features, such as [JEP 447](https://openjdk.org/jeps/447), which allows statements before `super` within constructors. For users within the modding scene, please make sure to update accordingly, or take advantage of your IDE or build tool features. Microsoft's OpenJDK can be found [here](https://learn.microsoft.com/en-us/java/openjdk/download#openjdk-25).
+
+You may need to update your IDE to support Java 25. If using Eclipse, you will need at least either 2025-12, or 2025-09 with the Java 25 Support marketplace plugin. If using IntelliJ IDEA, you will need at least 2025.2.
 
 Vanilla has also returned to being deobfuscated, meaning that all value types now have the official names provided by Mojang. There are still some things that are not captured due to the Java compilation process, such as inlining primitive and string constants, but the majority are now provided. This will only have a change for users or mod loaders who used a different value type mapping set from the official mappings.
 
@@ -1192,6 +1195,7 @@ Since data components now hold the true values from being lazily initialized aft
         - `direct`, `$Direct` now can take in the `DataComponentMap`
         - `$Reference#bindComponents` - Stores the components on the holder reference.
     - `Registry#componentLookup` - Gets the lookup of component to holders.
+    - `WritableRegistry#bindTag` -> `bindTags`, now taking in a map of keys to holder lists instead of one mapping
 - `net.minecraft.core.component`
     - `DataComponentInitializers` - A class that handles initializing the data components for component-attached objects.
     - `DataComponentLookup` - A lookup that maps the component type to the holders that use it.
@@ -1927,6 +1931,341 @@ Of these, only the ender dragon fight is on a per-level / dimension basis. The r
         - `$Packed` - The packed event data.
     - `$Packed` - The packed time queue.
 
+## Even More Rendering Changes
+
+### Materials and Dynamic Layer Selection
+
+Block and item models now no longer specify what `RenderType` or `ChunkSectionLayer` they belong to. Instead, this is computed when loading the model, determing the associated layer for each quad. This means that `ItemBlockRenderTypes#setRenderLayer` is removed, with setting the `RenderType` for an item removed altogether.
+
+To determine what layer a quad or face gets set to, the `Transparency` of the texture is computed. Specifically, it checks that, for the UV area mapped to the quad, if there are any pixels that are transparent (have an alpha of 0), or translucent (have an alpha that is not 0 or 255). For the `ChunkSectionLayer`, `ChunkSectionLayer#TRANSLUCENT` is used if there is a translucent pixel, else `CUTOUT` is used if there is a transparent pixel, else `SOLID`. For the item `RenderType`, `Sheets#translucentItemSheet` and `translucentBlockItemSheet` for block items are used if there is a translucent pixel, or `cutoutItemSheet` and `cutoutBlockItemSheet` for block items. The `Transparency` also affects using `MipmapStrategy#AUTO`, using `CUTOUT` instead of `MEAN` as the default if there is a transparent pixel.
+
+One can influence a quad's `Transparency` through the `Material` texture defined by the model JSON. A `Material` specifies the texture's `sprite`, which represents the relative path to the texture, and optionally `force_translucent`, which forces any quad using this texture to use `Transparency#TRANSLUCENT` (transparent is false while translucent is true):
+
+```json5
+// For some model `examplemod:example_model`
+// In: `assets/examplemod/models/example_model.json`
+{
+    "parent": "minecraft:block/template_glass_pane_post",
+    "textures": {
+        // A Material can be a simple texture reference
+        // Points to `assets/minecraft/textures/block/glass_pane_top.png`
+        "edge": "minecraft:block/glass_pane_top",
+        // Or it can be an object
+        "pane": {
+            // The relative texture reference for faces using this key
+            // Points to `assets/minecraft/textures/block/glass.png`
+            "sprite": "minecraft:block/glass",
+            // When true, sets all faces using this texture key to
+            // always have a transparent pixel.
+            "force_translucent": true
+        }
+    }
+    // ...
+}
+```
+
+This change also defines the rendering order, where all solid quads are rendered first, followed by cutout quads, and finally translucent quads, sorted by distance from the camera.
+
+### Materials and Sprites
+
+As you may have noticed, `Material`s were originally used to define some texture in an atlas. The addition of materials in texture JSONs have changed the naming of these classes. `Material`s now explicitly refer to texture references within model JSONs. This means that all references to the raw texture location have been replaced with `Material`, if unbaked, and `Material$Baked`, if baked. Additionally, the `SpriteGetter` is now `MaterialBaker`.
+
+As for the original `Material`, these are now known as sprites, where `Material` is renamed to `SpriteId`, and `MaterialSet` is renamed to `SpriteGetter`.
+
+### Quad Particle Layers
+
+The `SingleQuadParticle$Layer`s have been split into `OPAQUE_*` and `TRANSLUCENT_*` layers, depending on if the particle texture used by the atlas contains a translucent pixel. Note that 'opaque' in this instance means cutout, where pixels with an alpha of less than 0.1 are discarded. If not creating a new layer, `$Layer#bySprite` can be used to determine what layer the particle texture should use.
+
+```java
+public class ExampleParticle extends SingleQuadParticle {
+
+    private final SingleQuadParticle.Layer layer;
+
+    public SingleQuadParticle(ClientLevel level, double x, double y, double z, TextureAtlasSprite sprite) {
+        super(level, x, y, z, sprite);
+        this.layer = SingleQuadParticle.Layer.bySprite(sprite);
+    }
+
+    @Override
+    protected SingleQuadParticle.Layer getLayer() {
+        return this.layer;
+    }
+}
+```
+
+### Quad Lightmaps and Outputs
+
+The brightness, which scales the vertex color, and the lightmap coordinates are now represented as the objects `QuadBrightness` and `QuadLightmapCoords`, respectively. This doesn't replace all usecases, such as when adding a single vertex. It only updates the methods in which bulk data is set, such as for a `BakedQuad` via `VertexConsumer#putBulkData`.
+
+Both `QuadBrightness` and `QuadLightmapCoords` can only be created through its mutable implementations `$Mutable`, of which the values can be set via `$Mutable#set`. 
+
+In addition, methods used to upload `BakedQuad`s to a buffer now take in a `BakedQuadOutput`. This has the same parameters as `VertexConsumer#putBulkData`, and was added due to the section renderer uploading to a created `BufferBuilder` for use with the uber buffer.
+
+### Blaze3d Backends
+
+`CommandEncoder`, `GpuDevice`, and `RenderPassBackend` has been split into the `*Backend` interface, which functions similarly to the previous interface, and the wrapper class, which holds the backend and provides delegate calls, performing any validation necessary. The `*Backend` interfaces now explicitly perform the operation without checking whether the operation is valid.
+
+### Solid and Translucent Features
+
+Feature rendering has been further split into two passes: one for solid render types, and one for translucent render types. As such, most `render` methods now have a `renderSolid` and `renderTranslucent` method, respectively. Those which only render solid or translucent data only have one of the methods.
+
+### Camera State
+
+The `Camera` has been updated similarly to other render state implementations where the camera is extracted to the `CameraRenderState` during `GameRenderer#renderLevel`, and that is passed around with the data required to either submit and render elements.
+
+Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing all the information needed to render the fog, instead of just its color, and storing that in `CameraRenderState#fogData`.
+
+- Some shaders within `assets/minecraft/shaders/core` now use `texture` over `texelFetch`
+    - `entity.vsh`
+    - `item.vsh`
+    - `rendertype_leash.vsh`
+    - `rendertype_text.vsh`
+    - `rendertype_text_background.vsh`
+    - `rendertype_text_intensity.vsh`
+    - `rendertype_translucent_moving_block.vsh`
+- `assets/minecraft/shaders/core`
+    - `block.vsh#minecraft_sample_lightmap` -> `smooth_lighting.glsl#minecraft_sample_lightmap`
+    - `rendertype_entity_alpha`, `rendertype_entity_decal` merged into `entity.fsh` using a `DissolveMaskSampler`
+    - `rendertype_item_entity_translucent_cull` -> `item`, not one-to-one
+- `com.mojang.blaze3d.opengl`
+    - `GlCommandEncoder` now implements `CommandEncoderBackend` instead of `CommandEncoder`, the class now package-private
+        - `getDevice` is removed
+    - `GlDevice` now implements `GpuDeviceBackend` instead of `GpuDevice`, the class now package-private
+    - `GlRenderPass` now implements `RenderPassBackend` instead of `RenderPass`, the class now package-private
+        - The constructor now takes in the `GlDevice`
+- `com.mojang.blaze3d.platform`
+    - `NativeImage#computeTransparency` - Returns whether there is at least one transparent or translucent pixel in the image.
+    - `Transparency` - An object of whether some image has a translucent and/or transparent pixel.
+- `com.mojang.blaze3d.systems`
+    - `CommandEncoder` -> `CommandEncoderBackend`
+        - The original interface is now a class wrapper around the interface, delegating to the backend after performing validation checks
+     - `GpuDevice` -> `GpuDeviceBackend`
+        - The original interface is now a class wrapper around the interface, delegating to the backend after performing validation checks
+     - `RenderPass` -> `RenderPassBackend`
+        - The original interface is now a class wrapper around the interface, delegating to the backend after performing validation checks
+- `com.mojang.blaze3d.vertex`
+    - `DefaultVertexFormat#BLOCK` no longer takes in the normal vector
+    - `QuadBrightness` - A class containing the brightness at the four vertices of a quad.
+    - `QuadLightmapCoords` - A class containing the lightmap coordinates of the four vertices in a quad.
+    - `TlsfAllocator` - A two-level segregate fit allocator for dynamic memory allocation.
+    - `UberGpuBuffer` - A buffer for uploading dynamically sized data to the GPU, used for chunk section layers.
+    - `VertexConsumer#putBulkData` now takes in a `QuadBrightness` instead of a `float` array, an `int` instead of four `float`s for the color, and a `QuadLightmapCoords` instead on an `int` array
+- `net.minecraft.client.Camera`
+        - `BASE_HUD_FOV` - The base hud field-of-view.
+        - `setup` -> `update`, not one-to-one
+        - `extractRenderState` - Extract the state of the camera.
+        - `getFov` - Gets the field-of-view.
+        - `getViewRotationMatrix` - Gets the matrix for a projection view.
+        - `setEntity` - Sets the entity the camera is attached to.
+        - `getNearPlane` now takes in the `float` field-of-view
+        - `panoramicForwards` - The forward vector when in panorama mode.
+        - `getPartialTickTime` is removed
+        - `setLevel` - Sets the level the camera is in.
+- `net.minecraft.client.data.models`
+    - `BlockModelGenerators`
+        - `createSuffixedVariant` now takes in a function of `Material` to `TextureMapping` for the textures instead of just an `Identifier`
+        - `createAirLikeBlock` now takes in a `Material` instead of an `Identifier` for the particle texture
+    - `ItemModelGenerators#generateLayeredItem` now takes in `Material`s instead of `Identifier`s for the textures
+- `net.minecraft.client.data.models.model`
+    - `TexturedModel#createAllSame` now takes in a `Material` instead of an `Identifier` for the texture
+    - `TextureMapping`
+        - `put`, `putForced` now take in a `Material` instead of an `Identifier` for the texture
+        - `get` now returns a `Material` instead of an `Identifier` for the texture
+        - `copyAndUpdate` now takes in a `Material` instead of an `Identifier` for the texture
+        - `updateSlots` - Replaces all slots using the provided mapper function.
+        - `forceAllTranslucent` - Sets the force translucency flag for all material textures.
+        - `defaultTexture`, `cube`, `cross`, `plant`, `rail`, `wool`, `crop`, `singleSlot`, `particle`, `torch`, `cauldron`, `layer0` now take in a `Material` instead of an `Identifier` for the texture
+        - `column`, `door`, `layered` now take in `Material`s instead of `Identifier`s for the textures
+        - `getBlockTeture`, `getItemTexture` now return a `Material` instead of an `Identifier` for the texture
+- `net.minecraft.client.gui.components.DebugScreenOverlay#render3dCrosshair` now takes in the `CameraRenderState` instead of the `Camera`
+- `net.minecraft.client.particle.SingleQuadParticle$Layer`
+    - `TERRAIN` -> `OPAQUE_TERRAIN`, `TRANSLUCENT_TERRAIN`
+    - `ITEMS` -> `OPAQUE_ITEMS`, `TRANSLUCENT_ITEMS`
+    - `bySprite` - Gets the layer from the atlas sprite.
+- `net.minecraft.client.renderer`
+    - `CachedOrthoProjectionMatrixBuffer`, `CachedPerspectiveProjectionMatrixBuffer`, `PerspectiveProjectionMatrixBuffer` -> `ProjectionMatrixBuffer` with sometimes `Projection`, not one-to-one
+    - `GameRenderer`
+        - `PROJECTION_Z_NEAR` -> `Camera#PROJECTION_Z_NEAR`
+        - `setPanoramicScreenshotParameters`, `getPanoramicScreenshotParameters` -> `Camera#enablePanoramicMode`, `disablePanoramicMode`; not one-to-one
+        - `isPanoramicMode` -> `Camera#isPanoramicMode`
+        - `getProjectionMatrix` -> `Camera#getViewRotationProjectionMatrix`, not one-to-one
+        - `updateCamera` -> `Camera#update`, not one-to-one
+        - `getRenderDistance` is removed
+    - `ItemBlockRenderTypes`
+        - `getChunkRenderType` -> `getRenderType(ChunkSectionLayer)`, not one-to-one
+        - `getMovingBlockRenderType` now takes in a `ChunkSectionLayer` instead of a `BlockState`
+        - `getRenderType(BlockState)` -> `getBlockModelRenderType(BlockStateModel)`, not one-to-one
+        - `forceOpaque` - Whether the block textures should be opaque instead of translucent.
+    - `LevelRenderer`
+        - `update` - Updates the level.
+        - `renderLevel` now takes in the `CameraRenderState` instead of the `Camera` and the `ChunkSectionsToRender`; it no longer takes in the `Matrix3f` for the projection matrices
+        - `extractLevel` - Extracts the level state.
+        - `prepareChunkRenders` is now `public` instead of `private`
+        - `captureFrustum`, `killFrustum`, `getCapturedFrustum` are removed
+    - `MaterialMapper` -> `SpriteMapper`
+    - `OrderedSubmitNodeCollector`
+        - `submitBlockModel` now takes in an `int` instead of three `float`s for the tint color
+        - `submitItem` no longer takes in the `RenderType`
+    - `PanoramicScreenshotParameters` record is removed
+    - `PostChain` now takes in a `Projection` and `ProjectionMatrixBuffer` instead of an `CachedOrthoProjectionMatrixBuffer`
+        - `load` now takes in a `Projection` and `ProjectionMatrixBuffer` instead of an `CachedOrthoProjectionMatrixBuffer`
+    - `RenderPipelines`
+        - `ENTITY_CUTOUT_NO_CULL` -> `ENTITY_CUTOUT`
+            - The original cutout with cull is replaced by `ENTITY_CUTOUT_CULL`
+        - `ENTITY_CUTOUT_NO_CULL_Z_OFFSET` -> `ENTITY_CUTOUT_Z_OFFSET`
+        - `ENTITY_SMOOTH_CUTOUT` -> `END_CRYSTAL_BEAM`
+        - `ENTITY_NO_OUTLINE` replaced by `ENTITY_TRANSLUCENT`, render type constructed with affects outline being false
+        - `ENTITY_DECAL`, `DRAGON_EXPLOSION_ALPHA` -> `ENTITY_CUTOUT_DISSOLVE`, not one-to-one
+        - `ITEM_ENTITY_TRANSLUCENT_CULL` -> `ENTITY_TRANSLUCENT_CULL`, `ITEM_CUTOUT`, `ITEM_TRANSLUCENT`; not one-to-one
+    - `Sheets`
+        - `translucentBlockSheet` - A cullable entity item translucent render type using the block atlas.
+        - `cutoutBlockItemSheet` - An item cutout render type using the block atlas.
+        - `bannerSheet` -> `RenderTypes#entityTranslucent`, not one-to-one
+        - `cutoutItemSheet` - An item cutout render type using the item atlas.
+        - `get*Material` -> `get*Sprite`
+        - `chooseMaterial` -> `chooseSprite`
+    - `SubmitNodeCollector$ParticleGroupRenderer`
+        - `isEmpty` - Whether there are no particles to render in this group.
+        - `prepare` now takes whether the particles are being prepared for the translucent layer
+        - `render` no longer takes in the translucent `boolean`
+    - `SubmitNodeStorage`
+        - `$BlockModelSubmit` now takes in an `int` instead of three `float`s for the tint color
+        - `$ItemSubmit` no longer takes in the `RenderType`
+- `net.minecraft.client.renderer.block`
+    - `BakedQuadOutput` - A functional interface for writing the baked quad information to some output, like a buffer.
+    - `BlockModelShaper#getParticleIcon` -> `getParticleMaterial`, now returning a `Material$Baked` instead of a `TextureAtlasSprite`
+    - `BlockRenderDispatcher` methods now take in a `BakedQuadOutput` instead of a `VertexConsumer`
+    - `ModelBlockRenderer`
+        - Methods now take in a `BakedQuadOutput` instead of a `VertexConsumer`
+        - `renderModel` now takes in an `int` instead of three `float`s for the tint color
+        - `$CommonRenderStorage`
+            - `brightness` is now a `QuadBrightness$Mutable` instead of a `float` array
+            - `lightmap` is now a `QuadLightmapCoords$Mutable` instead of an `int` array
+- `net.minecraft.client.renderer.block.model`
+    - `BakedQuad` now takes in a `$SpriteInfo` instead of the `TextureAtlasSprite`
+        - `$SpriteInfo` - A record holding the sprite, chunk section layer, and render type.
+    - `BlockModelPart`
+        - `particleIcon` -> `particleMaterial`, now returning a `Material$Baked` instead of a `TextureAtlasSprite`
+        - `hasTranslucency` - Whether the model should use a translucent render type.
+    - `BlockStateModel`
+        - `particleIcon` -> `particleMaterial`, now returning a `Material$Baked` instead of a `TextureAtlasSprite`
+        - `hasTranslucency` - Whether the model should use a translucent render type.
+    - `FaceBakery#bakeQuad` now takes in a `ModelBaker` instead of the `ModelBaker$PartCache`, and a `Material$Baked` instead of a `TextureAtlasSprite`
+        - It also has an overload taking in the fields of the `BlockElementFace` instead of the object itself
+    - `Material` - A reference to a texture sprite, along with whether to force translucency on the texture.
+    - `SimpleModelWrapper` now takes in a `Material$Baked` instead of a `TextureAtlasSprite` for the particle, and a `boolean` for whether the model has translucency
+- `net.minecraft.client.renderer.blockentity`
+    - `AbstractSignRenderer#getSignMaterial` -> `getSignSprite`
+    - `BannerRenderer#submitPatterns` no longer takes in the base `SpriteId`, whether the pattern has foil, and the outline color
+    - `BlockEntityRenderDispatcher#prepare` now takes in a `Vec3` camera position instead of the `Camera` itself
+    - `BlockEntityRendererProvider$Context#materials` -> `sprites`
+- `net.minecraft.client.renderer.chunk`
+    - `ChunkSectionLayer` now takes in a `boolean` for whether the layer is translucent rather than just sorting on upload
+        - `byTransparency` - Gets the layer by its transparency setting.
+        - `sortOnUpload` -> `translucent`, not one-to-one
+    - `ChunkSectionsToRender#drawsPerLayer` -> `drawGroupsPerLayer`, with its value being a `int` to list of draws map
+    - `CompiledSectionMesh`
+        - `uploadMeshLayer` replaced by `isVertexBufferUploaded`, `setVertexBufferUploaded`
+        - `uploadLayerIndexBuffer` replaced by `isIndexBufferUploaded`, `setIndexBufferUploaded`
+    - `SectionBuffers` -> `SectionRenderDispatcher$RenderSectionBufferSlice`, not one-to-one
+    - `SectionMesh`
+        - `getBuffers` -> `getSectionDraw`, not one-to-one
+        - `$SectionDraw` - The draw information for the section.
+    - `SectionRenderDispatcher`
+        - `getRenderSectionSlice` - Gets the buffer slice of the section mesh to render for the chunk layer.
+        - `uploadAllPendingUploads` -> `uploadGlobalGeomBuffersToGPU`, not one-to-one
+        - `lock`, `unlock` - Handles locking the dispatcher when copying data from location to another, usually for GPU allocation.
+        - `getToUpload` is removed
+        - `$RenderSection`
+            - `upload`, `uploadSectionIndexBuffer` -> `addSectionBuffersToUberBuffer`, now private
+            - `$CompileTask`
+                - `doTask` now returns a `$SectionTaskResult` instead of a `CompletableFuture`
+        - `$SectionTaskResult` -> `$RenderSection$CompileTask$SectionTaskResult`
+- `net.minecraft.client.renderer.culling.Frustum#set` - Copies the information from another frustum.
+- `net.minecraft.client.renderer.entity`
+    - `EntityRendererProvider$Context#getMaterials` -> `getSprites`
+    - `ItemRenderer#renderItem` no longer takes in the `RenderType`
+- `net.minecraft.client.renderer.features`
+    - Feature `render` methods have been split into `renderSolid` for solid render types, and `renderTranslucent` for see-through render types
+    - `FeatureRenderDispatcher`
+        - `renderAllFeatures` has been split into `renderSolidFeatures` and `renderTranslucentFeatures`
+            - The original method now calls both of these methods, first solid then translucent 
+        - `clearSubmitNodes` - Clears the submit node storage.
+        - `renderTranslucentParticles` - Renders collected translucent particles.
+    - `FlameFeatureRenderer#render` -> `renderSolid`
+    - `LeashFeatureRenderer#render` -> `renderSolid`
+    - `NameTagFeatureRenderer#render` -> `renderTranslucent`
+    - `ShadowFeatureRenderer#render` -> `renderTranslucent`
+    - `TextFeatureRenderer#render` -> `renderTranslucent`
+- `net.minecraft.client.renderer.fog`
+    - `FogData#color` - The color of the fog.
+    - `FogRenderer`
+        - `setupFog` now returns a `FogData` instead of the `Vector4f` fog color
+        - `updateBuffer` - Updates the buffer with the fog data.
+- `net.minecraft.client.renderer.item`
+    - `BlockModelWrapper` no longer takes in the `RenderType` function
+    - `ItemModel$BakingContext#materials` -> `sprites`
+    - `ItemStackRenderState`
+        - `pickParticleIcon` -> `pickParticleMaterial`, now returning a `Material$Baked` instead of a `TextureAtlasSprite`
+        - `$LayerRenderState`
+            - `setRenderType` is removed
+            - `setParticleIcon` -> `setParticleMaterial`, now taking a `Material$Baked` instead of a `TextureAtlasSprite`
+    - `ModelRenderProperties#particleIcon` -> `particleMaterial`, now taking a `Material$Baked` instead of a `TextureAtlasSprite`
+- `net.minecraft.client.renderer.rendertype`
+    - `RenderType#outputTarget` - Gets the output target.
+    - `RenderTypes`
+        - `entityCutoutNoCull` -> `entityCutout`
+            - The original cutout with cull is replaced by `entityCutoutCull`
+        - `entityCutoutNoCullZOffset` -> `entityCutoutZOffset`
+        - `entitySmoothCutout` -> `endCrystalBeam`
+        - `entityNoOutline` -> `entityTranslucent` with `affectsOutline` as `false`
+        - `entityDecal`, `dragonExplosionAlpha` -> `entityCutoutDissolve`, not one-to-one
+        - `itemEntityTranslucentCull` -> `entityTranslucentCullItemTarget`, `itemCutout`, `itemTranslucent`; not one-to-one
+- `net.minecraft.client.renderer.special.SpecialModelRenderer$BakingContext`
+    - `materials` -> `sprites`
+    - `$Simple#materials` -> `sprites`
+- `net.minecraft.client.renderer.state`
+    - `CameraEntityRenderState` - The render state for the camera entity.
+    - `CameraRenderState`
+        - `xRot`, `yRot` - The rotation of the camera.
+        - `entityPos` is removed
+        - `isPanoramicMode` - Whether the camera is in panorama mode.
+        - `cullFrustum` - The cull frustum.
+        - `fogType`, `fogData` - Fog metadata.
+        - `hudFov` - The hud field-of-view.
+        - `depthFar` - The depth Z far plane.
+        - `projectionMatrix`, `viewRotationMatrix` - The matrices for moving from world space to screen space.
+        - `entityRenderState` - The entity the camera is attached to.
+    - `LevelRenderState`
+        - `lastEntityRenderStateCount` - The number of entities being rendered to the screen.
+        - `cloudColor`, `cloudHeight` - Cloud metadata.
+    - `LightmapRenderState` - The render state for the lightmap.
+- `net.minecraft.client.renderer.texture`
+    - `MipmapGenerator#generateMipLevels` now takes in the computed `Transparency` of the image
+    - `SpriteContents`
+        - `transparency` - Gets the transparency of the sprite.
+        - `getUniqueFrames` now returns an `IntList` instaed of an `IntStream`
+        - `computeTransparency` - Computes the transparency of the selected UV bounds.
+        - `$AnimatedTexture#getUniqueFrames` now returns an `IntList` instaed of an `IntStream`
+    - `TextureAtlasSprite#transparency` - Gets the transparency of the sprite.
+- `net.minecraft.client.resources.model`
+    - `Material` -> `SpriteId`, not one-to-one
+    - `MaterialSet` -> `SpriteGetter`
+    - `ModelBaker`
+        - `sprites` -> `materials`
+        - `parts` -> `interner`
+        - `$PartCache` -> `$Interner`
+            - `vector(float, float, float)` is removed
+            - `spriteInfo` - Gets the interned sprite info object.
+    - `ModelBakery`
+        - `BANNER_BASE` -> `Sheets#BANNER_BASE`
+        - `SHIELD_BASE` -> `Sheets#SHIELD_BASE`
+        - `NO_PATTERN_SHIELD` -> `Sheets#SHIELD_BASE_NO_PATTERN`
+    - `ModelManager#BLOCK_OR_ITEM` is removed
+    - `QuadCollection#addAll` - Adds all elements from another quad collection.
+    - `ResolvedModel#resolveParticleSprite` -> `resolveParticleMaterial`, now returning a `Material$Baked` instead of a `TextureAtlasSprite`
+    - `SpriteGetter` -> `MaterialBaker`
+
 ## Minor Migrations
 
 The following is a list of useful or interesting additions, changes, and removals that do not deserve their own section in the primer.
@@ -2073,7 +2412,13 @@ Additionally, some animal models have been split into separate classes for the b
     - `CamelBabyAnimation` - Animations for the baby camel.
     - `FoxBabyAnimation` - Animations for the baby fox.
     - `RabbitAnimation` - Animations for the rabbit.
-- `net.minecraft.client.model.QuadrupedModel` now has a constructor that takes in a function for the `RenderType`
+- `net.minecraft.client.model`
+    - `HumanoidModel`
+        - `ADULT_ARMOR_PARTS_PER_SLOT`, `BABY_ARMOR_PARTS_PER_SLOT` - A map of equipment slot to model part keys.
+        - `createBabyArmorMeshSet` - Creates the armor model set for a baby humanoid.
+        - `createArmorMeshSet` can now take in a map of equipment slot to model part keys for what to retain
+        - `setAllVisible` is removed
+    - `QuadrupedModel` now has a constructor that takes in a function for the `RenderType`
 - `net.minecraft.client.model.animal.armadillo`
     - `AdultArmadilloModel` - Entity model for the adult armadillo.
     - `ArmadilloModel` is now abstract
@@ -2158,6 +2503,7 @@ Additionally, some animal models have been split into separate classes for the b
     - `AdultTurtleModel` - Entity model for the adult turtle.
     - `BabyTurtleModel` - Entity model for the baby turtle.
     - `TurtleModel` is now abstract
+        - The constructor can how take in the render type function
         - `BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyTurtleModel`
         - `createBodyLayer` -> `AdultTurtleModel#createBodyLayer`, `BabyTurtleModel#createBodyLayer`
 - `net.minecraft.client.model.animal.wolf`
@@ -2168,19 +2514,41 @@ Additionally, some animal models have been split into separate classes for the b
         - `createMeshDefinition` -> `AdultWolfModel#createBodyLayer`, `BabyWolfModel#createBodyLayer`; not one-to-one
         - `shakeOffWater` - Sets the body rotation when shaking off water.
         - `setSittingPose` - Sets the sitting pose of the wolf.
-- `net.minecraft.client.model.geom.ModelLayers`
-    - `COLD_CHICKEN_BABY` is removed
-    - `COLD_PIG_BABY` is removed
-    - `PIG_BABY_SADDLE` is removed
-    - `SHEEP_BABY_WOOL_UNDERCOAT` is removed
-    - `WOLF_BABY_ARMOR` is removed
-    - `DONKEY_BABY_SADDLE` is removed
-    - `HORSE_BABY_ARMOR` is removed
-    - `HORSE_BABY_SADDLE` is removed
-    - `MULE_BABY_SADDLE` is removed
-    - `SKELETON_HORSE_BABY_SADDLE` is removed
-    - `UNDEAD_HORSE_BABY_ARMOR` is removed
-    - `ZOMBIE_HORSE_BABY_SADDLE` is removed
+- `net.minecraft.client.model.geom`
+    - `ModelLayers`
+        - `COLD_CHICKEN_BABY` is removed
+        - `COLD_PIG_BABY` is removed
+        - `PIG_BABY_SADDLE` is removed
+        - `SHEEP_BABY_WOOL_UNDERCOAT` is removed
+        - `WOLF_BABY_ARMOR` is removed
+        - `DONKEY_BABY_SADDLE` is removed
+        - `HORSE_BABY_ARMOR` is removed
+        - `HORSE_BABY_SADDLE` is removed
+        - `MULE_BABY_SADDLE` is removed
+        - `SKELETON_HORSE_BABY_SADDLE` is removed
+        - `UNDEAD_HORSE_BABY_ARMOR` is removed
+        - `ZOMBIE_HORSE_BABY_SADDLE` is removed
+    - `PartNames#WAIST` - The waist part.
+- `net.minecraft.client.model.monster.piglin`
+    - `AbstractPiglinModel` is now abstract
+        - `leftSleeve`, `rightSleeve`, `leftPants`, `rightPants`, `jacket` are removed
+        - `ADULT_EAR_ANGLE_IN_DEGREES`, `BABY_EAR_ANGLE_IN_DEGREES` - The angle of the piglin ears.
+        - `createMesh` replaced by `AdultPiglinModel#createBodyLayer`, `AdultZombifiedPiglinModel#createBodyLayer`, `BabyPiglinModel#createBodyLayer`, `BabyZombifiedPiglinModel#createBodyLayer`
+        - `createBabyArmorMeshSet` - Create the armor meshes for the baby piglin model.
+        - `getDefaultEarAngleInDegrees` - Gets the default ear angle.
+    - `AdultPiglinModel` - Entity model for the adult piglin.
+    - `AdultZombifiedPiglinModel` - Entity model for the adult zombified piglin.
+    - `BabyPiglinModel` - Entity model for the baby piglin.
+    - `BabyZombifiedPiglinModel` - Entity model for the baby zombified piglin.
+    - `PiglinModel` is now abstract
+    - `ZombifiedPiglinModel` is now abstract
+- `net.minecraft.client.model.monster.zombie`
+    - `BabyDrownedModel` - Entity model for the baby drowned.
+    - `BabyZombieModel` - Entity model for the baby zombie.
+    - `BabyZombieVillagerModel` - Entity model for the baby zombie villager.
+- `net.minecraft.client.model.npc`
+    - `BabyVillagerModel` - Entity model for the baby villager.
+    - `VillagerModel#BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyVillagerModel` 
 - `net.minecraft.client.renderer.entity`
     - `AxolotlRenderer` now takes in an `EntityModel<AxolotlRenderState>` for its generic
     - `CamelHuskRenderer` now extends `MobRenderer` instead of `CamelRenderer`
@@ -2208,6 +2576,7 @@ Additionally, some animal models have been split into separate classes for the b
     - `RabbitRenderState`
         - `hopAnimationState` - The state of the hop the entity is performing.
         - `idleHeadTiltAnimationState` - The state of the head tilt when performing the idle animation.
+- `net.minecraft.client.resources.model.EquipmentClientInfo$LayerType#HUMANOID_BABY` - The baby humanoid equipment layer.
 - `net.minecraft.world.entity.AgeableMob`
     - `canUseGoldenDandelion` - Whether a golden dandelion can be used to agelock an entity.
     - `setAgeLocked` - Sets the entity as agelocked.
@@ -2265,27 +2634,6 @@ Now, `interact` is called with the entity hit
     - `interact` now takes in a `Vec3` for the location of the interaction
     - `interactAt` is removed
 - `net.minecraft.world.entity.player.Player#interactOn` now takes in a `Vec3` for the location of the interaction
-
-### Solid and Translucent Features
-
-Feature rendering has been further split into two passes: one for solid render types, and one for translucent render types. As such, most `render` methods now have a `renderSolid` and `renderTranslucent` method, respectively. Those which only render solid or translucent data only have one of the methods.
-
-- `net.minecraft.client.renderer.SubmitNodeCollector$ParticleGroupRenderer`
-    - `isEmpty` - Whether there are no particles to render in this group.
-    - `prepare` now takes whether the particles are being prepared for the translucent layer
-    - `render` no longer takes in the translucent `boolean`
-- `net.minecraft.client.renderer.features`
-    - Feature `render` methods have been split into `renderSolid` for solid render types, and `renderTranslucent` for see-through render types
-    - `FeatureRenderDispatcher`
-        - `renderAllFeatures` has been split into `renderSolidFeatures` and `renderTranslucentFeatures`
-            - The original method now calls both of these methods, first solid then translucent 
-        - `clearSubmitNodes` - Clears the submit node storage.
-        - `renderTranslucentParticles` - Renders collected translucent particles.
-    - `FlameFeatureRenderer#render` -> `renderSolid`
-    - `LeashFeatureRenderer#render` -> `renderSolid`
-    - `NameTagFeatureRenderer#render` -> `renderTranslucent`
-    - `ShadowFeatureRenderer#render` -> `renderTranslucent`
-    - `TextFeatureRenderer#render` -> `renderTranslucent`
 
 ### ChunkPos, now a record
 
@@ -2413,24 +2761,6 @@ protected Brain.Provider<ExampleEntity> makeBrain(Brain.Packed packedBrain) {
     - `PiglinBruteAi#makeBrain` -> `getActivities`, now `public`, not one-to-one
 - `net.minecraft.world.entity.monster.warden.WardenAi#makeBrain` -> `getActivities`, not one-to-one
 
-### Blaze3d Backends
-
-`CommandEncoder`, `GpuDevice`, and `RenderPassBackend` has been split into the `*Backend` interface, which functions similarly to the previous interface, and the wrapper class, which holds the backend and provides delegate calls, performing any validation necessary. The `*Backend` interfaces now explicitly perform the operation without checking whether the operation is valid.
-
-- `com.mojang.blaze3d.opengl`
-    - `GlCommandEncoder` now implements `CommandEncoderBackend` instead of `CommandEncoder`, the class now package-private
-        - `getDevice` is removed
-    - `GlDevice` now implements `GpuDeviceBackend` instead of `GpuDevice`, the class now package-private
-    - `GlRenderPass` now implements `RenderPassBackend` instead of `RenderPass`, the class now package-private
-        - The constructor now takes in the `GlDevice`
-- `com.mojang.blaze3d.systems`
-    - `CommandEncoder` -> `CommandEncoderBackend`
-        - The original interface is now a class wrapper around the interface, delegating to the backend after performing validation checks
-     - `GpuDevice` -> `GpuDeviceBackend`
-        - The original interface is now a class wrapper around the interface, delegating to the backend after performing validation checks
-     - `RenderPass` -> `RenderPassBackend`
-        - The original interface is now a class wrapper around the interface, delegating to the backend after performing validation checks
-
 ### File Fixer Upper
 
 The file fixer upper is a new system to help with upgrading game files between versions, in conjunction with the data fixer upper. Similar to how the data within files can be modified or 'upgraded' between Minecraft versions via data fixers, file fixers can modify anything within a world directory, from moving files and directories to deleting them outright. As such, file fixers are always applied before data fixers.
@@ -2441,6 +2771,7 @@ File fixers are applied through a `FileFix`, which defines some operation(s) to 
 
 The file fixes are then applied through the `FileFixerUpper`, which uses a copy-on-write file system to operate on the files. The fixer is constructed using the `$Builder`, using `addSchema` and `addFixer` to apply the fixers for the desired version. During the upgrade process, the files are created in a temporary folder, then moved to the world folder. The original world folder is moved to another folder before being deleted.
 
+- `net.minecraft.client.gui.screens.FileFixerAbortedScreen` - A screen that's shown when the file fixing has been aborted.
 - `net.minecraft.client.gui.screens.worldselection.FileFixerProgressScreen` - A screen that's displayed when attempting to show the progress of upgrading and fixing the world files.
 - `net.minecraft.server.packs.linkfs`
     - `DummyFileAttributes` -> `.minecraft.util.DummyFileAttributes`
@@ -2448,12 +2779,21 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
         - `DIRECTORY_ATTRIBUTES` -> `DummyFileAttributes#DIRECTORY`
         - `FILE_ATTRIBUTES` -> `DummyFileAttributes#FILE`
 - `net.minecraft.util`
+    - `ExtraCodecs`
+        - `PATH_CODEC` - A codec for a path, converting from a string and storing with Unix separators.
+        - `RELATIVE_NORMALIZED_SUB_PATH_CODEC` - A codec for a path, normalized and validated to make sure it is relative.
+        - `guardedPathCodec` - A codec for a path, resolved and relativatized from some base path.
     - `FileUtil#isPathNormalized`, `createPathToResource` are removed
     - `Util#safeMoveFile` - Safely moves a file from some source to a destination with the given options.
 - `net.minecraft.util.filefix`
+    - `AbortedFileFixException` - An exception thrown when the file fix has been aborted and was unable to revert moves.
+    - `AtmoicMoveNotSupportedFileFixException` - An exception thrown when the user file system does not support atomic moves.
+    - `FailedCleanupFileFixException` - An exception thrown when the file fix was not able to move or delete folders for cleanup.
     - `FileFix` - A fixer that performs some operation on a file. 
-    - `FileFixerUpper` - The file fixers to perform operations with. 
+    - `FileFixerUpper` - The file fixers to perform operations with.
+    - `FileFixException` - An exception thrown when attempting to upgrade a world through the file fixer.
     - `FileFixUtil` - A utility for performing some file operations.
+    - `FileSystemCapabilities` - The capabilities of the file system from a directory.
 - `net.minecraft.util.filefix.access`
     - `ChunkNbt` - Handles upgrading a chunk nbt.
     - `CompressedNbt` - Handles upgrading a compressed nbt file.
@@ -2481,6 +2821,7 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
     - `CopyOnWriteFSPath` - A path using the copy-on-write principle.
     - `CopyOnWriteFSProvider` - A file system provider using the copy-on-write principle.
     - `DirectoryNode` - A directory node for some copy-on-write file system path.
+    - `FileMove` - A record containing the path a file has been moved from to.
     - `FileNode` - A file node for some copy-on-write file system path.
     - `Node` - A node for some copy-on-write file system path.
 - `net.minecraft.util.filefix.virtualfilesystem.exception`
@@ -2554,18 +2895,9 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
 
 ### Specific Logic Changes
 
-- Some shaders within `assets/minecraft/shaders/core` now use `texture` over `texelFetch`.
-    - `entity.vsh`
-    - `item.vsh`
-    - `rendertype_leash.vsh`
-    - `rendertype_text.vsh`
-    - `rendertype_text_background.vsh`
-    - `rendertype_text_intensity.vsh`
-    - `rendertype_translucent_moving_block.vsh`
 - Picture-In-Picture submission calls are now taking in `0xF000F0` instead of `0x000000` for the light coordinates.
 - `net.minecraft.client.multiplayer.RegistryDataCollector#collectGameRegistries` `boolean` parameter now handles only updating components from synchronized registries along with tags.
 - `net.minecraft.client.renderer.RenderPipelines#VIGNETTE` now blends the alpha with a source of zero and a destination of one.
-- `net.minecraft.client.renderer.item.BlockModelWrapper` now uses `Sheets#cutoutBlockItemSheet` insteed of `cutoutBlockSheet` for non-translucent block items.
 - `net.minecraft.server.packs.PathPackResources#getResource`, `listPath`, `listResources` resolves the path using the identifier's namespace first.
 - `net.minecraft.world.entity.EntitySelector#CAN_BE_PICKED` can now find entities in spectator mode, assuming `Entity#isPickable` is true.
 - `net.minecraft.world.entity.ai.sensing.NearestVisibleLivingEntitySensor#requires` is no longer implemented by default.
@@ -2573,6 +2905,186 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
 - `net.minecraft.world.level.timers`
     - `FunctionCallback`, `FunctionTagCallback` now use `id` instead of `Name` when serializing
     - `TimerCallbacks` now uses `type` instead of `Type` when serializing
+
+### Chat Permissions
+
+The chat system now has an associated set of permissions indicating what messages the player can send or receive. `Permissions#CHAT_SEND_MESSAGES` and `CHAT_SEND_COMMANDS` determine if the player can send messages or commands, respectively. Likewise, `CHAT_RECEIVE_PLAYER_MESSAGES` and `CHAT_RECEIVE_SYSTEM_MESSAGES` if the player can receive messages from other players or the system, respectively. Note that all of these permissions are only handled clientside and are not validated serverside.
+
+- `net.minecraft.SharedConstants#DEBUG_CHAT_DISABLED` - A flag that disables the chat box.
+- `net.minecraft.client`
+    - `GuiMessage` -> `.multiplayer.chat.GuiMessage`
+    - `GuiMessageTag` -> `.multiplayer.chat.GuiMessageTag`
+    - `Minecraft`
+        - `getChatStatus` -> `computeChatAbilities`, not one-to-one
+        - `$ChatStatus` -> `ChatRestriction`, not one-to-one
+- `net.minecraft.client.gui.Gui#setChatDisabledByPlayerShown`, `isShowingChatDisabledByPlayer` - Handles whether the chat is disabled by the shown player. 
+- `net.minecraft.client.gui.components`
+    - `ChatComponent`
+        - `GO_TO_RESTRICTIONS_SCREEN` - An identifier for redirecting to the restrictions screen.
+        - `setVisibleMessageFilter` - Sets the message filter function.
+        - `render`, `captureClickableText` now take in the `$DisplayMode` instead of a `boolean` for if the player is chatting
+        - `addMessage` is now private
+            - Split for use into `addClientSystemMessage`, `addServerSystemMessage`, `addPlayerMessage`
+        - `createScreen`, `openScreen` now take in the `ChatAbilities`
+        - `$DisplayMode` - How the chat should be displayed.
+    - `CommandSuggestions`
+        - `USAGE_FORMAT`, `USAGE_OFFSET_FROM_BOTTOM`, `LINE_HEIGHT` - Constants for showing the command suggestions.
+        - `setRestrictions` - Sets the restrictions of the messages that can be typed.
+        - `hasAllowedInput` - Whether the chat box can allow input.
+- `net.minecraft.client.gui.screens`
+    - `ChatScreen` now takes in the `ChatAbilities` and optionally whether to close on submission
+        - `USAGE_BACKGROUND_COLOR` - The background color of the command suggestions box.
+        - `$ChatConstructor#create` now takes in the `ChatAbilities`
+    - `InBedChatScreen` now takes in the `ChatAbilities`
+- `net.minecraft.client.gui.screens.multiplayer.RestrictionsScreen` - A screen for settings the restrictions of the player's chat box.
+- `net.minecraft.client.gui.screens.reporting.ReportPlayerScreen` now takes in a `boolean` for if the chat is disabled or blocked
+- `net.minecraft.client.multiplayer.chat`
+    - `ChatAbilities` - The set of restrictions the player has on chatting with the chat box.
+    - `ChatListener`
+        - `handleSystemMessage` `boolean` is now used for if the system is remote instead of overlay
+            - The overlay is now handled through `handleOverlay`
+    - `GuiMessageSource` - The source the message came from.
+- `net.minecraft.client.player.LocalPlayer` now takes in the `ChatAbilities`
+    - `chatAbilities`, `refreshChatAbilities` - Handles the chat abilities.
+- `net.minecraft.server.permissions.Permissions`
+    - `CHAT_SEND_MESSAGES` - If the player can send chat messages.
+    - `CHAT_SEND_COMMANDS` - If the player can send commands.
+    - `CHAT_RECEIVE_PLAYER_MESSAGES` - If the player can receive other player messages.
+    - `CHAT_RECEIVE_SYSTEM_MESSAGES` - If the player can receive system messages.
+    - `CHAT_PERMISSIONS` - A set of available chat permissions.
+- `net.minecraft.world.entity.player.Player#displayClientMessage` split into `sendSystemMessage` when overlay message was `false`, and `sendOverlayMessage` when the overlay message was `true`
+
+### More Entity Sound Variant Registries
+
+Cats, chickens, cows, and pigs now have sound variants: a databack registry object that specifies the sounds an entity plays. This does not need to be directly tied to an actual entity variant, as it only defines the sounds an entity plays, typically during `Mob#finalizeSpawn`.
+
+For cows:
+
+```json5
+// A file located at:
+// - `data/examplemod/cow_sound_variant/example_cow_sound.json`
+{
+    // The registry name of the sound event to play randomly on idle.
+    "ambient_sound": "minecraft:entity.cow.ambient",
+    // The registry name of the sound event to play when killed.
+    "death_sound": "minecraft:entity.cow.death",
+    // The registry name of the sound event to play when hurt.
+    "hurt_sound": "minecraft:entity.cow.hurt",
+    // The registry name of the sound event to play when stepping.
+    "step_sound": "minecraft:entity.cow.step"
+}
+```
+
+For chickens and pigs:
+
+```json5
+// A file located at:
+// - `data/examplemod/chicken_sound_variant/example_chicken_sound.json`
+// - `data/examplemod/pig_sound_variant/example_pig_sound.json`
+{
+    // The sounds played when an entity's age is greater than or equal to 0 (an adult).
+    "adult_sounds": {
+        // The registry name of the sound event to play randomly on idle.
+        "ambient_sound": "minecraft:entity.pig.ambient",
+        // The registry name of the sound event to play when killed.
+        "death_sound": "minecraft:entity.pig.death",
+        // The registry name of the sound event to play when hurt.
+        "hurt_sound": "minecraft:entity.pig.hurt",
+        // The registry name of the sound event to play when stepping.
+        "step_sound": "minecraft:entity.pig.step"
+    },
+    // The sounds played when an entity's age is less than 0 (a baby).
+    "baby_sounds": {
+        "ambient_sound": "minecraft:entity.baby_pig.ambient",
+        "death_sound": "minecraft:entity.baby_pig.death",
+        "hurt_sound": "minecraft:entity.baby_pig.hurt",
+        "step_sound": "minecraft:entity.baby_pig.step"
+    }
+}
+```
+
+For cats:
+
+```json5
+// A file located at:
+// - `data/examplemod/cat_sound_variant/example_cat_sound.json`
+{
+    // The sounds played when an entity's age is greater than or equal to 0 (an adult).
+    "adult_sounds": {
+        // The registry name of the sound event to play randomly on idle when tamed.
+        "ambient_sound": "minecraft:entity.cat.ambient",
+        // The registry name of the sound event to play when non-tamed and tempted by food.
+        "beg_for_food_sound": "minecraft:entity.cat.beg_for_food",
+        // The registry name of the sound event to play when killed.
+        "death_sound": "minecraft:entity.cat.death",
+        // The registry name of the sound event to play when fed.
+        "eat_sound": "minecraft:entity.cat.eat",
+        // The registry name of the sound event to play when hissing, typically at a pursuing phantom.
+        "hiss_sound": "minecraft:entity.cat.hiss",
+        // The registry name of the sound event to play when hurt.
+        "hurt_sound": "minecraft:entity.cat.hurt",
+        // The registry name of the sound event to play when purring, typically when in love or lying down.
+        "purr_sound": "minecraft:entity.cat.purr",
+        // The registry name of the sound event to play randomly on idle when tamed 25% of the time.
+        "purreow_sound": "minecraft:entity.cat.purr",
+        // The registry name of the sound event to play randomly on idle when not tamed.
+        "stray_ambient_sound": "minecraft:entity.cat.ambient"
+    },
+    // The sounds played when an entity's age is less than 0 (a baby).
+    "baby_sounds": {
+        "ambient_sound": "minecraft:entity.baby_cat.ambient",
+        "beg_for_food_sound": "minecraft:entity.baby_cat.beg_for_food",
+        "death_sound": "minecraft:entity.baby_cat.death",
+        "eat_sound": "minecraft:entity.baby_cat.eat",
+        "hiss_sound": "minecraft:entity.baby_cat.hiss",
+        "hurt_sound": "minecraft:entity.baby_cat.hurt",
+        "purr_sound": "minecraft:entity.baby_cat.purr",
+        "purreow_sound": "minecraft:entity.baby_cat.purr",
+        "stray_ambient_sound": "minecraft:entity.baby_cat.ambient"
+    }
+}
+```
+
+- `net.minecraft.core.registries.Registries`
+    - `CAT_SOUND_VARIANT` - The registry key for the sounds a cat should make.
+    - `CHICKEN_SOUND_VARIANT` - The registry key for the sounds a chicken should make.
+    - `COW_SOUND_VARIANT` - The registry key for the sounds a cow should make.
+    - `PIG_SOUND_VARIANT` - The registry key for the sounds a pig should make.
+- `net.minecraft.network.synched.EntityDataSerializers`
+    - `CAT_SOUND_VARIANT` - The entity serializer for the sounds a cat should make.
+    - `CHICKEN_SOUND_VARIANT` - The entity serializer for the sounds a chicken should make.
+    - `COW_SOUND_VARIANT` - The entity serializer for the sounds a cow should make.
+    - `PIG_SOUND_VARIANT` - The entity serializer for the sounds a pig should make.
+- `net.minecraft.sounds.SoundEvents`
+    - `CAT_*` sounds are now either `Holder$Reference`s or stored in the map of `CAT_SOUNDS`
+    - `CHICKEN_*` sounds are now either `Holder$Reference`s or stored in the map of `CHICKEN_SOUNDS`
+    - `COW_*` sounds are stored in the map of `COW_SOUNDS`
+    - `PIG_*` sounds are now either `Holder$Reference`s or stored in the map of `PIG_SOUNDS`
+- `net.minecraft.world.entity.animal.chicken`
+    - `ChickenSoundVariant` - The sounds that are played for a chicken variant.
+    - `ChickenSoundVariants` - All vanilla chicken variants.
+- `net.minecraft.world.entity.animal.cow`
+    - `AbstractCow#getSoundSet` - Gets the sounds a cow makes.
+    - `CowSoundVariant` - The sounds that are played for a cow variant.
+    - `CowSoundVariants` - All vanilla cow variants.
+- `net.minecraft.world.entity.animal.feline`
+    - `CatSoundVariant` - The sounds that are played for a cat variant.
+    - `CatSoundVariants` - All vanilla cat variants.
+- `net.minecraft.world.entity.animal.chicken`
+    - `ChickenSoundVariant` - The sounds that are played for a chicken variant.
+    - `ChickenSoundVariants` - All vanilla chicken variants.
+- `net.minecraft.world.entity.animal.pig`
+    - `PigSoundVariant` - The sounds that are played for a pig variant.
+    - `PigSoundVariants` - All vanilla pig variants.
+
+### Data Component Additions
+
+- `dye` - Sets the item as a dye material, used in specific circumstances.
+- `additional_trade_cost` - A modifier that offsets the trade cost by the specified amount.
+- `pig/sound_variant` - The sounds a pig should make.
+- `cow/sound_variant` - The sounds a cow should make.
+- `chicken/sound_variant` - The sounds a chicken should make.
+- `cat/sound_variant` - The sounds a cat should make.
 
 ### Environment Attribute Additions
 
@@ -2724,14 +3236,8 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
     - `RenderPipelines`
         - `LINES_DEPTH_BIAS` - A render pipeline that sets the polygon depth offset factor to -1 and the units to -1.
         - `ENTITY_CUTOUT_DISSOLVE` - A render pipeline that dissolves an entity model into the background using a mask sampler.
-    - `Sheets`
-        - `translucentBlockSheet` - A cullable entity item translucent render type using the block atlas.
-        - `cutoutBlockItemSheet` - An item cutout render type using the block atlas.
 - `net.minecraft.client.renderer.rendertype.RenderType#hasBlending` - Whether the pipeline has a defined blend function.
-- `net.minecraft.client.renderer.state`
-    - `LevelRenderState#lastEntityRenderStateCount` - The number of entities being rendered to the screen.
-    - `LightmapRenderState` - The render state for the lightmap.
-- `net.minecraft.core.component.DataComponents#ADDITIONAL_TRADE_COST` - A modifier that offsets the trade cost by the specified amount.
+- `net.minecraft.commands.ArgumentVisitor` - A helper for visiting the arguments for a command.
 - `net.minecraft.core.component.predicates`
     - `DataComponentPredicates#VILLAGER_VARIANT` - A predicate that checks a villager type.
     - `VillagerTypePredicate` - A predicate that checks a villager's type.
@@ -2755,6 +3261,9 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
     - `GameTestHelper`
         - `getBoundsWithPadding` - Gets the bounding box of the test area with the specified padding.
         - `runBeforeTestEnd` - Runs the runnable at one tick before the test ends.
+        - `despawnItem` - Despawns all item entities within the distance of the position.
+        - `discard` - Discards the entity.
+        - `setTime` - Sets the time of the dimension's default clock.
     - `GameTestInstance#padding` - The number of blocks spaced around each game test.
     - `GameTestSequence#thenWaitAtLeast` - Waits for at least the specified number of ticks before running the runnable.
 - `net.minecraft.network.protocol.game`
@@ -2775,10 +3284,12 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
     - `Identifier`
         - `ALLOWED_NAMESPACE_CHARACTERS` - The characters allowed in an identifier's namespace.
         - `resolveAgainst` - Resolves the path from the given root by checking `/<namespace>/<path>`.
-- `net.minecraft.server.MinecraftServer`
-    - `DEFAULT_GAME_RULES` - The supplied default game rules for a server.
-    - `warnOnLowDiskSpace` - Sends a warning if the disk space is below 64 MiB.
-    - `sendLowDiskSpaceWarning` - Sends a warning for low disk space.
+- `net.minecraft.server`
+    - `Bootstrap#shutdownStdout` - Closes the stdout stream.
+    - `MinecraftServer`
+        - `DEFAULT_GAME_RULES` - The supplied default game rules for a server.
+        - `warnOnLowDiskSpace` - Sends a warning if the disk space is below 64 MiB.
+        - `sendLowDiskSpaceWarning` - Sends a warning for low disk space.
 - `net.minecraft.server.commands.SwingCommand` - A command that calls `LivingEntity#swing` for all targets.
 - `net.minecraft.server.packs.AbstractPackResources#loadMetadata` - Loads the root `pack.mcmeta`.
 - `net.minecraft.server.packs.resources.ResourceMetadata$MapBased` - A resource metadata that stores the sections in a map.
@@ -2786,6 +3297,7 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
 - `net.minecraft.util`
     - `LightCoordsUtil` - A utility for determining the light coordinates from light values.
     - `ProblemReporter$MapEntryPathElement` - A path element for some entry key in a map.
+- `net.minecraft.util.thread.BlockableEventLoop#hasDelayedCrash` - Whether there is a crash report queued.
 - `net.minecraft.world.InteractionHand#STREAM_CODEC` - The network codec for the interaction hand.
 - `net.minecraft.world.entity`
     - `AgeableMob`
@@ -2817,6 +3329,11 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
     - `MOB_INVENTORY_SIZE` - The size of a mob's inventory.
 - `net.minecraft.world.item.component.BundleContents#BEEHIVE_WEIGHT` - The weight of a beehive.
 - `net.minecraft.world.item.enchantment.EnchantmentTarget#NON_DAMAGE_CODEC` - A codec that only allows the attacker and victim enchantment targets.
+- `net.minecraft.world.level.block.state.properties.NoteBlockInstrument`
+    - `TRUMPET` - The sound a copper block makes when placed under a note block.
+    - `TRUMPET_EXPOSED` - The sound an exposed copper block makes when placed under a note block.
+    - `TRUMPET_OXIDIZED` - The sound an oxidized copper block makes when placed under a note block.
+    - `TRUMPET_WEATHERED` - The sound a weathered copper block makes when placed under a note block.
 - `net.minecraft.world.level.dimension.DimensionDefaults`
     - `BLOCK_LIGHT_TINT` - The default tint for the block light.
     - `NIGHT_VISION_COLOR` - The default color when in night vision.
@@ -2835,10 +3352,6 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
 
 ### List of Changes
 
-- `assets/minecraft/shaders/core`
-    - `block.vsh#minecraft_sample_lightmap` -> `smooth_lighting.glsl#minecraft_sample_lightmap`
-    - `rendertype_entity_alpha`, `rendertype_entity_decal` merged into `entity.fsh` using a `DissolveMaskSampler`
-    - `rendertype_item_entity_translucent_cull` -> `item`, not one-to-one
 - `com.mojang.blaze3d.opengl`
     - `GlDevice` now takes in a `GpuDebugOptions` containing the log level, whether to use synchronous logs, and whether to use debug labels instead of those parameters being passed in directly
     - `GlProgram#BUILT_IN_UNIFORMS`, `INVALID_PROGRAM` are now final
@@ -2907,15 +3420,6 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
         - `block` -> `LightCoordsUtil#block`
         - `sky` -> `LightCoordsUtil#sky`
         - `lightCoordsWithEmission` -> `LightCoordsUtil#lightCoordsWithEmission`
-    - `RenderPipelines`
-        - `ENTITY_CUTOUT_NO_CULL` -> `ENTITY_CUTOUT`
-            - The original cutout with cull is replaced by `ENTITY_CUTOUT_CULL`
-        - `ENTITY_CUTOUT_NO_CULL_Z_OFFSET` -> `ENTITY_CUTOUT_Z_OFFSET`
-        - `ENTITY_SMOOTH_CUTOUT` -> `END_CRYSTAL_BEAM`
-        - `ENTITY_NO_OUTLINE` replaced by `ENTITY_TRANSLUCENT`, render type constructed with affects outline being false
-        - `ENTITY_DECAL`, `DRAGON_EXPLOSION_ALPHA` -> `ENTITY_CUTOUT_DISSOLVE`, not one-to-one
-        - `ITEM_ENTITY_TRANSLUCENT_CULL` -> `ENTITY_TRANSLUCENT_CULL`, `ITEM_CUTOUT`, `ITEM_TRANSLUCENT`; not one-to-one
-    - `Sheets#bannerSheet` -> `RenderTypes#entityTranslucent`, not one-to-one
     - `VirtualScreen` replaced by `GpuBackend`
     - `WeatherEffectRenderer#render` no longer takes in the `MultiBufferSource`
 - `net.minecraft.client.renderer.block.ModelBlockRenderer$Cache#getLightColor` -> `getLightCoords`
@@ -2927,17 +3431,9 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
     - `FallingBlockRenderState#movingBlockRenderState` is now final
     - `HumanoidRenderState#attackArm` -> `ArmedEntityRenderState#attackArm`
     - `WitherRenderState#xHeadRots`, `yHeadRots` are now final
-- `net.minecraft.client.renderer.rendertype.RenderTypes`
-    - `entityCutoutNoCull` -> `entityCutout`
-        - The original cutout with cull is replaced by `entityCutoutCull`
-        - `entityCutoutNoCullZOffset` -> `entityCutoutZOffset`
-        - `entitySmoothCutout` -> `endCrystalBeam`
-        - `entityNoOutline` -> `entityTranslucent` with `affectsOutline` as `false`
-        - `entityDecal`, `dragonExplosionAlpha` -> `entityCutoutDissolve`, not one-to-one
-        - `itemEntityTranslucentCull` -> `entityTranslucentCullItemTarget`, `itemCutout`, `itemTranslucent`; not one-to-one
 - `net.minecraft.client.renderer.state.BlockBreakingRenderState#progress` is now final
 - `net.minecraft.client.resources.sounds.AbstractSoundInstance#random` is now final
-- `net.minecraft.core.WritableRegistry#bindTag` -> `bindTags`, now taking in a map of keys to holder lists instead of one mapping
+- `net.minecraft.commands.SharedSuggestionProvider#getCustomTabSugggestions` -> `getCustomTabSuggestions`
 - `net.minecraft.data`
     - `BlockFamily`
         - `shouldGenerateRecipe` -> `shouldGenerateCraftingRecipe`, `shouldGenerateStonecutterRecipe`
@@ -2957,7 +3453,10 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
     - `SingleItemRecipeBuilder#stonecutting` moved to a parameter on the `BlockFamily`
 - `net.minecraft.data.structures.SnbtToNbt` now has an overload that takes in a single input folder path
 - `net.minecraft.gametest.framework`
-    - `GameTestHelper#assertBlockPresent` now has an overload that only takes in the block to check for
+    - `GameTestHelper`
+        - `assertBlockPresent` now has an overload that only takes in the block to check for
+        - `moveTo` now has overloads for taking in the `BlockPos` and `Vec3` for the position
+        - `assertEntityInstancePresent` now has an overload that inflates (via a `double`) the bounding box to check entities within
     - `GameTestServer#create` now takes in an `int` for the number of times to run all matching tests
     - `StructureUtils#testStructuresDir` split into `testStructuresTargetDir`, `testStructuresSourceDir`
     - `TestData` now takes in an `int` for the number of blocks padding around the test
@@ -2972,9 +3471,13 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
     - `ClientboundSetEntityMotionPacket` is now a record
     - `ServerboundContainerClickPacket` now takes in a `ContainerInput` instead of a `ClickType`
     - `ServerboundInteractPacket` is now a record, now taking in the `Vec3` interaction location
+- `net.minecraft.references.Blocks` -> `BlockIds`
 - `net.minecraft.resources`
     - `FileToIdConverter` is now a record
     - `RegistryDataLoader#load` now returns a `CompletableFuture` of the frozen registry access
+- `net.minecraft.server.MinecraftServer` now takes in a `boolean` of whether to propogate crashes, usually to throw a delayed crash
+    - `throwIfFatalException` -> `BlockableEventLoop#throwDelayedException`, now private, not one-to-one
+    - `setFatalException` -> `BlockableEventLoop#delayCrash`, `relayDelayCrash`; not one-to-one
 - `net.minecraft.server.commands.ChaseCommand#DIMENSION_NAMES` is now final
 - `net.minecraft.server.dedicated.DedicatedServerProperties#acceptsTransfers` is now final
 - `net.minecraft.server.packs`
@@ -2991,6 +3494,9 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
     - `pack` -> `LightCoordsUtil#pack`
     - `block` -> `LightCoordsUtil#block`
     - `sky` -> `LightCoordsUtil#sky`
+- `net.minecraft.util.thread`
+    - `BlockableEventLoop` now takes in a `boolean` of whether to propogate crashes, usually to throw a delayed crash
+    - `ReentrantBlockableEventLoop` now takes in a `boolean` of whether to propogate crashes, usually to throw a delayed crash
 - `net.minecraft.world.InteractionResult$ItemContext#NONE`, `DEFAULT` are now final
 - `net.minecraft.world.entity`
     - `Entity`
@@ -3002,6 +3508,7 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
         - `canAttackType` -> `canAttack`, not one-to-one, taking in the `LivingEntity` instead of the `EntityType`
         - `lungeForwardMaybe` -> `postPiercingAttack`
         - `entityAttackRange` -> `getAttackRangeWith`, now taking in the `ItemStack` used to attack
+    - `Mob#setPersistenceRequired` now has an overload that takes in the `boolean` value to set
 - `net.minecraft.world.entity.ai.behavior`
     - `GoAndGiveItemsToTarget` now takes in the `$ItemThrower`
         - `throwItem` -> `BehaviorUtils#throwItem`, not one-to-one
@@ -3065,6 +3572,9 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
     - `BubbleColumnBlock#updateColumn` now takes in the bubble column `Block`
     - `FireBlock#setFlammable` is now `private` from `public`
     - `MultifaceSpreader$DefaultSpreaderConfig#block` is now final
+    - `SnowyDirtBlock` -> `SnowyBlock`
+    - `SpreadingSnowyDirtBlock` -> `SpreadingSnowyBlock`
+        - The constructor now takes in the `ResourceKey` for the 'base' block, or the block when the snow or any other decoration (e.g. grass) is removed
 - `net.minecraft.world.level.block.entity.TestInstanceBlockEntity`  
     - `getTestBoundingBox` - The bounding box of the test inflated by its padding.
     - `getTestBounds` -  The axis aligned bounding box of the test inflated by its padding.
@@ -3129,6 +3639,7 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
 
 - `net.minecraft.SharedConstants#USE_WORKFLOWS_HOOKS`
 - `net.minecraft.client.data.models.BlockModelGenerators#createGenericCube`
+- `net.minecraft.client.Minecraft#delayCrashRaw`
 - `net.minecraft.client.gui.components.EditBox#setFilter`
 - `net.minecraft.client.gui.render.state.GuiItemRenderState#name`
 - `net.minecraft.client.multiplayer.ClientPacketListener#getId`
