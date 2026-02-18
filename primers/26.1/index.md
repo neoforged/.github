@@ -10,6 +10,7 @@ Thank you to:
 
 - @Shnupbups for some grammatical fixes
 - @cassiancc for information about Java 25 IDE support
+- @boq for information regarding IME support
 
 ## Pack Changes
 
@@ -2001,6 +2002,10 @@ Both `QuadBrightness` and `QuadLightmapCoords` can only be created through its m
 
 In addition, methods used to upload `BakedQuad`s to a buffer now take in a `BakedQuadOutput`. This has the same parameters as `VertexConsumer#putBulkData`, and was added due to the section renderer uploading to a created `BufferBuilder` for use with the uber buffer.
 
+## Name Tag Offsets
+
+`EntityRenderer#submitNameTag` has been renamed to `submitNameDisplay`, now optionally taking in the y offset from the name tag attachment.
+
 ### Blaze3d Backends
 
 `CommandEncoder`, `GpuDevice`, and `RenderPassBackend` has been split into the `*Backend` interface, which functions similarly to the previous interface, and the wrapper class, which holds the backend and provides delegate calls, performing any validation necessary. The `*Backend` interfaces now explicitly perform the operation without checking whether the operation is valid.
@@ -2034,8 +2039,11 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
     - `GlRenderPass` now implements `RenderPassBackend` instead of `RenderPass`, the class now package-private
         - The constructor now takes in the `GlDevice`
 - `com.mojang.blaze3d.platform`
+    - `DebugMemoryUntracker#untrack` is removed
+    - `GLX#make(T, Consumer)` is removed
     - `NativeImage#computeTransparency` - Returns whether there is at least one transparent or translucent pixel in the image.
     - `Transparency` - An object of whether some image has a translucent and/or transparent pixel.
+    - `Window` now takes in a list of `GpuBackend`s, the default `ShaderSource`, and the `GpuDebugOptions` instead of the `ScreenManager`
 - `com.mojang.blaze3d.systems`
     - `CommandEncoder` -> `CommandEncoderBackend`
         - The original interface is now a class wrapper around the interface, delegating to the backend after performing validation checks
@@ -2050,7 +2058,11 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
     - `TlsfAllocator` - A two-level segregate fit allocator for dynamic memory allocation.
     - `UberGpuBuffer` - A buffer for uploading dynamically sized data to the GPU, used for chunk section layers.
     - `VertexConsumer#putBulkData` now takes in a `QuadBrightness` instead of a `float` array, an `int` instead of four `float`s for the color, and a `QuadLightmapCoords` instead on an `int` array
-- `net.minecraft.client.Camera`
+- `net.minecraft.SharedConstants`
+    - `DEBUG_DUMP_INTERPOLATED_TEXTURE_FRAMES` is removed
+    - `DEBUG_PREFER_WAYLAND` - When true, prevents the platform initialization hint from being set to X11 if both Wayland and X11 are supported.
+- `net.minecraft.client`
+    - `Camera`
         - `BASE_HUD_FOV` - The base hud field-of-view.
         - `setup` -> `update`, not one-to-one
         - `extractRenderState` - Extract the state of the camera.
@@ -2061,6 +2073,9 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
         - `panoramicForwards` - The forward vector when in panorama mode.
         - `getPartialTickTime` is removed
         - `setLevel` - Sets the level the camera is in.
+        - `getCameraEntityPartialTicks` - Gets the partial tick based on the state of the entity.
+    - `DeltaTracker#advanceTime` replaced by `advanceGameTime` when the `boolean` was `true`, and `advanceRealTime`
+        - `advanceGameTime`, `advanceRealTime` were previously `private`, now `public`
 - `net.minecraft.client.data.models`
     - `BlockModelGenerators`
         - `createSuffixedVariant` now takes in a function of `Material` to `TextureMapping` for the textures instead of just an `Identifier`
@@ -2077,6 +2092,7 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
         - `defaultTexture`, `cube`, `cross`, `plant`, `rail`, `wool`, `crop`, `singleSlot`, `particle`, `torch`, `cauldron`, `layer0` now take in a `Material` instead of an `Identifier` for the texture
         - `column`, `door`, `layered` now take in `Material`s instead of `Identifier`s for the textures
         - `getBlockTeture`, `getItemTexture` now return a `Material` instead of an `Identifier` for the texture
+- `net.minecraft.client.entity.ClientAvatarEntity#belowNameDisplay` -> `Entity#belowNameDisplay`
 - `net.minecraft.client.gui.components.DebugScreenOverlay#render3dCrosshair` now takes in the `CameraRenderState` instead of the `Camera`
 - `net.minecraft.client.particle.SingleQuadParticle$Layer`
     - `TERRAIN` -> `OPAQUE_TERRAIN`, `TRANSLUCENT_TERRAIN`
@@ -2183,8 +2199,10 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
         - `$SectionTaskResult` -> `$RenderSection$CompileTask$SectionTaskResult`
 - `net.minecraft.client.renderer.culling.Frustum#set` - Copies the information from another frustum.
 - `net.minecraft.client.renderer.entity`
+    - `EntityRenderer#submitNameTag` -> `submitNameDisplay`, now optionally taking in the y position `int` as an offset from the name tag attachment
     - `EntityRendererProvider$Context#getMaterials` -> `getSprites`
     - `ItemRenderer#renderItem` no longer takes in the `RenderType`
+- `net.minecraft.client.renderer.entity.state.AvatarRenderState#scoreText` -> `EntityRenderState#scoreText`
 - `net.minecraft.client.renderer.features`
     - Feature `render` methods have been split into `renderSolid` for solid render types, and `renderTranslucent` for see-through render types
     - `FeatureRenderDispatcher`
@@ -2481,6 +2499,9 @@ Additionally, some animal models have been split into separate classes for the b
 - `net.minecraft.client.model.animal.llama`
     - `BabyLlamaModel` - Entity model for the baby llama.
     - `LlamaModel#createBodyLayer` no longer takes in the `boolean` for if the entity is a baby
+- `net.minecraft.client.model.animal.panda`
+    - `BabyPandaModel` - Entity model for the baby panda.
+    - `PandaModel#BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyPandaModel`
 - `net.minecraft.client.model.animal.pig.BabyPigModel` - Entity model for the baby pig.
 - `net.minecraft.client.model.animal.polarbear`
     - `BabyPolarBearModel` - Entity model for the baby polar bear.
@@ -2496,6 +2517,9 @@ Additionally, some animal models have been split into separate classes for the b
 - `net.minecraft.client.model.animal.sheep`
     - `BabySheepModel` - Entity model for the baby sheep.
     - `SheepModel#BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabySheepModel`
+- `net.minecraft.client.model.animal.sniffer`
+    - `SnifferModel#BABY_TRANSFORMER` has been directly merged into the layer definition for the `SniffletModel`
+    - `SniffletModel` - Entity model for the baby sniffer.
 - `net.minecraft.client.model.animal.squid`
     - `BabySquidModel` - Entity model for the baby squid.
     - `SquidModel#createTentacleName` is now protected from private
@@ -2528,7 +2552,14 @@ Additionally, some animal models have been split into separate classes for the b
         - `SKELETON_HORSE_BABY_SADDLE` is removed
         - `UNDEAD_HORSE_BABY_ARMOR` is removed
         - `ZOMBIE_HORSE_BABY_SADDLE` is removed
+        - `STRIDER_BABY_SADDLE` is removed
     - `PartNames#WAIST` - The waist part.
+- `net.minecraft.client.model.monster.hoglin`
+    - `BabyHoglinModel` - Entity model for the baby hoglin.
+    - `HoglinModel`
+        - `BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyHoglinModel`
+        - `head` is now `protected` from `private`
+        - `createBabyLayer` -> `BabyHoglinModel#createBodyLayer`
 - `net.minecraft.client.model.monster.piglin`
     - `AbstractPiglinModel` is now abstract
         - `leftSleeve`, `rightSleeve`, `leftPants`, `rightPants`, `jacket` are removed
@@ -2542,6 +2573,14 @@ Additionally, some animal models have been split into separate classes for the b
     - `BabyZombifiedPiglinModel` - Entity model for the baby zombified piglin.
     - `PiglinModel` is now abstract
     - `ZombifiedPiglinModel` is now abstract
+- `net.minecraft.client.model.monster.strider`
+    - `AdultStriderModel` - Entity model for the adult strider.
+    - `BabyStriderModel` - Entity model for the baby strider.
+    - `StriderModel` is now abstract
+        - `BABY_TRANSFORMER` has been directly merged into the layer definition for the `BabyStriderModel`
+        - `rightLeg`, `leftLeg`, `body` are now `protected` from `private`
+        - `SPEED` - The speed scalar of the movement animation.
+        - `customAnimations` - Additional animation setup.
 - `net.minecraft.client.model.monster.zombie`
     - `BabyDrownedModel` - Entity model for the baby drowned.
     - `BabyZombieModel` - Entity model for the baby zombie.
@@ -2780,14 +2819,17 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
         - `FILE_ATTRIBUTES` -> `DummyFileAttributes#FILE`
 - `net.minecraft.util`
     - `ExtraCodecs`
-        - `PATH_CODEC` - A codec for a path, converting from a string and storing with Unix separators.
-        - `RELATIVE_NORMALIZED_SUB_PATH_CODEC` - A codec for a path, normalized and validated to make sure it is relative.
+        - `pathCodec` - A codec for a path, converting from a string and storing with Unix separators.
+        - `relaiveNormalizedSubPathCodec` - A codec for a path, normalized and validated to make sure it is relative.
         - `guardedPathCodec` - A codec for a path, resolved and relativatized from some base path.
-    - `FileUtil#isPathNormalized`, `createPathToResource` are removed
+    - `FileUtil`
+        - `isPathNormalized`, `createPathToResource` are removed
+        - `isEmptyPath` - Returns whether the path is empty.
     - `Util#safeMoveFile` - Safely moves a file from some source to a destination with the given options.
 - `net.minecraft.util.filefix`
     - `AbortedFileFixException` - An exception thrown when the file fix has been aborted and was unable to revert moves.
     - `AtmoicMoveNotSupportedFileFixException` - An exception thrown when the user file system does not support atomic moves.
+    - `CanceledFileFixException` - An exception thrown when the file fix upgrade proccess is canceled.
     - `FailedCleanupFileFixException` - An exception thrown when the file fix was not able to move or delete folders for cleanup.
     - `FileFix` - A fixer that performs some operation on a file. 
     - `FileFixerUpper` - The file fixers to perform operations with.
@@ -2893,19 +2935,6 @@ The file fixes are then applied through the `FileFixerUpper`, which uses a copy-
         - `requiresFileFixing` - Whether the level requires file fixing.
         - `$BackupStatus#FILE_FIXING_REQUIRED` - Whether file fixing is require to play this level on this version.
 
-### Specific Logic Changes
-
-- Picture-In-Picture submission calls are now taking in `0xF000F0` instead of `0x000000` for the light coordinates.
-- `net.minecraft.client.multiplayer.RegistryDataCollector#collectGameRegistries` `boolean` parameter now handles only updating components from synchronized registries along with tags.
-- `net.minecraft.client.renderer.RenderPipelines#VIGNETTE` now blends the alpha with a source of zero and a destination of one.
-- `net.minecraft.server.packs.PathPackResources#getResource`, `listPath`, `listResources` resolves the path using the identifier's namespace first.
-- `net.minecraft.world.entity.EntitySelector#CAN_BE_PICKED` can now find entities in spectator mode, assuming `Entity#isPickable` is true.
-- `net.minecraft.world.entity.ai.sensing.NearestVisibleLivingEntitySensor#requires` is no longer implemented by default.
-- `net.minecraft.world.level.levelgen.WorldOptions#generate_features` field in JSON has been renamed to `generate_structures` to match its java field name.
-- `net.minecraft.world.level.timers`
-    - `FunctionCallback`, `FunctionTagCallback` now use `id` instead of `Name` when serializing
-    - `TimerCallbacks` now uses `type` instead of `Type` when serializing
-
 ### Chat Permissions
 
 The chat system now has an associated set of permissions indicating what messages the player can send or receive. `Permissions#CHAT_SEND_MESSAGES` and `CHAT_SEND_COMMANDS` determine if the player can send messages or commands, respectively. Likewise, `CHAT_RECEIVE_PLAYER_MESSAGES` and `CHAT_RECEIVE_SYSTEM_MESSAGES` if the player can receive messages from other players or the system, respectively. Note that all of these permissions are only handled clientside and are not validated serverside.
@@ -2925,17 +2954,12 @@ The chat system now has an associated set of permissions indicating what message
         - `render`, `captureClickableText` now take in the `$DisplayMode` instead of a `boolean` for if the player is chatting
         - `addMessage` is now private
             - Split for use into `addClientSystemMessage`, `addServerSystemMessage`, `addPlayerMessage`
-        - `createScreen`, `openScreen` now take in the `ChatAbilities`
         - `$DisplayMode` - How the chat should be displayed.
     - `CommandSuggestions`
         - `USAGE_FORMAT`, `USAGE_OFFSET_FROM_BOTTOM`, `LINE_HEIGHT` - Constants for showing the command suggestions.
         - `setRestrictions` - Sets the restrictions of the messages that can be typed.
         - `hasAllowedInput` - Whether the chat box can allow input.
-- `net.minecraft.client.gui.screens`
-    - `ChatScreen` now takes in the `ChatAbilities` and optionally whether to close on submission
-        - `USAGE_BACKGROUND_COLOR` - The background color of the command suggestions box.
-        - `$ChatConstructor#create` now takes in the `ChatAbilities`
-    - `InBedChatScreen` now takes in the `ChatAbilities`
+- `net.minecraft.client.gui.screens.ChatScreen#USAGE_BACKGROUND_COLOR` - The background color of the command suggestions box.
 - `net.minecraft.client.gui.screens.multiplayer.RestrictionsScreen` - A screen for settings the restrictions of the player's chat box.
 - `net.minecraft.client.gui.screens.reporting.ReportPlayerScreen` now takes in a `boolean` for if the chat is disabled or blocked
 - `net.minecraft.client.multiplayer.chat`
@@ -3026,9 +3050,9 @@ For cats:
         // The registry name of the sound event to play when purring, typically when in love or lying down.
         "purr_sound": "minecraft:entity.cat.purr",
         // The registry name of the sound event to play randomly on idle when tamed 25% of the time.
-        "purreow_sound": "minecraft:entity.cat.purr",
+        "purreow_sound": "minecraft:entity.cat.purreow",
         // The registry name of the sound event to play randomly on idle when not tamed.
-        "stray_ambient_sound": "minecraft:entity.cat.ambient"
+        "stray_ambient_sound": "minecraft:entity.cat.stray_ambient"
     },
     // The sounds played when an entity's age is less than 0 (a baby).
     "baby_sounds": {
@@ -3039,8 +3063,8 @@ For cats:
         "hiss_sound": "minecraft:entity.baby_cat.hiss",
         "hurt_sound": "minecraft:entity.baby_cat.hurt",
         "purr_sound": "minecraft:entity.baby_cat.purr",
-        "purreow_sound": "minecraft:entity.baby_cat.purr",
-        "stray_ambient_sound": "minecraft:entity.baby_cat.ambient"
+        "purreow_sound": "minecraft:entity.baby_cat.purreow",
+        "stray_ambient_sound": "minecraft:entity.baby_cat.stray_ambient"
     }
 }
 ```
@@ -3076,6 +3100,97 @@ For cats:
 - `net.minecraft.world.entity.animal.pig`
     - `PigSoundVariant` - The sounds that are played for a pig variant.
     - `PigSoundVariants` - All vanilla pig variants.
+
+### Audio Changes
+
+Audio devices are now handled through the `DeviceTracker` which, depending on the backing machine, allows for either the machine to send system events when audio devices change, or using a standard polling interval to requery the list of available devices.
+
+- `com.mojang.blaze3d.audio`
+    - `AbstractDeviceTracker` - An abstract tracker for managing the changes of audio devices.
+    - `CallbackDeviceTracker` - A device tracker that uses the SOFT system events callback to determine changes.
+    - `DeviceList` - A list of all audio devices, including the default device, if available.
+    - `Library`
+        - `NO_DEVICE` is now `public` from `private`
+        - `init` now takes in the `DeviceList`
+        - `getDefaultDeviceName` moved to `DeviceList#defaultDevice`
+        - `getCurrentDeviceName` -> `currentDeviceName`
+        - `hasDefaultDeviceChanged` moved to `AbstractDeviceTracker`, not one-to-one
+        - `getAvailableSoundDevices` moved to `DeviceList`, not one-to-one
+        - `createDeviceTracker` - Creates the tracker for managing audio device changes.
+    - `PollingDeviceTracker` - A device tracker that uses polling intervals to determine changes.
+- `net.minecraft.client.Options`
+    - `DEFAULT_SOUND_DEVICE` is now `private` from `public`
+    - `isSoundDeviceDefault` - Checks if the device is the default audio device.
+- `net.minecraft.client.sounds`
+    - `DeviceTracker` - An interface for managing the changes of audio devices.
+    - `SoundEngine$DeviceCheckState` is removed
+
+### Input Message Editor Support
+
+Minecraft now has support for Input Message Editors (IME), which allow complex characters from languages like Chinese or Hindi to be inputted instead of the temporary preedit text. The preedit text is displayed as an overlay within the game, while any other IME features provided by the host OS. With this addition, support can be added within screens through `GuiEventListener#preeditUpdated`, or by using an existing vanilla widget which implements the method.
+
+- `com.mojang.blaze3d.platform`
+    - `InputConstants#setupKeyboardCallbacks` now takes in the `GLFWCharCallbackI` instead of `GLFWCharModsCallbackI` for the character typed callback, and `GLFWPreeditCallbackI` to handle inputting complex characters via an input method editor 
+    - `MessageBox` - A utility for creating OS native messages boxes.
+    - `Window#setIMEPreeditArea` - Sets the area where the predicted text cursor should appear.
+- `net.minecraft.client.gui.GuiGraphics`
+    - `setPreeditOverlay` - Sets the overlay drawing the preedit text.
+    - `renderDeferredElements` now takes in the `int`s for the mouse position and the game time delta ticks `float`
+- `net.minecraft.client.gui.components`
+    - `IMEPreeditOverlay` - The overlay for displaying the preedit text for an input message editor.
+    - `TextCursorUtils` - A utility for drawing the text cursor.
+- `net.minecraft.client.gui.components.events.GuiEventListener#preeditUpdated` - Listens for when the preedit text changes.
+- `net.minecraft.client.input`
+    - `CharacterEvent` no longer takes in the modifier `int` set
+    - `PreeditEvent` - An event containing the preedit text along with the cursor location.
+
+### Cauldron Interaction Dispatchers
+
+Cauldron interactions have been reorganized somewhat, with all registration being moved to `CauldronInteractions` from `CauldronInteraction`. In addition, the backing `$InteractionMap` for a cauldron type has been replaced with a `$Dispatcher` that can register interactions for both tags and items. Tags are checked before items.
+
+```java
+CauldronInteractions.EMPTY.put(
+    // The Item or TagKey to use
+    ItemTags.WOOL,
+    // The cauldron interaction to apply
+    (state, level, pos, player, hand, itemInHand) -> InteractionResult.TRY_WITH_EMPTY_HAND
+);
+```
+
+- `net.minecraft.core.cauldron`
+    - `CauldronInteraction`
+        - All fields regarding to registering interactions to a map have been moved to `CauldronInteractions`
+            - `INTERACTIONS` -> `CauldronInteractions#ID_MAPPER`, now `private`
+        - `DEFAULT` - The default interaction with a cauldron
+        - `$InteractionMap` -> `$Dispatcher`, not one-to-one
+    - `CauldronInteractions` - All vanilla cauldron interactions.
+
+### Fluid Logic Reorganization
+
+Generic entity fluid movement has been moved into a separate `EntityFluidInteraction` class, where all tracked fluids are updated and then potentially pushed by the current at a layer time. 
+
+- `net.minecraft.world.entity`
+    - `Entity`
+        - `updateInWaterStateAndDoFluidPushing` -> `updateFluidInteraction`, not one-to-one
+        - `updateFluidHeightAndDoFluidPushing` -> `EntityFluidInteraction#update`
+        - `getFluidInteractionBox` - Gets the bounding box of the entity during fluid interactions.
+        - `modifyPassengerFluidInteractionBox` - Returns the modified bounding box of the entity when riding in some vehicle. 
+    - `EntityFluidInteraction` - A handler for managing the fluid interactions and basic movement with an entity.
+- `net.minecraft.world.level.chunk.LevelChunkSection#hasFluid` - Whether the chunk section has a fluid block.
+
+### Specific Logic Changes
+
+- Picture-In-Picture submission calls are now taking in `0xF000F0` instead of `0x000000` for the light coordinates.
+- `net.minecraft.client.multiplayer.RegistryDataCollector#collectGameRegistries` `boolean` parameter now handles only updating components from synchronized registries along with tags.
+- `net.minecraft.client.renderer.RenderPipelines#VIGNETTE` now blends the alpha with a source of zero and a destination of one.
+- `net.minecraft.server.packs.PathPackResources#getResource`, `listPath`, `listResources` resolves the path using the identifier's namespace first.
+- `net.minecraft.world.entity.EntitySelector#CAN_BE_PICKED` can now find entities in spectator mode, assuming `Entity#isPickable` is true.
+- `net.minecraft.world.entity.ai.sensing.NearestVisibleLivingEntitySensor#requires` is no longer implemented by default.
+- `net.minecraft.world.level.levelgen.WorldOptions#generate_features` field in JSON has been renamed to `generate_structures` to match its java field name.
+- `net.minecraft.world.level.levelgen.blockpredicates.BlockPredicate#ONLY_IN_AIR_PREDICATE` now matches the air tag instead of just the air block.
+- `net.minecraft.world.level.timers`
+    - `FunctionCallback`, `FunctionTagCallback` now use `id` instead of `Name` when serializing
+    - `TimerCallbacks` now uses `type` instead of `Type` when serializing
 
 ### Data Component Additions
 
@@ -3215,9 +3330,12 @@ For cats:
         - `component` - The component of a tooltip to display.
         - `style` - The identifier used to compute the tooltip background and frame.
 - `net.minecraft.client.gui.components.debug`
+    - `DebugEntryDetailedMemory` - A debug entry displaying the detailed memory usage.
     - `DebugEntryLookingAt#getHitResult` - Gets the hit result of the camera entity.
     - `DebugEntryLookingAtEntityTags` - A debug entry for displaying an entity's tags.
-    - `DebugScreenEntries#LOOKING_AT_ENTITY_TAGS` - The identifier for the entity tags debug entry.
+    - `DebugScreenEntries`
+        - `DETAILED_MEMORY` - The identifier for the detailed memory usage debug entry.
+        - `LOOKING_AT_ENTITY_TAGS` - The identifier for the entity tags debug entry.
 - `net.minecraft.client.gui.navigation.FocusNavigationEvent$ArrowNavigation#with` - Sets the previous focus of the navigation.
 - `net.minecraft.client.gui.render`
     - `DynamicAtlasAllocator` - An allocator for handling a dynamically sized texture atlas.
@@ -3238,6 +3356,7 @@ For cats:
         - `ENTITY_CUTOUT_DISSOLVE` - A render pipeline that dissolves an entity model into the background using a mask sampler.
 - `net.minecraft.client.renderer.rendertype.RenderType#hasBlending` - Whether the pipeline has a defined blend function.
 - `net.minecraft.commands.ArgumentVisitor` - A helper for visiting the arguments for a command.
+- `net.minecraft.commands.arguments.selector.EntitySelector#COMPILABLE_CODEC` - A `CompilableString` codec wrapped around an `EntitySelectorParser`.
 - `net.minecraft.core.component.predicates`
     - `DataComponentPredicates#VILLAGER_VARIANT` - A predicate that checks a villager type.
     - `VillagerTypePredicate` - A predicate that checks a villager's type.
@@ -3250,6 +3369,7 @@ For cats:
     - `BlockFamily`
         - `$Builder#tiles`, `$Variant#TILES` - The block that acts as the tiles variant for some base block.
         - `$Builder#bricks`, `$Variant#BRICKS` - The block that acts as the bricks variant for some base block.
+        - `$Builder#cobbled`, `$Variant#COBBLED` - The block that acts as the cobbled variant from some base block.
     - `DataGenerator$Uncached` - A data generator which does not cache any information about the files generated.
 - `net.minecraft.data.recipes.RecipeProvider`
     - `bricksBuilder`, `tilesBuilder` - Builders for the bricks and tiles block variants.
@@ -3266,6 +3386,13 @@ For cats:
         - `setTime` - Sets the time of the dimension's default clock.
     - `GameTestInstance#padding` - The number of blocks spaced around each game test.
     - `GameTestSequence#thenWaitAtLeast` - Waits for at least the specified number of ticks before running the runnable.
+- `net.minecraft.nbt.TextComponentTagVisitor`
+    - `$PlainStyling` - A styling that stores the nbt in a component literal map.
+    - `$RichStyling` - A styling that stores the nbt with syntax highlighting and formatting.
+    - `$Styling` - An interface defining how the read tag should be styled.
+    - `$Token` - The tokens used to more richly represent the tag datas.
+- `net.minecraft.network.chat.contents.NbtContents#NBT_PATH_CODEC` - A `CompilableString` codec wrapped around a `NbtPathArgument$NbtPath`.
+- `net.minecraft.network.chat.contents.data.BlockDataSource#BLOCK_POS_CDEC` - A `CompilableString` codec wrapped around `Coordinates`.
 - `net.minecraft.network.protocol.game`
     - `ClientboundGameRuleValuesPacket` - A packet that sends the game rule values in string form to the client.
     - `ClientboundGamePacketListener#handleGameRuleValues` - Handles the game rule values sent from the server.
@@ -3291,10 +3418,12 @@ For cats:
         - `warnOnLowDiskSpace` - Sends a warning if the disk space is below 64 MiB.
         - `sendLowDiskSpaceWarning` - Sends a warning for low disk space.
 - `net.minecraft.server.commands.SwingCommand` - A command that calls `LivingEntity#swing` for all targets.
+- `net.minecraft.server.level.ServerPlayer#sendBuildLimitMessage` - Sends an overlay message if the player cannot build anymore in the cooresponding Y direction.
 - `net.minecraft.server.packs.AbstractPackResources#loadMetadata` - Loads the root `pack.mcmeta`.
 - `net.minecraft.server.packs.resources.ResourceMetadata$MapBased` - A resource metadata that stores the sections in a map.
 - `net.minecraft.tags.TagLoader$ElementLookup#fromGetters` - Constructs an element lookup from the given `HolderGetter`s depending on whether the element is required or not.
 - `net.minecraft.util`
+    - `CompilableString` - A utility for taking some string pattern and compiling it to an object through some parser.
     - `LightCoordsUtil` - A utility for determining the light coordinates from light values.
     - `ProblemReporter$MapEntryPathElement` - A path element for some entry key in a map.
 - `net.minecraft.util.thread.BlockableEventLoop#hasDelayedCrash` - Whether there is a crash report queued.
@@ -3329,6 +3458,8 @@ For cats:
     - `MOB_INVENTORY_SIZE` - The size of a mob's inventory.
 - `net.minecraft.world.item.component.BundleContents#BEEHIVE_WEIGHT` - The weight of a beehive.
 - `net.minecraft.world.item.enchantment.EnchantmentTarget#NON_DAMAGE_CODEC` - A codec that only allows the attacker and victim enchantment targets.
+- `net.minecraft.world.level.block.BigDripleafBlock#canGrowInto` - Whether the dripleaf can grow into the specified position.
+- `net.minecraft.world.level.block.grower.TreeGrower#getMinimumHeight` - If present, gets the base height of the trunk placer.
 - `net.minecraft.world.level.block.state.properties.NoteBlockInstrument`
     - `TRUMPET` - The sound a copper block makes when placed under a note block.
     - `TRUMPET_EXPOSED` - The sound an exposed copper block makes when placed under a note block.
@@ -3338,11 +3469,15 @@ For cats:
     - `BLOCK_LIGHT_TINT` - The default tint for the block light.
     - `NIGHT_VISION_COLOR` - The default color when in night vision.
     - `TURTLE_EGG_HATCH_CHANCE` - The chance of a turtle egg hatching on a random tick.
+- `net.minecraft.world.level.gamerules.GameRule#getIdentifierWithFallback` - Gets the identifier of the game rule, or else the unregistered identifier.
+- `net.minecraft.world.level.levelgen.feature.AbstractHugeMushroomFeature#MIN_MUSHROOM_HEIGHT` - The minimum mushroom height.
 - `net.minecraft.world.level.levelgen.feature.configurations.BlockBlobConfiguration` - The configuration for the block blob feature.
+- `net.minecraft.world.level.levelgen.feature.trunkplacers.TrunkPlacer#getBaseHeight` - Returns the minimum height of the trunk.
 - `net.minecraft.world.level.levelgen.feature.stateproviders.RuleBasedBlockStateProvider#ifTrueThenProvide` - If the predicate is true, provide the given block.
 - `net.minecraft.world.level.material`
     - `FluidState#isFull` - If the fluid amount is eight.
     - `LavaFluid#LIGHT_EMISSION` - The amount of light the lava fluid emits.
+- `net.minecraft.world.level.pathfinder.PathType#BIG_MOBS_CLOSE_TO_DANGER` - A path malus for mobs with an entity width greater than a block.
 - `net.minecraft.world.level.storage.loot.functions`
     - `EnchantRandomlyFunction$Builder#withOptions` - Specifies the enchantments that can be used to randomly enchant this item.
     - `SetRandomDyesFunction` - An item function that applies a random dye (if the item is in the `dyeable` tag) to the `DYED_COLOR` component from the provided list.
@@ -3355,9 +3490,7 @@ For cats:
 - `com.mojang.blaze3d.opengl`
     - `GlDevice` now takes in a `GpuDebugOptions` containing the log level, whether to use synchronous logs, and whether to use debug labels instead of those parameters being passed in directly
     - `GlProgram#BUILT_IN_UNIFORMS`, `INVALID_PROGRAM` are now final
-- `com.mojang.blaze3d.platform`
-    - `ClientShutdownWatchdog` now takes in the `Minecraft` instance
-    - `Window` now takes in a list of `GpuBackend`s, the default `ShaderSource`, and the `GpuDebugOptions` instead of the `ScreenManager`
+- `com.mojang.blaze3d.platform.ClientShutdownWatchdog` now takes in the `Minecraft` instance
 - `com.mojang.blaze3d.systems.RenderSystem`
     - `pollEvents` is now public
     - `flipFrame` no longer takes in the `Window`
@@ -3434,6 +3567,7 @@ For cats:
 - `net.minecraft.client.renderer.state.BlockBreakingRenderState#progress` is now final
 - `net.minecraft.client.resources.sounds.AbstractSoundInstance#random` is now final
 - `net.minecraft.commands.SharedSuggestionProvider#getCustomTabSugggestions` -> `getCustomTabSuggestions`
+- `net.minecraft.commands.arguments.selector.SelectorPattern` replaced by `CompilableString`
 - `net.minecraft.data`
     - `BlockFamily`
         - `shouldGenerateRecipe` -> `shouldGenerateCraftingRecipe`, `shouldGenerateStonecutterRecipe`
@@ -3460,13 +3594,22 @@ For cats:
     - `GameTestServer#create` now takes in an `int` for the number of times to run all matching tests
     - `StructureUtils#testStructuresDir` split into `testStructuresTargetDir`, `testStructuresSourceDir`
     - `TestData` now takes in an `int` for the number of blocks padding around the test
-- `net.minecraft.nbt.NbtUtils`
-    - `addDataVersion` now uses a generic for the `Dynamic` instead of the explicit nbt tag
-    - `getDataVersion` now has an overload that defaults to -1 if the version is not specified
+- `net.minecraft.nbt`
+    - `NbtUtils`
+        - `addDataVersion` now uses a generic for the `Dynamic` instead of the explicit nbt tag
+        - `getDataVersion` now has an overload that defaults to -1 if the version is not specified
+    - `TextComponentTagVisitor` can now take in a `$Styling` and a `boolean` of whether to sort the keys
+        - `handleEscapePretty` is now a `private` instance method from `protected` static
 - `net.minecraft.network.FriendlyByteBuf`
     - `readVec3`, `writeVec3` replaced with `Vec3#STREAM_CODEC`
     - `readLpVec3`, `writeLpVec3` replaced with `Vec3#LP_STREAM_CODEC`
-- `net.minecraft.network.chat.LastSeenMessages#EMPTY` is now final
+- `net.minecraft.network.chat`
+    - `Component#nbt` now takes in a `CompilableString` instead of a `String`
+    - `LastSeenMessages#EMPTY` is now final
+- `net.minecraft.network.chat.contents.NbtContents` is now a record, the constructor taking in a `CompilableString` instead of a `String`
+- `net.minecraft.network.chat.contents.data`
+    - `BlockDataSource` now takes in a `CompilableString` for the `Coordinates` instead of the pattern and compiled position
+    - `EntityDataSource` now takes in a `CompilableString` for the `EntitySelector` instead of the pattern and compiled selector
 - `net.minecraft.network.protocol.game`
     - `ClientboundSetEntityMotionPacket` is now a record
     - `ServerboundContainerClickPacket` now takes in a `ContainerInput` instead of a `ClickType`
@@ -3499,6 +3642,7 @@ For cats:
     - `ReentrantBlockableEventLoop` now takes in a `boolean` of whether to propogate crashes, usually to throw a delayed crash
 - `net.minecraft.world.InteractionResult$ItemContext#NONE`, `DEFAULT` are now final
 - `net.minecraft.world.entity`
+    - `Avatar` is now abstract
     - `Entity`
         - `fluidHeight` is now final
         - `getTags` -> `entityTags`
@@ -3521,6 +3665,8 @@ For cats:
     - `FollowBoatGoal` -> `FollowPlayerRiddenEntityGoal`, not one-to-one
 - `net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal#targetConditions` is now final
 - `net.minecraft.world.entity.ai.sensing.NearestVisibleLivingEntitySensor#getMemory` -> `getMemoryToSet`
+- `net.minecraft.world.entity.decoration.Mannequin#getProfile` -> `Avatar#getProfile`, now `public` and `abstract`
+    - Still implemented in `Mannequin`
 - `net.minecraft.world.entity.monster.breeze.Breeze#idle`, `slide`, `slideBack`, `longJump`, `shoot`, `inhale` are now final
 - `net.minecraft.world.entity.monster.piglin.PiglinAi#isZombified` now takes in the `Entity` instead of the `EntityType`
 - `net.minecraft.world.entity.monster.warden.Warden#roarAnimationState`, `sniffAnimationState`, `emergeAnimationState`, `diggingAnimationState`, `attackAnimationState`, `sonicBoomAnimationState` are now final
@@ -3567,8 +3713,11 @@ For cats:
     - `TargetedConditionalEffect#codec`, `equipmentDropsCodec` no longer take in the `ContextKeySet`
 - `net.minecraft.world.item.enchantment.effects.EnchantmentAttributeEffect#CODEC` -> `MAP_CODEC`
 - `net.minecraft.world.item.equipment.Equippable#canBeEquippedBy` now takes in a holder-wrapped `EntityType` instead of the raw type itself
-- `net.minecraft.world.level.LevelAccessor` no longer implements `LevelReader`
+- `net.minecraft.world.level`
+    - `LevelAccessor` no longer implements `LevelReader`
+    - `LevelHeightAccessor#isInsideBuildHeight` now has an overload that takes in the `BlockPos`
 - `net.minecraft.world.level.block`
+    - `BigDripleafBlock#canPlaceAt` now takes in the `LevelReader` instead of the `LevelHeightAccessor`, and no longer takes in the old state
     - `BubbleColumnBlock#updateColumn` now takes in the bubble column `Block`
     - `FireBlock#setFlammable` is now `private` from `public`
     - `MultifaceSpreader$DefaultSpreaderConfig#block` is now final
@@ -3585,7 +3734,7 @@ For cats:
 - `net.minecraft.world.level.chunk.ChunkAccess#blendingData` is now final
 - `net.minecraft.world.level.chunk.storage.SimpleRegionStorage#upgradeChunkTag` now takes in an `int` for the target version
 - `net.minecraft.world.level.gameevent.vibrations.VibrationSystem$Data#CODEC` is now final
-- `net.minecraft.world.level.gamerules.GameRules` now has an overload that takes in a list of `GameRule`s
+- `net.minecraft.world.level.gamerules.GameRules` now has an overload that takes in a list or stream of `GameRule`s
 - `net.minecraft.world.level.levelgen.blockpredicates`
     - `TrueBlockPredicate#INSTANCE` is now final
     - `UnobstructedPredicate#INSTANCE` is now final
@@ -3627,6 +3776,13 @@ For cats:
     - `RandomGroupPoolAlias#CODEC` is now final
     - `RandomPoolAlias#CODEC` is now final
 - `net.minecraft.world.level.levelgen.structure.templatesystem.LiquidSettings#CODEC` is now final
+- `net.minecraft.world.level.pathfinder.PathType`
+    - `DANGER_POWDER_SNOW` -> `ON_TOP_OF_POWDER_SNOW`
+    - `DANGER_FIRE` -> `FIRE_IN_NEIGHBOR`
+    - `DAMAGE_FIRE` -> `FIRE`
+    - `DANGER_OTHER` -> `DAMAGING_IN_NEIGHBOR`
+    - `DAMAGE_OTHER` -> `DAMAGING`,
+    - `DANGER_TRAPDOOR` -> `ON_TOP_OF_TRAPDOOR`
 - `net.minecraft.world.level.saveddata.maps.MapItemSavedData#tickCarriedBy` now takes in a nullable `ItemFrame`
 - `net.minecraft.world.level.storage.loot.functions`
     - `EnchantRandomlyFunction` now takes in a `boolean` of whether to include the additional trade cost component from the stack being enchanted
@@ -3681,4 +3837,5 @@ For cats:
 - `net.minecraft.world.level.block.LiquidBlock#SHAPE_STABLE`
 - `net.minecraft.world.level.levelgen.feature`
     - `Feature#isStone`, `isDirt`, `isGrassOrDirt`
+- `net.minecraft.world.level.levelgen.material.WorldGenMaterialRule`
 - `net.minecraft.world.level.storage.loot.functions.SetOminousBottleAmplifierFunction#amplifier`
