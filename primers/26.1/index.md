@@ -1936,7 +1936,7 @@ Of these, only the ender dragon fight is on a per-level / dimension basis. The r
 
 ### Materials and Dynamic Layer Selection
 
-Block and item models now no longer specify what `RenderType` or `ChunkSectionLayer` they belong to. Instead, this is computed when loading the model, determing the associated layer for each quad. This means that `ItemBlockRenderTypes#setRenderLayer` is removed, with setting the `RenderType` for an item removed altogether.
+Block and item models now no longer specify what `RenderType` or `ChunkSectionLayer` they belong to. Instead, this is computed when loading the model, determing the associated layer for each quad. This means that `ItemBlockRenderTypes` is removed, with setting the `RenderType` for an item removed altogether.
 
 To determine what layer a quad or face gets set to, the `Transparency` of the texture is computed. Specifically, it checks that, for the UV area mapped to the quad, if there are any pixels that are transparent (have an alpha of 0), or translucent (have an alpha that is not 0 or 255). For the `ChunkSectionLayer`, `ChunkSectionLayer#TRANSLUCENT` is used if there is a translucent pixel, else `CUTOUT` is used if there is a transparent pixel, else `SOLID`. For the item `RenderType`, `Sheets#translucentItemSheet` and `translucentBlockItemSheet` for block items are used if there is a translucent pixel, or `cutoutItemSheet` and `cutoutBlockItemSheet` for block items. The `Transparency` also affects using `MipmapStrategy#AUTO`, using `CUTOUT` instead of `MEAN` as the default if there is a transparent pixel.
 
