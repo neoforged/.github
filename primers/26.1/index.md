@@ -1994,17 +1994,182 @@ public class ExampleParticle extends SingleQuadParticle {
 }
 ```
 
-### Quad Lightmaps and Outputs
+### Quad Instance
 
-The brightness, which scales the vertex color, and the lightmap coordinates are now represented as the objects `QuadBrightness` and `QuadLightmapCoords`, respectively. This doesn't replace all usecases, such as when adding a single vertex. It only updates the methods in which bulk data is set, such as for a `BakedQuad` via `VertexConsumer#putBulkData`.
+The brightness / tint color, lightmap, and overlay coordinates have been consolidated into a single object: `QuadInstance`. The mutable class sets its values through its associated `set*` methods, and can pull the information for each quad vertex via the `get*` methods. Brightness and tinting are stored together as the color, rather them being two separate values.
 
-Both `QuadBrightness` and `QuadLightmapCoords` can only be created through its mutable implementations `$Mutable`, of which the values can be set via `$Mutable#set`. 
+`QuadInstance` does not replace all usecases, such as when adding a single vertex. It only updates methods for the `VertexConsumer`, splitting `putBulkData` into `putBlockBakedQuad` for quads in block models, and `putBakedQuad` for all other uses.
 
-In addition, methods used to upload `BakedQuad`s to a buffer now take in a `BakedQuadOutput`. This has the same parameters as `VertexConsumer#putBulkData`, and was added due to the section renderer uploading to a created `BufferBuilder` for use with the uber buffer.
+In addition, mmany methods used to upload `BakedQuad`s to a buffer now take in a `BlockQuadOutput`. This has the same parameters as `VertexConsumer#putBlockBakedQuad`, and was added due to the section renderer uploading to a newly allocated `BufferBuilder` for use with the uber buffer.
 
-## Name Tag Offsets
+### Block Model States
+
+The pipeline for rendering individual block models has been modified to pass in a render state representing the block, similar to other state methods. In conjunction, most of the block model classes has been rewritten or reorganized to a degree.
+
+First, there is the `BlockModelRenderState` which, as the name implies, represents the render state of a `BlockState`. It defines the block (though its deprecated), the `BlockStateModel` if the `RenderShape` is a model, the `SpecialModelRenderer` if registered, and a maximum of three tint layers. The `BlockStateModel` is loaded from the `ModelManager` into a `BlockStateModelSet`, which replaces `BlockModelShaper`, via `ModelManager#getBlockModelSet`. The tint layers are populated from the `BlockColors`.
+
+To help with updating the state, the `BlockModelResolver` is passed around through varying contexts instead of the  `BlockRenderDispatcher` or `ModelBlockRenderer`. `#update` is used to setup the `BlockModelRenderState` given a `BlockState`, while `updateForItemFrame` handles the render state for specifically the item frame model.
+
+From there, `BlockModelRenderState#submit` is used to submit the model for rendering within the `BlockFeatureRenderer`. There is also `submitOnlyOutline` for submiting the outline of the block if the model is present, and `submitWithZOffset`, which offsets the Z view by -1.
+
+```java
+// BlockEntity example
+public class ExampleRenderState extends BlockEntityRenderState {
+    // Hold the render state.
+    public final BlockModelRenderState exampleBlock = new BlockModelRenderState();
+}
+
+public class ExampleRenderer implements BlockEntityRenderer<ExampleBlockEntity, ExampleRenderState> {
+
+    private final BlockModelResolver blockResolver;
+
+    public ExampleRenderer(BlockEntityRendererProvider.Context ctx) {
+        super(ctx);
+        // Get the model resolver.
+        this.blockResolver = ctx.blockModelResolver();
+    }
+
+    @Override
+    public void extractRenderState(ExampleBlockEntity blockEntity, ExampleRenderState state, float partialTick, Vec3 cameraPosition, ModelFeatureRenderer.CrumblingOverlay breakProgress) {
+        super.extractRenderState(blockEntity, state, partialTick, cameraPosition, breakProgress);
+
+        // Update the model state.
+        this.blockResolver.update(state.exampleBlock, Blocks.DIRT.defaultBlockState());
+    }
+
+    @Override
+    public void submit(ExampleRenderState state, PoseStack pose, SubmitNodeCollector collector, CameraRenderState camera) {
+        super.submit(state, pose, collector, camera);
+
+        // Submit the model state for rendering,
+        state.exampleBlock.submit(
+            // The current pose stack,
+            pose,
+            // The node collector.
+            collector,
+            // The light coordinates.
+            state.lightCoords,
+            // The overlay coordinates.
+            OverlayTexture.NO_OVERLAY,
+            // The outline color.
+            0
+        );
+    }
+}
+
+// Entity example
+public class ExampleRenderState extends EntityRenderState {
+    // Hold the render state.
+    public final BlockModelRenderState exampleBlock = new BlockModelRenderState();
+}
+
+public class ExampleRenderer extends EntityRenderer<ExampleEntity, ExampleRenderState> {
+
+    private final BlockModelResolver blockResolver;
+
+    public ExampleRenderer(EntityRendererProvider.Context ctx) {
+        super(ctx);
+        // Get the model resolver.
+        this.blockResolver = ctx.getBlockModelResolver();
+    }
+
+    @Override
+    public void extractRenderState(ExampleEntity entity, ExampleRenderState state, float partialTick) {
+        super.extractRenderState(entity, state, partialTick);
+
+        // Update the model state.
+        this.blockResolver.update(state.exampleBlock, Blocks.DIRT.defaultBlockState());
+    }
+
+    @Override
+    public void submit(ExampleRenderState state, PoseStack pose, SubmitNodeCollector collector, CameraRenderState camera) {
+        super.submit(state, pose, collector, camera);
+
+        // Submit the model state for rendering.
+        state.exampleBlock.submit(
+            // The current pose stack.
+            pose,
+            // The node collector.
+            collector,
+            // The light coordinates.
+            state.lightCoords,
+            // The overlay coordinates.
+            OverlayTexture.NO_OVERLAY,
+            // The outline color.
+            state.outlineColor
+        );
+    }
+}
+```
+
+
+### Name Tag Offsets
 
 `EntityRenderer#submitNameTag` has been renamed to `submitNameDisplay`, now optionally taking in the y offset from the name tag attachment.
+
+### Tint Getter
+
+`BlockAndTintGetter` is now a client only interface attached to the `ClientLevel`. It previous uses were replaced with `BlockAndLightGetter` -- which `BlockAndTintGetter` now extends -- with the tint and lighting directions stripped.
+
+### Pipeline Depth and Color
+
+Depth and color methods defined in the `RenderPipeline` have been consolidated into two state objects.
+
+The `DepthTestFunction`, write `boolean`, and the bias `float`s are now stored in `DepthStencilState`. `DepthTestFunction` has been replaced with a more generic `CompareOp`, which defines how to compare two numbers. Each function has an simple equivalent, with `NO_DEPTH_TEST` replaced by `CompareOp#ALWAYS_PASS`. The depth information can be added to the pipeline via `RenderPipeline$Builder#withDepthStencilState`.
+
+The optional `BlendFunction` and color / alpha `boolean`s are now stored in `ColorTargetState`. The `boolean`s are consolidated into an `int` using the lower four bits as flags: `1` is red, `2` is green, `4` is blue, and `8` is alpha. The color `boolean` uses `7` for red, green, and blue; the alpha `boolean` uses `8`; while both combined use `15`. The `LopicOp` is removed entirely. The color information can be added to the pipeline via `RenderPipeline$Builder#withColorTargetState`.
+
+```java
+public static final RenderPipeline EXAMPLE_PIPELINE = RenderPipeline.builder()
+    .withLocation(ResourceLocation.fromNamespaceAndPath("examplemod", "pipeline/example"))
+    .withVertexShader(ResourceLocation.fromNamespaceAndPath("examplemod", "example"))
+    .withFragmentShader(ResourceLocation.fromNamespaceAndPath("examplemod", "example"))
+    .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+    .withShaderDefine("ALPHA_CUTOUT", 0.5)
+    .withSampler("Sampler0")
+    .withUniform("ModelOffset", UniformType.VEC3)
+    .withUniform("CustomUniform", UniformType.INT)
+    .withPolygonMode(PolygonMode.FILL)
+    .withCull(false)
+    // Sets the color target when writing the buffer data.
+    .withColorTargetState(new ColorTargetState(
+        // Specifies the functions to use when blending two colors with alphas together.
+        // Made up of the `SourceFactor` and `DestFactor`.
+        // First two are for RGB, the last two are for alphas.
+        // If the optional is empty, then blending is disabled.
+        Optional.of(BlendFunction.TRANSLUCENT),
+        // The mask determining what colors to write to the buffer.
+        // Represented as a four bit value
+        // 0001 - Write the red channel..
+        // 0010 - Write the green channel.
+        // 0100 - Write the blue channel.
+        // 1000 - Write the alpha channel.
+        ColorTargetState.WRITE_RED | ColorTargetState.WRITE_GREEN | ColorTargetState.WRITE_BLUE | ColorTargetState.WRITE_ALPHA
+    ))
+    // Sets the depth stencil when writing the buffer data.
+    .withDepthStencilState(new DepthStencilState(
+        // Sets the depth test function to use when rendering objects at varying
+        // distances from the camera.
+        // Values:
+        // - ALWAYS_PASS           (GL_ALWAYS)
+        // - LESS_THAN             (GL_LESS)
+        // - LESS_THAN_OR_EQUAL    (GL_LEQUAL)
+        // - EQUAL                 (GL_EQUAL)
+        // - NOT_EQUAL             (GL_NOTEQUAL)
+        // - GREATER_THAN_OR_EQUAL (GL_GEQUAL)
+        // - GREATER_THAN          (GL_GREATER)
+        // - NEVER_PASS            (GL_NEVER)
+        CompareOp.LESS_THAN_OR_EQUAL,
+        // Whether to mask writing values to the depth buffer
+        false,
+        // The scale factor used to calculate the depth values for the polygon.
+        0f,
+        // The unit offset used to calculate the depth values for the polygon.
+        0f
+    ))
+    .build()
+;
+```
 
 ### Blaze3d Backends
 
@@ -2029,21 +2194,42 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
     - `rendertype_text_intensity.vsh`
     - `rendertype_translucent_moving_block.vsh`
 - `assets/minecraft/shaders/core`
-    - `block.vsh#minecraft_sample_lightmap` -> `smooth_lighting.glsl#minecraft_sample_lightmap`
+    - `block.vsh#minecraft_sample_lightmap` -> `sample_lightmap.glsl#sample_lightmap`
+    - `rendertype_crumbling` no longer takes in `texCoord2` (lightmap)
     - `rendertype_entity_alpha`, `rendertype_entity_decal` merged into `entity.fsh` using a `DissolveMaskSampler`
     - `rendertype_item_entity_translucent_cull` -> `item`, not one-to-one
 - `com.mojang.blaze3d.opengl`
     - `GlCommandEncoder` now implements `CommandEncoderBackend` instead of `CommandEncoder`, the class now package-private
         - `getDevice` is removed
+    - `GlConst#toGl` now takes in a `CompareOp` instead of the `DepthTestFunction`
     - `GlDevice` now implements `GpuDeviceBackend` instead of `GpuDevice`, the class now package-private
     - `GlRenderPass` now implements `RenderPassBackend` instead of `RenderPass`, the class now package-private
         - The constructor now takes in the `GlDevice`
+    - `GlStateManager#_colorMask` now takes in a singe `int` for the color mask instead of four `boolean`s
 - `com.mojang.blaze3d.platform`
     - `DebugMemoryUntracker#untrack` is removed
     - `GLX#make(T, Consumer)` is removed
     - `NativeImage#computeTransparency` - Returns whether there is at least one transparent or translucent pixel in the image.
     - `Transparency` - An object of whether some image has a translucent and/or transparent pixel.
     - `Window` now takes in a list of `GpuBackend`s, the default `ShaderSource`, and the `GpuDebugOptions` instead of the `ScreenManager`
+- `com.mojang.blaze3d.pipeline`
+    - `ColorTargetState` - A record containing the blend function and mask for the color.
+    - `DepthStencilState` - A record containing the data for the depth stencil.
+    - `RenderPipeline` now takes in the `ColorTargetState` instead of the optional `BlendFunction`, color and alpha `boolean`s, and `LogicOp`; and the `DepthStencilState` instead of the `DepthTestFunction`, depth `boolean`, and bias `float`s
+        - `getDepthTestFunction`, `isWriteDepth`, `getDepthBiasScaleFactor`, `getDepthBiasConstant` -> `getDepthStencilState`, not one-to-one
+        - `getColorLogic`, `getBlendFunction`, `isWriteColor`, `isWriteAlpha` -> `getColorTargetState`, not one-to-one
+        - `$Builder`
+            - `withDepthTestFunction`, `withDepthWrite`, `withDepthBias` -> `withDepthStencilState`, not one-to-one
+            - `withBlend`, `withColorWrite`, `withColorLogic` -> `withColorTargetState`, not one-to-one
+        - `$Snippet` now takes in the `ColorTargetState` instead of the optional `BlendFunction`, color and alpha `boolean`s, and `LogicOp`; and the `DepthStencilState` instead of the `DepthTestFunction` and depth `boolean`
+- `com.mojang.blaze3d.platform`
+    - `DepthTestFunction` -> `CompareOp`, not one-to-one
+        - `NO_DEPTH_TEST` -> `CompareOp#ALWAYS_PASS`
+        - `EQUAL_DEPTH_TEST` -> `CompareOp#EQUAL`
+        - `LEQUAL_DEPTH_TEST` -> `CompareOp#LESS_THAN_OR_EQUAL`
+        - `LESS_DEPTH_TEST` -> `CompareOp#LESS_THAN`
+        - `GREATER_DEPTH_TEST` -> `CompareOp#GREATER_THAN`
+    - `LogicOp` enum is removed
 - `com.mojang.blaze3d.systems`
     - `CommandEncoder` -> `CommandEncoderBackend`
         - The original interface is now a class wrapper around the interface, delegating to the backend after performing validation checks
@@ -2053,11 +2239,13 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
         - The original interface is now a class wrapper around the interface, delegating to the backend after performing validation checks
 - `com.mojang.blaze3d.vertex`
     - `DefaultVertexFormat#BLOCK` no longer takes in the normal vector
-    - `QuadBrightness` - A class containing the brightness at the four vertices of a quad.
-    - `QuadLightmapCoords` - A class containing the lightmap coordinates of the four vertices in a quad.
+    - `QuadInstance` - A class containing the color, light coordinates, and overlay of a quad.
     - `TlsfAllocator` - A two-level segregate fit allocator for dynamic memory allocation.
     - `UberGpuBuffer` - A buffer for uploading dynamically sized data to the GPU, used for chunk section layers.
-    - `VertexConsumer#putBulkData` now takes in a `QuadBrightness` instead of a `float` array, an `int` instead of four `float`s for the color, and a `QuadLightmapCoords` instead on an `int` array
+    - `VertexConsumer`
+        - `putBulkData` -> `putBlockBakedQuad`, `putBakedQuad`; not one-to-one
+            - Brightness `float` array, color `float`s, lightmap `int` array, and overlay `int` are replaced with `QuadInstance`
+            - `putBlockBakedQuad` replaces the `PoseStack$Pose` with the XYZ `float` block position
 - `net.minecraft.SharedConstants`
     - `DEBUG_DUMP_INTERPOLATED_TEXTURE_FRAMES` is removed
     - `DEBUG_PREFER_WAYLAND` - When true, prevents the platform initialization hint from being set to X11 if both Wayland and X11 are supported.
@@ -2076,6 +2264,8 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
         - `getCameraEntityPartialTicks` - Gets the partial tick based on the state of the entity.
     - `DeltaTracker#advanceTime` replaced by `advanceGameTime` when the `boolean` was `true`, and `advanceRealTime`
         - `advanceGameTime`, `advanceRealTime` were previously `private`, now `public`
+    - `Minecraft#useAmbientOcclusion` is removed
+- `net.minecraft.client.color.block.BlockColors#MAX_TINT_INDEX` - The maximum number of tint layers a block model can have.
 - `net.minecraft.client.data.models`
     - `BlockModelGenerators`
         - `createSuffixedVariant` now takes in a function of `Material` to `TextureMapping` for the textures instead of just an `Identifier`
@@ -2094,10 +2284,13 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
         - `getBlockTeture`, `getItemTexture` now return a `Material` instead of an `Identifier` for the texture
 - `net.minecraft.client.entity.ClientAvatarEntity#belowNameDisplay` -> `Entity#belowNameDisplay`
 - `net.minecraft.client.gui.components.DebugScreenOverlay#render3dCrosshair` now takes in the `CameraRenderState` instead of the `Camera`
-- `net.minecraft.client.particle.SingleQuadParticle$Layer`
-    - `TERRAIN` -> `OPAQUE_TERRAIN`, `TRANSLUCENT_TERRAIN`
-    - `ITEMS` -> `OPAQUE_ITEMS`, `TRANSLUCENT_ITEMS`
-    - `bySprite` - Gets the layer from the atlas sprite.
+- `net.minecraft.client.multiplayer.ClientLevel` now implements `BlockAndTintGetter`
+- `net.minecraft.client.particle`
+    - `SimpleVerticalParticle` - A particle that moves vertically.
+    - `SingleQuadParticle$Layer`
+        - `TERRAIN` -> `OPAQUE_TERRAIN`, `TRANSLUCENT_TERRAIN`
+        - `ITEMS` -> `OPAQUE_ITEMS`, `TRANSLUCENT_ITEMS`
+        - `bySprite` - Gets the layer from the atlas sprite.
 - `net.minecraft.client.renderer`
     - `CachedOrthoProjectionMatrixBuffer`, `CachedPerspectiveProjectionMatrixBuffer`, `PerspectiveProjectionMatrixBuffer` -> `ProjectionMatrixBuffer` with sometimes `Projection`, not one-to-one
     - `GameRenderer`
@@ -2107,20 +2300,23 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
         - `getProjectionMatrix` -> `Camera#getViewRotationProjectionMatrix`, not one-to-one
         - `updateCamera` -> `Camera#update`, not one-to-one
         - `getRenderDistance` is removed
-    - `ItemBlockRenderTypes`
-        - `getChunkRenderType` -> `getRenderType(ChunkSectionLayer)`, not one-to-one
-        - `getMovingBlockRenderType` now takes in a `ChunkSectionLayer` instead of a `BlockState`
-        - `getRenderType(BlockState)` -> `getBlockModelRenderType(BlockStateModel)`, not one-to-one
-        - `forceOpaque` - Whether the block textures should be opaque instead of translucent.
+    - `ItemBlockRenderTypes` is removed
+        - `getChunkRenderType`, `getMovingBlockRenderType` now stored within `BakedQuad$SpriteInfo`
+        - `getRenderLayer(FluidState)` -> `LiquidBlockRenderer#getRenderLayer`, not one-to-one
+        - `setCutoutLeaves` is removed
+            - This should be obtained directly from the options
     - `LevelRenderer`
         - `update` - Updates the level.
         - `renderLevel` now takes in the `CameraRenderState` instead of the `Camera` and the `ChunkSectionsToRender`; it no longer takes in the `Matrix3f` for the projection matrices
         - `extractLevel` - Extracts the level state.
         - `prepareChunkRenders` is now `public` instead of `private`
         - `captureFrustum`, `killFrustum`, `getCapturedFrustum` are removed
+        - `getLightCoords` now takes in the `BlockAndLightGetter` instead of the `BlockAndTintGetter`
+        - `$BrightnessGetter#packedBrightness` now takes in the `BlockAndLightGetter` instead of the `BlockAndTintGetter`
     - `MaterialMapper` -> `SpriteMapper`
     - `OrderedSubmitNodeCollector`
-        - `submitBlockModel` now takes in an `int` instead of three `float`s for the tint color
+        - `submitBlock` is removed
+        - `submitBlockModel` now takes in an array of `int`s (array of tint colors) instead of three `float`s for a single color
         - `submitItem` no longer takes in the `RenderType`
     - `PanoramicScreenshotParameters` record is removed
     - `PostChain` now takes in a `Projection` and `ProjectionMatrixBuffer` instead of an `CachedOrthoProjectionMatrixBuffer`
@@ -2140,23 +2336,51 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
         - `cutoutItemSheet` - An item cutout render type using the item atlas.
         - `get*Material` -> `get*Sprite`
         - `chooseMaterial` -> `chooseSprite`
+    - `SpecialBlockModelRenderer`
+        - `renderByBlock` -> `BlockModelRenderState#submit*`, not one-to-one
+        - `getSpecialRenderer` - Gets the special renderer associated with the given block.
+    - `SubmitNodeCollection#getBlockSubmits` is removed
     - `SubmitNodeCollector$ParticleGroupRenderer`
         - `isEmpty` - Whether there are no particles to render in this group.
         - `prepare` now takes whether the particles are being prepared for the translucent layer
         - `render` no longer takes in the translucent `boolean`
     - `SubmitNodeStorage`
-        - `$BlockModelSubmit` now takes in an `int` instead of three `float`s for the tint color
+        - `$BlockModelSubmit` now takes in an array of `int`s (array of tint colors) instead of three `float`s for a single color
+        - `$BlockSubmit` is removed
         - `$ItemSubmit` no longer takes in the `RenderType`
 - `net.minecraft.client.renderer.block`
-    - `BakedQuadOutput` - A functional interface for writing the baked quad information to some output, like a buffer.
-    - `BlockModelShaper#getParticleIcon` -> `getParticleMaterial`, now returning a `Material$Baked` instead of a `TextureAtlasSprite`
-    - `BlockRenderDispatcher` methods now take in a `BakedQuadOutput` instead of a `VertexConsumer`
-    - `ModelBlockRenderer`
-        - Methods now take in a `BakedQuadOutput` instead of a `VertexConsumer`
-        - `renderModel` now takes in an `int` instead of three `float`s for the tint color
-        - `$CommonRenderStorage`
-            - `brightness` is now a `QuadBrightness$Mutable` instead of a `float` array
-            - `lightmap` is now a `QuadLightmapCoords$Mutable` instead of an `int` array
+    - `BlockAndTintGetter` - A getter for positional block tinting (e.g., biomes).
+    - `BlockModelRenderState` - The render state for a block model.
+    - `BlockModelResolver` - A helper for setting up the render state for a `BlockState`.
+    - `BlockModelShaper` -> `BlockStateModelSet`, not one-to-one
+        - `getParticleIcon` -> `getParticleMaterial`, now returning a `Material$Baked` instead of a `TextureAtlasSprite`
+        - `getBlockModel` -> `get`
+        - `getModelManager`, `replaceCache` are removed
+    - `BlockQuadOutput` - A functional interface for writing the baked quad information to some output, like a buffer.
+    - `BlockRenderDispatcher` now takes in the `ModelManager` instead of the `BlockStateModelSet`
+        - `getBlockModelShaper` -> `getModelSet`, not one-to-one
+        - `renderBreakingTexture` now takes in a `MultiBufferSource` and `int` progress instead of the `BlockAndLightGetter` and `VertexConsumer`
+        - `renderBatched` replaced with direct call to `ModelBlockRenderer#tesselateBlock`
+        - `renderLiquid` replaced with direct call to `LiquidBlockRenderer#tesselate`
+        - `getModelRenderer` is removed
+        - `getLiquidRenderer` - The renderer for the liquid block.
+        - `renderSingleBlock` is now inlined within `BlockFeatureRenderer#renderBlockModelSubmits`, a `private` method
+            - Use `ModelBlockRenderer#tesselateBlock` as an alternative
+    - `ModelBlockRenderer` now takes in `boolean`s for ambient occlusion and culling
+        - `tesselateBlock` now takes in a `BlockQuadOutput` instead of a `VertexConsumer`, the XYZ `float`s instead of a `PoseStack`, the `BlockStateModel` instead of the list of `BlockModelPart`s, no longer takes in the cull `boolean` and `int` overlay, and takes in the seed `long`
+        - `tesselateWithAO` -> `tesselateAmbientOcclusion`, now `private` instead of `public`
+        - `tesselateWithoutAO` -> `tesselateFlat`, now `private` instead of `public`
+        - `renderModel` is now inlined within `BlockFeatureRenderer#renderBlockModelSubmits`, a `private` method
+        - `forceOpaque` - Whether the block textures should be opaque instead of translucent.
+        - `enableCaching` -> `BlockModelLighter$Cache#enable`
+        - `clearCache` -> `BlockModelLighter$Cache#disable`
+        - `$AdjacencyInfo` -> `BlockModelLighter$AdjacencyInfo`, now `private` instead of `protected`
+        - `$AmbientOcclusionRenderStorage` is replaced by `BlockModelLighter`, not one-to-one
+        - `$AmbientVertexRemap` -> `BlockModelLighter$AmbientVertexRemap`
+        - `$Cache` -> `BlockModelLighter$Cache`
+        - `$CommonRenderStorage` is replaced by `BlockModelLighter`, not one-to-one
+        - `$SizeInfo` -> `BlockModelLighter$SizeInfo`
+    - `MovingBlockRenderState#level` -> `cardinalLighting`, `lightEngine`; not one-to-one
 - `net.minecraft.client.renderer.block.model`
     - `BakedQuad` now takes in a `$SpriteInfo` instead of the `TextureAtlasSprite`
         - `$SpriteInfo` - A record holding the sprite, chunk section layer, and render type.
@@ -2173,25 +2397,31 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
 - `net.minecraft.client.renderer.blockentity`
     - `AbstractSignRenderer#getSignMaterial` -> `getSignSprite`
     - `BannerRenderer#submitPatterns` no longer takes in the base `SpriteId`, whether the pattern has foil, and the outline color
-    - `BlockEntityRenderDispatcher#prepare` now takes in a `Vec3` camera position instead of the `Camera` itself
-    - `BlockEntityRendererProvider$Context#materials` -> `sprites`
+    - `BlockEntityRenderDispatcher` now takes in the `BlockModelResolver`
+        - `prepare` now takes in a `Vec3` camera position instead of the `Camera` itself
+    - `BlockEntityRendererProvider$Context` now takes in the `BlockModelResolver`
+        - `materials` -> `sprites`
 - `net.minecraft.client.renderer.chunk`
     - `ChunkSectionLayer` now takes in a `boolean` for whether the layer is translucent rather than just sorting on upload
         - `byTransparency` - Gets the layer by its transparency setting.
         - `sortOnUpload` -> `translucent`, not one-to-one
+        - `vertexFormat` - The vertex format of the pipeline used by the layer.
     - `ChunkSectionsToRender#drawsPerLayer` -> `drawGroupsPerLayer`, with its value being a `int` to list of draws map
     - `CompiledSectionMesh`
         - `uploadMeshLayer` replaced by `isVertexBufferUploaded`, `setVertexBufferUploaded`
         - `uploadLayerIndexBuffer` replaced by `isIndexBufferUploaded`, `setIndexBufferUploaded`
+    - `RenderRegionCache#createRegion` now takes in the `ClientLevel` instead of the `Level`
     - `SectionBuffers` -> `SectionRenderDispatcher$RenderSectionBufferSlice`, not one-to-one
+    - `SectionCompiler` now takes in the `boolean`s for ambient occlusion and cutout leaves, the `BlockStateModelSet`, the `LiquidBlockRenderer`, and the `BlockColors` instead of the `BlockRenderDispatcher`
     - `SectionMesh`
         - `getBuffers` -> `getSectionDraw`, not one-to-one
         - `$SectionDraw` - The draw information for the section.
-    - `SectionRenderDispatcher`
+    - `SectionRenderDispatcher` now takes in the `SectionCompiler` instead of the `BlockRenderDispatcher` and `BlockEntityRenderDispatcher`
         - `getRenderSectionSlice` - Gets the buffer slice of the section mesh to render for the chunk layer.
         - `uploadAllPendingUploads` -> `uploadGlobalGeomBuffersToGPU`, not one-to-one
         - `lock`, `unlock` - Handles locking the dispatcher when copying data from location to another, usually for GPU allocation.
         - `getToUpload` is removed
+        - `setLevel` now takes in the `SectionCompiler`
         - `$RenderSection`
             - `upload`, `uploadSectionIndexBuffer` -> `addSectionBuffersToUberBuffer`, now private
             - `$CompileTask`
@@ -2199,10 +2429,30 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
         - `$SectionTaskResult` -> `$RenderSection$CompileTask$SectionTaskResult`
 - `net.minecraft.client.renderer.culling.Frustum#set` - Copies the information from another frustum.
 - `net.minecraft.client.renderer.entity`
+    - `AbstractMinecartRenderer#submitMinecartContents` now takes in a `BlockModelRenderState` instead of the `BlockState`
+    - `DisplayRenderer#blockModelResolver` - The block model resolver.
+    - `EntityRenderDispatcher` now takes in the `BlockModelResolver` instead of the `BlockRenderDispatcher`
     - `EntityRenderer#submitNameTag` -> `submitNameDisplay`, now optionally taking in the y position `int` as an offset from the name tag attachment
-    - `EntityRendererProvider$Context#getMaterials` -> `getSprites`
+    - `EntityRendererProvider$Context` now takes in the `BlockModelResolver` instead of the `BlockRenderDispatcher`
+        - `getMaterials` -> `getSprites`
+        - `getBlockRenderDispatcher` replaced by `getBlockModelResolver`
     - `ItemRenderer#renderItem` no longer takes in the `RenderType`
-- `net.minecraft.client.renderer.entity.state.AvatarRenderState#scoreText` -> `EntityRenderState#scoreText`
+    - `TntMinecartRenderer#submitWhiteSolidBlock` now takes in a `BlockModelRenderState` instead of the `BlockState`
+- `net.minecraft.client.renderer.entity.layers`
+    - `BlockDecorationLayer` now takes in a function that returns a `BlockModelRenderState` instead of an optional `BlockState`
+    - `MushroomCowMushroomLayer` no longer takes in the `BlockRenderDispatcher`
+    - `SnowGolemHeadLayer` no longer takes in the `BlockRenderDispatcher`
+- `net.minecraft.client.renderer.entity.state`
+    - `AvatarRenderState#scoreText` -> `EntityRenderState#scoreText`
+    - `BlockDisplayEntityRenderState#blockRenderState` -> `blockModel`, now a `BlockModelRenderState` instead of a `BlockRenderState`
+    - `CopperGolemRenderState#blockOnAntenna` now a `BlockModelRenderState` instead of an optional `BlockState`
+    - `EndermanRenderState#carriedBlock` now a `BlockModelRenderState` instead of a nullable `BlockState`
+    - `IronGolemRenderState#flowerBlock` - The flower held by the iron golem.
+    - `ItemFrameRenderState#frameModel` - The model of the item frame block.
+    - `MinecartRenderState#displayBlockState` -> `displayBlockModel`, now a `BlockModelRenderState` instead of a `BlockState`
+    - `MushroomCowRenderState#mushroomModel` - The model of mushrooms attached to the cow.
+    - `SnowGolemRenderState#hasPumpkin` -> `headBlock`, now a `BlockModelRenderState` instead of a `boolean`
+    - `TntRenderState#blockState` now a `BlockModelRenderState` instead of a nullable `BlockState`
 - `net.minecraft.client.renderer.features`
     - Feature `render` methods have been split into `renderSolid` for solid render types, and `renderTranslucent` for see-through render types
     - `FeatureRenderDispatcher`
@@ -2279,10 +2529,23 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
         - `BANNER_BASE` -> `Sheets#BANNER_BASE`
         - `SHIELD_BASE` -> `Sheets#SHIELD_BASE`
         - `NO_PATTERN_SHIELD` -> `Sheets#SHIELD_BASE_NO_PATTERN`
-    - `ModelManager#BLOCK_OR_ITEM` is removed
+    - `ModelManager`
+        - `BLOCK_OR_ITEM` is removed
+        - `getMissingBlockStateModel` -> `BlockStateModelSet#missingModel`
+        - `getBlockModelShaper` -> `getBlockModelSet`, not one-to-one
     - `QuadCollection#addAll` - Adds all elements from another quad collection.
     - `ResolvedModel#resolveParticleSprite` -> `resolveParticleMaterial`, now returning a `Material$Baked` instead of a `TextureAtlasSprite`
     - `SpriteGetter` -> `MaterialBaker`
+- `net.minecraft.world.entity.animal.Animal#isBrightEnoughToSpawn` now takes in a `BlockAndLightGetter` instead of the `BlockAndTintGetter`
+- `net.minecraft.world.level`
+    - `BlockAndTintGetter` -> `BlockAndLightGetter`
+        - `BlockAndTintGetter` is now client only, implementing `BlockAndLightGetter`
+        - `getShade` -> `cardinalLighting`; not one-to-one
+        - `getBlockTint` -> `BlockAndTintGetter#getBlockTint`
+    - `CardinalLighting` - Holds the lighting applied in each direction.
+    - `EmptyBlockAndTintGetter` -> `BlockAndTintGetter#EMPTY`
+    - `LevelReader` now implements `BlockAndLightGetter` instead of `BlockAndTintGetter`
+- `net.minecraft.world.level.dimension.DimensionType$CardinalLightType` -> `CardinalLighting$Type`
 
 ## Minor Migrations
 
@@ -2581,6 +2844,7 @@ Additionally, some animal models have been split into separate classes for the b
         - `rightLeg`, `leftLeg`, `body` are now `protected` from `private`
         - `SPEED` - The speed scalar of the movement animation.
         - `customAnimations` - Additional animation setup.
+        - `animateBristle` - Animates the bristles of the strider.
 - `net.minecraft.client.model.monster.zombie`
     - `BabyDrownedModel` - Entity model for the baby drowned.
     - `BabyZombieModel` - Entity model for the baby zombie.
@@ -2620,6 +2884,7 @@ Additionally, some animal models have been split into separate classes for the b
     - `canUseGoldenDandelion` - Whether a golden dandelion can be used to agelock an entity.
     - `setAgeLocked` - Sets the entity as agelocked.
     - `makeAgeLockedParticle` - Creates the particles when agelocking an entity.
+    - `AGE_LOCK_DOWNWARDS_MOVING_PARTICLE_Y_OFFSET` - The Y offset for the particle's starting position.
 - `net.minecraft.world.entity.animal.axolotl.Axolotl`
     - `swimAnimation` - The state of swimming.
     - `walkAnimationState` - The state of walking on the ground, not underwater.
@@ -3117,22 +3382,41 @@ Audio devices are now handled through the `DeviceTracker` which, depending on th
         - `hasDefaultDeviceChanged` moved to `AbstractDeviceTracker`, not one-to-one
         - `getAvailableSoundDevices` moved to `DeviceList`, not one-to-one
         - `createDeviceTracker` - Creates the tracker for managing audio device changes.
+        - `getDebugString` -> `getChannelDebugString`
     - `PollingDeviceTracker` - A device tracker that uses polling intervals to determine changes.
+    - `SoundBuffer`
+        - `format` - The format of the sound stream.
+        - `size` - The number of bytes in the sound stream.
+        - `isValid` - If the sound stream is in a valid state.
 - `net.minecraft.client.Options`
     - `DEFAULT_SOUND_DEVICE` is now `private` from `public`
     - `isSoundDeviceDefault` - Checks if the device is the default audio device.
+- `net.minecraft.client.gui.components.debug`
+    - `DebugEntrySoundCache` - A debug entry displaying the current cache for loaded sound streams.
+    - `DebugScreenEntries#SOUND_CACHE` - The identifier for the sound stream cache debug information.
 - `net.minecraft.client.sounds`
     - `DeviceTracker` - An interface for managing the changes of audio devices.
-    - `SoundEngine$DeviceCheckState` is removed
+    - `SoundBufferLibrary`
+        - `enumerate` - Loops through all cached sounds, outputting its id, size, and format.
+        - `$DebugOutput` - An interface that accepts some sound metadata.
+            - `$Counter` - An output implementation that keepts track of the number of sound streams and the total size.
+    - `SoundEngine`
+        - `getDebugString` -> `getChannelDebugString`, `getSoundCacheDebugStats`; not one-to-one
+        - `$DeviceCheckState` is removed
+    - `SoundManager#getDebugString` -> `getChannelDebugString`, `getSoundCacheDebugStats`; not one-to-one
 
 ### Input Message Editor Support
 
 Minecraft now has support for Input Message Editors (IME), which allow complex characters from languages like Chinese or Hindi to be inputted instead of the temporary preedit text. The preedit text is displayed as an overlay within the game, while any other IME features provided by the host OS. With this addition, support can be added within screens through `GuiEventListener#preeditUpdated`, or by using an existing vanilla widget which implements the method.
 
 - `com.mojang.blaze3d.platform`
-    - `InputConstants#setupKeyboardCallbacks` now takes in the `GLFWCharCallbackI` instead of `GLFWCharModsCallbackI` for the character typed callback, and `GLFWPreeditCallbackI` to handle inputting complex characters via an input method editor 
+    - `InputConstants#setupKeyboardCallbacks` now takes in the `GLFWCharCallbackI` instead of `GLFWCharModsCallbackI` for the character typed callback, `GLFWPreeditCallbackI` to handle inputting complex characters via an input method editor, and `GLFWIMEStatusCallbackI` for notifying about the status of the editor
     - `MessageBox` - A utility for creating OS native messages boxes.
-    - `Window#setIMEPreeditArea` - Sets the area where the predicted text cursor should appear.
+    - `Window`
+        - `setIMEPreeditArea` - Sets the area where the predicted text cursor should appear.
+        - `startTextInput`, `stopTextInput`, `toggleIME` - Handles toggling the input message editor.
+        - `onTextInputFocusChange` - Changes the editor input status based on if the text input is focused.
+- `net.minecraft.client.Minecraft#notifyIMEChanged` - Sets that the input message editor status has changed.
 - `net.minecraft.client.gui.GuiGraphics`
     - `setPreeditOverlay` - Sets the overlay drawing the preedit text.
     - `renderDeferredElements` now takes in the `int`s for the mouse position and the game time delta ticks `float`
@@ -3426,6 +3710,7 @@ Generic entity fluid movement has been moved into a separate `EntityFluidInterac
     - `CompilableString` - A utility for taking some string pattern and compiling it to an object through some parser.
     - `LightCoordsUtil` - A utility for determining the light coordinates from light values.
     - `ProblemReporter$MapEntryPathElement` - A path element for some entry key in a map.
+- `net.minecraft.util.ARGB#gray` - Gets a grayscale color based on the given brightness.
 - `net.minecraft.util.thread.BlockableEventLoop#hasDelayedCrash` - Whether there is a crash report queued.
 - `net.minecraft.world.InteractionHand#STREAM_CODEC` - The network codec for the interaction hand.
 - `net.minecraft.world.entity`
@@ -3446,6 +3731,9 @@ Generic entity fluid movement has been moved into a separate `EntityFluidInterac
     - `GoAndGiveItemsToTarget$ItemThrower` - An interface that handles what should occur if an item is thrown because of this entity's behavior.
 - `net.minecraft.world.entity.ai.behavior.declarative.BehaviorBuilder$TriggerWithResult#memories` - The list of memories required by the behavior.
 - `net.minecraft.world.entity.ai.memory.NearestVisibleLivingEntities#nearbyEntities` - The list of entities within the follow range of this one.
+- `net.minecraft.world.entity.decoration.LeashFenceKnotEntity`
+    - `getKnot` - Finds the knot at the given position, else returns an empty optional.
+    - `createKnot` - Creates a new knot and adds it to the level.
 - `net.minecraft.world.entity.monster.piglin`
     - `PiglinAi`
         - `MAX_TIME_BETWEEN_HUNTS` - The maximum number of seconds before a piglin begins to hunt again.
@@ -3470,7 +3758,9 @@ Generic entity fluid movement has been moved into a separate `EntityFluidInterac
     - `NIGHT_VISION_COLOR` - The default color when in night vision.
     - `TURTLE_EGG_HATCH_CHANCE` - The chance of a turtle egg hatching on a random tick.
 - `net.minecraft.world.level.gamerules.GameRule#getIdentifierWithFallback` - Gets the identifier of the game rule, or else the unregistered identifier.
-- `net.minecraft.world.level.levelgen.feature.AbstractHugeMushroomFeature#MIN_MUSHROOM_HEIGHT` - The minimum mushroom height.
+- `net.minecraft.world.level.levelgen.feature`
+    - `AbstractHugeMushroomFeature#MIN_MUSHROOM_HEIGHT` - The minimum mushroom height.
+    - `Feature#markForPostProcessing` - Marks the position for post processing, apply and first ticks or updating the states based on its neighbors.
 - `net.minecraft.world.level.levelgen.feature.configurations.BlockBlobConfiguration` - The configuration for the block blob feature.
 - `net.minecraft.world.level.levelgen.feature.trunkplacers.TrunkPlacer#getBaseHeight` - Returns the minimum height of the trunk.
 - `net.minecraft.world.level.levelgen.feature.stateproviders.RuleBasedBlockStateProvider#ifTrueThenProvide` - If the predicate is true, provide the given block.
@@ -3478,6 +3768,7 @@ Generic entity fluid movement has been moved into a separate `EntityFluidInterac
     - `FluidState#isFull` - If the fluid amount is eight.
     - `LavaFluid#LIGHT_EMISSION` - The amount of light the lava fluid emits.
 - `net.minecraft.world.level.pathfinder.PathType#BIG_MOBS_CLOSE_TO_DANGER` - A path malus for mobs with an entity width greater than a block.
+- `net.minecraft.world.level.storage.LevelStorageSource#writeWorldGenSettings` - Wriets the world generation settings to its saved data location.
 - `net.minecraft.world.level.storage.loot.functions`
     - `EnchantRandomlyFunction$Builder#withOptions` - Specifies the enchantments that can be used to randomly enchant this item.
     - `SetRandomDyesFunction` - An item function that applies a random dye (if the item is in the `dyeable` tag) to the `DYED_COLOR` component from the provided list.
@@ -3614,7 +3905,9 @@ Generic entity fluid movement has been moved into a separate `EntityFluidInterac
     - `ClientboundSetEntityMotionPacket` is now a record
     - `ServerboundContainerClickPacket` now takes in a `ContainerInput` instead of a `ClickType`
     - `ServerboundInteractPacket` is now a record, now taking in the `Vec3` interaction location
-- `net.minecraft.references.Blocks` -> `BlockIds`
+- `net.minecraft.references`
+    - `Blocks` -> `BlockIds`
+    - `Items` -> `ItemIds`
 - `net.minecraft.resources`
     - `FileToIdConverter` is now a record
     - `RegistryDataLoader#load` now returns a `CompletableFuture` of the frozen registry access
@@ -3633,10 +3926,13 @@ Generic entity fluid movement has been moved into a separate `EntityFluidInterac
 - `net.minecraft.tags.TagLoader`
     - `loadTagsFromNetwork` now takes in a `Registry` instead of a `WritableRegistry`, returning a map of tag keys to a list of holder entries
     - `loadTagsForRegistry` now has an overload which takes in registry key along with an element lookup, returning a map of tag keys to a list of holder entries
-- `net.minecraft.util.Brightness`
-    - `pack` -> `LightCoordsUtil#pack`
-    - `block` -> `LightCoordsUtil#block`
-    - `sky` -> `LightCoordsUtil#sky`
+- `net.minecraft.util`
+    - `Brightness`
+        - `pack` -> `LightCoordsUtil#pack`
+        - `block` -> `LightCoordsUtil#block`
+        - `sky` -> `LightCoordsUtil#sky`
+    - `RandomSource#createNewThreadLocalInstance` -> `createThreadLocalInstance`
+        - Now has an overload to specify the seed
 - `net.minecraft.util.thread`
     - `BlockableEventLoop` now takes in a `boolean` of whether to propogate crashes, usually to throw a delayed crash
     - `ReentrantBlockableEventLoop` now takes in a `boolean` of whether to propogate crashes, usually to throw a delayed crash
@@ -3646,6 +3942,7 @@ Generic entity fluid movement has been moved into a separate `EntityFluidInterac
     - `Entity`
         - `fluidHeight` is now final
         - `getTags` -> `entityTags`
+        - `getRandomY` now has an overload that specifies the spread `double`
     - `Leashable$Wrench#ZERO` is now final
     - `LivingEntity`
         - `interpolation` is now final
@@ -3734,7 +4031,7 @@ Generic entity fluid movement has been moved into a separate `EntityFluidInterac
 - `net.minecraft.world.level.chunk.ChunkAccess#blendingData` is now final
 - `net.minecraft.world.level.chunk.storage.SimpleRegionStorage#upgradeChunkTag` now takes in an `int` for the target version
 - `net.minecraft.world.level.gameevent.vibrations.VibrationSystem$Data#CODEC` is now final
-- `net.minecraft.world.level.gamerules.GameRules` now has an overload that takes in a list or stream of `GameRule`s
+- `net.minecraft.world.level.gamerules.GameRules` now has an overload that takes in a list of `GameRule`s
 - `net.minecraft.world.level.levelgen.blockpredicates`
     - `TrueBlockPredicate#INSTANCE` is now final
     - `UnobstructedPredicate#INSTANCE` is now final
