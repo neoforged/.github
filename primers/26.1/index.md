@@ -11,6 +11,7 @@ Thank you to:
 - @Shnupbups for some grammatical fixes
 - @cassiancc for information about Java 25 IDE support
 - @boq for information regarding IME support
+- @lolothepro for a typo
 
 ## Pack Changes
 
@@ -2205,7 +2206,7 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
     - `GlDevice` now implements `GpuDeviceBackend` instead of `GpuDevice`, the class now package-private
     - `GlRenderPass` now implements `RenderPassBackend` instead of `RenderPass`, the class now package-private
         - The constructor now takes in the `GlDevice`
-    - `GlStateManager#_colorMask` now takes in a singe `int` for the color mask instead of four `boolean`s
+    - `GlStateManager#_colorMask` now takes an `int` for the color mask instead of four `boolean`s
 - `com.mojang.blaze3d.platform`
     - `DebugMemoryUntracker#untrack` is removed
     - `GLX#make(T, Consumer)` is removed
