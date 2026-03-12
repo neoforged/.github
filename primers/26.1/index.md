@@ -5010,5 +5010,3 @@ The random patch feature has been completely removed in favor of using placement
     - `Feature#isStone`, `isDirt`, `isGrassOrDirt`
 - `net.minecraft.world.level.levelgen.material.WorldGenMaterialRule`
 - `net.minecraft.world.level.storage.loot.functions.SetOminousBottleAmplifierFunction#amplifier`
-
-CONTINUE: `net.minecraft.world.level.levelgen`
