@@ -2490,12 +2490,16 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
             - `withBlend`, `withColorWrite`, `withColorLogic` -> `withColorTargetState`, not one-to-one
         - `$Snippet` now takes in the `ColorTargetState` instead of the optional `BlendFunction`, color and alpha `boolean`s, and `LogicOp`; and the `DepthStencilState` instead of the `DepthTestFunction` and depth `boolean`
 - `com.mojang.blaze3d.platform`
+    - `BackendOptions` - A configuration for initializing the backend with.
     - `DepthTestFunction` -> `CompareOp`, not one-to-one
         - `NO_DEPTH_TEST` -> `CompareOp#ALWAYS_PASS`
         - `EQUAL_DEPTH_TEST` -> `CompareOp#EQUAL`
         - `LEQUAL_DEPTH_TEST` -> `CompareOp#LESS_THAN_OR_EQUAL`
         - `LESS_DEPTH_TEST` -> `CompareOp#LESS_THAN`
         - `GREATER_DEPTH_TEST` -> `CompareOp#GREATER_THAN`
+    - `GLX`
+        - `_initGlfw` now takes in the `BackendOptions`
+        - `glfwBool` - `1` if `true`, `0` if `false`.
     - `LogicOp` enum is removed
 - `com.mojang.blaze3d.shaders.GpuDebugOptions` - The debug options for the GPU pipeline.
 - `com.mojang.blaze3d.systems`
@@ -2515,6 +2519,7 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
         - `flipFrame` no longer takes in the `Window`
         - `initRenderer` now only takes in the `GpuDevice`
         - `limitDisplayFPS` -> `FramerateLimiter#limitDisplayFPS`
+        - `initBackendSystem` now takes in the `BackendOptions`
 - `com.mojang.blaze3d.vertex`
     - `DefaultVertexFormat#BLOCK` no longer takes in the normal vector
     - `PoseStack#mulPose`, `$Pose#mulPose` now has an overload that takes in the `Transformation`
@@ -2563,7 +2568,9 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
         - `useAmbientOcclusion` is removed
         - `getBlockRenderer` is removed
         - `getItemRenderer` is removed
-    - `Options#getCloudsType` -> `getCloudStatus`
+    - `Options`
+        - `getCloudsType` -> `getCloudStatus`
+        - `exclusiveFullscreen` - When `true`, fullscreen mode takes full control of the monitor.
 - `net.minecraft.client.color.block`
     - `BlockColor` replaced by `BlockTintSource`, not one-to-one
         - `getColor` -> `colorInWorld`, `colorAsTerrainParticle`; not one-to-one
@@ -2631,6 +2638,7 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
     - `PlayerFaceRenderer` -> `PlayerFaceExtractor`
         - `draw` -> `extractRenderState`
     - `Renderable#render` -> `extractRenderState`
+    - `StringWidget#clipText` -> `ComponentRenderUtils#clipText`
     - `TextCursorUtils#draw*` -> `extract*`
 - `net.minecraft.client.gui.components.debugchart`
     - `AbstractDebugChart`
@@ -4112,6 +4120,7 @@ Audio devices are now handled through the `DeviceTracker` which, depending on th
     - `AbstractDeviceTracker` - An abstract tracker for managing the changes of audio devices.
     - `CallbackDeviceTracker` - A device tracker that uses the SOFT system events callback to determine changes.
     - `DeviceList` - A list of all audio devices, including the default device, if available.
+    - `DeviceTracker` - An interface for managing the changes of audio devices.
     - `Library`
         - `NO_DEVICE` is now `public` from `private`
         - `init` now takes in the `DeviceList`
@@ -4133,7 +4142,6 @@ Audio devices are now handled through the `DeviceTracker` which, depending on th
     - `DebugEntrySoundCache` - A debug entry displaying the current cache for loaded sound streams.
     - `DebugScreenEntries#SOUND_CACHE` - The identifier for the sound stream cache debug information.
 - `net.minecraft.client.sounds`
-    - `DeviceTracker` - An interface for managing the changes of audio devices.
     - `SoundBufferLibrary`
         - `enumerate` - Loops through all cached sounds, outputting its id, size, and format.
         - `$DebugOutput` - An interface that accepts some sound metadata.
@@ -4149,12 +4157,17 @@ Minecraft now has support for Input Message Editors (IME), which allow complex c
 
 - `com.mojang.blaze3d.platform`
     - `InputConstants#setupKeyboardCallbacks` now takes in the `GLFWCharCallbackI` instead of `GLFWCharModsCallbackI` for the character typed callback, `GLFWPreeditCallbackI` to handle inputting complex characters via an input method editor, and `GLFWIMEStatusCallbackI` for notifying about the status of the editor
-    - `MessageBox` - A utility for creating OS native messages boxes.
-    - `Window`
-        - `setIMEPreeditArea` - Sets the area where the predicted text cursor should appear.
-        - `startTextInput`, `stopTextInput`, `toggleIME` - Handles toggling the input message editor.
+    - `MessageBox` - A utility for creating OS native messages boxes. 
+    - `TextInputManager` - A manager for handling when text is inputted in the game window.
+        - `setTextInputArea` - Sets the area where the predicted text cursor should appear.
+        - `startTextInput`, `stopTextInput` - Handles toggling the input message editor.
+- `net.minecraft.client`
+    - `KeyboardHandler`
+        - `resubmitLastPreeditEvent` - Repeats the last preedit event that was sent.
+        - `submitPreeditEvent` - Tells the listener that the preedit text has been updated.
+    - `Minecraft`
+        - `textInputManager` - Returns the input manager.
         - `onTextInputFocusChange` - Changes the editor input status based on if the text input is focused.
-- `net.minecraft.client.Minecraft#notifyIMEChanged` - Sets that the input message editor status has changed.
 - `net.minecraft.client.gui.GuiGraphics`
     - `setPreeditOverlay` - Sets the overlay drawing the preedit text.
     - `renderDeferredElements` now takes in the `int`s for the mouse position and the game time delta ticks `float`
@@ -4465,6 +4478,7 @@ The random patch feature has been completely removed in favor of using placement
     - `WorldOptionsScreen` - A screen containing the options for the current world the player is in.
 - `net.minecraft.client.gui.screens.worldselection.EditWorldScreen#conditionallyMakeBackupAndShowToast` - Only makes the backup and shows a toast if the passed in `boolean` is true; otherwise, returns a `false` future.
 - `net.minecraft.client.multiplayer.MultiPlayerGameMode#spectate` - Sends a packet to the server that the player will spectate the given entity.
+- `net.minecraft.client.multiplayer.prediction.BlockStatePredictionHandler#onTeleport` - Runs when a player is moved on the server, typically from some kind of teleportation (e.g. commands, riding an entity).
 - `net.minecraft.client.renderer`
     - `LightmapRenderStateExtractor` - Extracts the render state for the lightmap.
     - `UiLightmap` - The lightmap when in a user interface.
@@ -4501,6 +4515,7 @@ The random patch feature has been completely removed in favor of using placement
         - `despawnItem` - Despawns all item entities within the distance of the position.
         - `discard` - Discards the entity.
         - `setTime` - Sets the time of the dimension's default clock.
+        - `placeBlock` - Places the given block at the relative position and direction.
     - `GameTestInstance#padding` - The number of blocks spaced around each game test.
     - `GameTestSequence#thenWaitAtLeast` - Waits for at least the specified number of ticks before running the runnable.
 - `net.minecraft.nbt.TextComponentTagVisitor`
@@ -4536,7 +4551,9 @@ The random patch feature has been completely removed in favor of using placement
         - `warnOnLowDiskSpace` - Sends a warning if the disk space is below 64 MiB.
         - `sendLowDiskSpaceWarning` - Sends a warning for low disk space.
 - `net.minecraft.server.commands.SwingCommand` - A command that calls `LivingEntity#swing` for all targets.
-- `net.minecraft.server.level.ServerPlayer#sendBuildLimitMessage` - Sends an overlay message if the player cannot build anymore in the cooresponding Y direction.
+- `net.minecraft.server.level.ServerPlayer`
+    - `sendBuildLimitMessage` - Sends an overlay message if the player cannot build anymore in the cooresponding Y direction.
+    - `sendSpawnProtectionMessage` - Sends an overlay message if the player cannot modify the terrain due to spawn protection.
 - `net.minecraft.server.packs.AbstractPackResources#loadMetadata` - Loads the root `pack.mcmeta`.
 - `net.minecraft.server.packs.resources.ResourceMetadata$MapBased` - A resource metadata that stores the sections in a map.
 - `net.minecraft.tags.TagLoader$ElementLookup#fromGetters` - Constructs an element lookup from the given `HolderGetter`s depending on whether the element is required or not.
@@ -4560,7 +4577,9 @@ The random patch feature has been completely removed in favor of using placement
     - `AgeableMob`
         - `AGE_LOCK_COOLDOWN_TICKS` - The number of ticks to wait before the entity can be age locked/unlocked.
         - `ageLockParticleTimer` - The time for displaying particles while age locking/unlocking.
-    - `Entity$Flags` - An annotation that marks a particular value as a bitset of flags for an entity.
+    - `Entity`
+        - `applyEffectsFromBlocksForLastMovements` - Applies any block effects to this entity for the last movement, used by items.
+        - `$Flags` - An annotation that marks a particular value as a bitset of flags for an entity.
     - `LivingEntity#getLiquidCollisionShape` - Return's the bounds of the entity when attempting to collide with a liquid.
     - `Mob`
         - `asValidTarget` - Checks whether an entity is a valid target (can attack) for this entity.
@@ -4675,7 +4694,9 @@ The random patch feature has been completely removed in favor of using placement
         - `createDifficultyButton` now handles within `WorldOptionsScreen#createDifficultyButtons`, not one-to-one
     - `WorldOptionsScreen` now implements `HasGamemasterPermissionReaction`
         - `createDifficultyButtons` -> `DifficultyButtons#create`, now public
-- `net.minecraft.client.multiplayer.MultiPlayerGameMode#handleInventoryMouseClick` now takes in a `ContainerInput` instead of a `ClickType`
+- `net.minecraft.client.multiplayer`
+    - `ClientLevel#syncBlockState` can now take in a nullable player position
+    - `MultiPlayerGameMode#handleInventoryMouseClick` now takes in a `ContainerInput` instead of a `ClickType`
     - `WeatherEffectRenderer#render` no longer takes in the `MultiBufferSource`
 - `net.minecraft.client.renderer.block.ModelBlockRenderer$Cache#getLightColor` -> `getLightCoords`
 - `net.minecraft.client.renderer.blockentity.state`
@@ -4794,7 +4815,6 @@ The random patch feature has been completely removed in favor of using placement
         - `canAttackType` -> `canAttack`, not one-to-one, taking in the `LivingEntity` instead of the `EntityType`
         - `lungeForwardMaybe` -> `postPiercingAttack`
         - `entityAttackRange` -> `getAttackRangeWith`, now taking in the `ItemStack` used to attack
-    - `Mob#setPersistenceRequired` now has an overload that takes in the `boolean` value to set
 - `net.minecraft.world.entity.ai.behavior`
     - `GoAndGiveItemsToTarget` now takes in the `$ItemThrower`
         - `throwItem` -> `BehaviorUtils#throwItem`, not one-to-one
@@ -4809,6 +4829,7 @@ The random patch feature has been completely removed in favor of using placement
 - `net.minecraft.world.entity.ai.sensing.NearestVisibleLivingEntitySensor#getMemory` -> `getMemoryToSet`
 - `net.minecraft.world.entity.decoration.Mannequin#getProfile` -> `Avatar#getProfile`, now `public` and `abstract`
     - Still implemented in `Mannequin`
+- `net.minecraft.world.entity.item.ItemEntity#DEFAULT_HEALTH` is now `public` from `private`
 - `net.minecraft.world.entity.monster.breeze.Breeze#idle`, `slide`, `slideBack`, `longJump`, `shoot`, `inhale` are now final
 - `net.minecraft.world.entity.monster.piglin.PiglinAi#isZombified` now takes in the `Entity` instead of the `EntityType`
 - `net.minecraft.world.entity.monster.warden.Warden#roarAnimationState`, `sniffAnimationState`, `emergeAnimationState`, `diggingAnimationState`, `attackAnimationState`, `sonicBoomAnimationState` are now final
@@ -4831,6 +4852,7 @@ The random patch feature has been completely removed in favor of using placement
     - `BundleItem#getSelectedItem` -> `getSelectedItemIndex`
     - `CreativeModeTab$Output` is now `protected` from `public`
     - `EnderpearlItem#PROJECTILE_SHOOT_POWER` is now final
+    - `Item$Properties#requiredFeatures` now has an overload that takes in a `FeatureFlagSet`
     - `Items#register*` methods are now `private` from `public`
     - `ItemUtils#onContainerDestroyed` now takes in a `Stream` of `ItemStack`s instead of an `Iterable`
     - `SignApplicator#tryApplyToSign`, `canApplyToSign` now take in the `ItemStack` being used
