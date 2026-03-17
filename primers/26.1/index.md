@@ -3599,6 +3599,7 @@ Additionally, some animal models have been split into separate classes for the b
     - `setAgeLocked` - Sets the entity as agelocked.
     - `makeAgeLockedParticle` - Creates the particles when agelocking an entity.
     - `AGE_LOCK_DOWNWARDS_MOVING_PARTICLE_Y_OFFSET` - The Y offset for the particle's starting position.
+    - `getBabyStartAge` - The initial age of the baby.
 - `net.minecraft.world.entity.animal.axolotl.Axolotl`
     - `swimAnimation` - The state of swimming.
     - `walkAnimationState` - The state of walking on the ground, not underwater.
@@ -4333,6 +4334,7 @@ The random patch feature has been completely removed in favor of using placement
 - `net.minecraft.world.entity.ai.sensing.NearestVisibleLivingEntitySensor#requires` is no longer implemented by default.
 - `net.minecraft.world.level.levelgen.WorldOptions#generate_features` field in JSON has been renamed to `generate_structures` to match its java field name.
 - `net.minecraft.world.level.levelgen.blockpredicates.BlockPredicate#ONLY_IN_AIR_PREDICATE` now matches the air tag instead of just the air block.
+- `net.minecraft.world.level.levelgen.placement.CountPlacement` can now have up to 4096 instances of the feature instead of up to 256.
 - `net.minecraft.world.level.timers`
     - `FunctionCallback`, `FunctionTagCallback` now use `id` instead of `Name` when serializing
     - `TimerCallbacks` now uses `type` instead of `Type` when serializing
