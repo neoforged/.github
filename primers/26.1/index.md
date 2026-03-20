@@ -2478,7 +2478,9 @@ Due to this change, `FogRenderer#setupFog` now returns the `FogData`, containing
         - `isResized`, `resetIsResized` - Handles whether the window has been resized.
         - `backend` - Returns the `GpuBackend`.
         - `$WindowInitFailed` constructor is now `public` from `private`
-    - `WindowEventHandler#resizeDisplay` -> `resizeGui`
+    - `WindowEventHandler`
+        - `resizeDisplay` -> `resizeGui`
+        - `setWindowActive` replaced by `Window#isFocused`
 - `com.mojang.blaze3d.pipeline`
     - `ColorTargetState` - A record containing the blend function and mask for the color.
     - `DepthStencilState` - A record containing the data for the depth stencil.
