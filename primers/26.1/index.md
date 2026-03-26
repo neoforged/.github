@@ -472,7 +472,7 @@ public static final VillagerProfession EXAMPLE = Registry.register(
 
 With all this in mind, we can now convert item listings to their new data-generated villager trades.
 
-#### Emeralds <-> Items
+#### Emeralds to Items
 
 For the following trades:
 
@@ -563,7 +563,7 @@ Their equivalent would be:
 }
 ```
 
-#### Items and Emeralds -> Items
+#### Items and Emeralds to Items
 
 For the following trade:
 
@@ -623,7 +623,7 @@ The equivalent would be:
 }
 ```
 
-#### Emeralds -> Dyed Armor
+#### Emeralds to Dyed Armor
 
 For the following trade:
 
@@ -700,7 +700,7 @@ The equivalent would be:
 }
 ```
 
-#### Emeralds -> Enchanted Item
+#### Emeralds to Enchanted Item
 
 For the following trade:
 
@@ -883,7 +883,7 @@ The equivalent would be:
 }
 ```
 
-#### Items and Emeralds -> Potion Effect Item
+#### Items and Emeralds to Potion Effect Item
 
 For the following trade:
 
@@ -994,7 +994,7 @@ The equivalent would be:
 }
 ```
 
-#### Emeralds -> Treasure Map
+#### Emeralds to Treasure Map
 
 For the following trade:
 
