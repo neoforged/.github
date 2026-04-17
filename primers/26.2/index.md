@@ -30,6 +30,32 @@ Vanilla has added support for the Vulkan graphics API, which can be set in the o
 
 The previous data types of `RGBA8`, `RED8`, `RED8I`, `DEPTH32` can be represented using one of these `GpuFormat`s, though their mappings do not have one-to-one parity for the GL codes previously used.
 
+### Bind Group Layouts
+
+`BindGroupLayout` is a collection of sampler names and `$UniformDescription`s, replacing the single list of sampler names and `RenderPipeline#UniformDescription`. Due to this separate object, `RenderPipeline$Snippet`s that were made up of only samplers and uniforms are now decoupled, allowing for a modular, non-repeatable implementation when dealing with many pipelines and layouts. All vanilla layouts are stored in `BindGroupLayouts` and are attached to a `RenderPipeline` via `RenderPipeline$Builder#withBindGroupLayout`.
+
+```java
+public static final BindGroupLayout EXAMPLE_LAYOUT = BindGroupLayout.builder()
+    // Specifies that the shaders have a 'Sampler0' sampler
+    .withSampler("Sampler0")
+    // Specifies that the shaders have access to the 'Globals' uniform
+    .withUniform("Globals", UniformType.UNIFORM_BUFFER)
+    .build();
+
+public static final RenderPipeline EXAMPLE_PIPELINE = RenderPipeline.builder()
+    .withLocation(Identifier.fromNamespaceAndPath("examplemod", "pipeline/example"))
+    .withVertexShader(Identifier.fromNamespaceAndPath("examplemod", "example_shader"))
+    .withFragmentShader(Identifier.fromNamespaceAndPath("examplemod", "example_shader"))
+    .withVertexFormat(DefaultVertexFormat.ENTITY, VertexFormat.Mode.QUADS)
+    // Specify the layouts to use
+    .withBindGroupLayout(EXAMPLE_LAYOUT)
+    // Can use multiple layouts
+    .withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
+    .build();
+```
+
+Note that all `BindGroupLayout`s added to a `RenderPipeline` must not contain any duplicate entries (e.g. two shaders named `Sampler0`, two uniforms named `Globals`), or an error will be thrown during the shader compilation process.
+
 ### Gui Reorganization
 
 The `Gui` class has been reorganized to handle all of the components of the graphical user interface (as the name implies). As such, fields like the current `Screen` or `ChatListener` have been moved off of their previous class (e.g. `Minecraft`) and into `Gui`. Additionally, the in-game heads-up display has been moved into a separate class called `Hud`, which `Gui` takes in.
@@ -77,6 +103,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `rendertype_text_see_through` -> `text` with `IS_SEE_THROUGH` shader define
 - `com.mojang.blaze3d`
     - `GraphicsWorkarounds` -> `GlHeuristics`, `HintsAndWorkarounds`; not one-to-one
+        - `alwaysCreateFreshImmediateBuffer` is removed
     - `GpuFormat` - An object representing the format and color components of a pixel.
 - `com.mojang.blaze3d.opengl`
     - `GlCommandEncoder#finishRenderPass` -> `CommandEncoder#submitRenderPass`
@@ -87,6 +114,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `isGlFormatInteger` - Returns whether the format is backed by an integer-like data type.
         - `isFormatNormalized` - Returns whether the format uses normalized data.
         - `toGlInternalId`, `toGlExternalId`, `toGlType` now take in a `GpuFormat` instead of the `TextureFormat`
+    - `GlProgram#setupUniforms` -> `setupBindGroupLayouts`, now taking a list of `BindGroupLayout`s instead of uniforms and samplers directly
     - `GlStateManager`
         - `_blendEquationSeparate`, `glBlendEquationSeparate` - Sets the blend mode of the RGB and alpha channels.
         - `$BlendState`
@@ -97,11 +125,16 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `GlTimerQuery` replaced by `GlQueryPool`
     - `Uniform$Utb` now takes in the `GpuFormat` instead of the `TextureFormat`
 - `com.mojang.blaze3d.pipeline`
+    - `BindGroupLayout` - The samplers and uniforms a shader will use.
     - `BlendEquation` - An equation that blends the source and destination factors using the provided operation.
     - `BlendFunction` now takes in `BlendEquation`s, `BlendFactor`s, or `BlendOp`s instead of `SourceFactor`s and `DestFactor`s
-    - `RenderPipeline`
-        - `$Builder#withUniform` now takes in the `GpuFormat` instead of the `TextureFormat`
-        - `$UniformDescription` now takes in the `GpuFormat` instead of the `TextureFormat`
+    - `RenderPipeline` now takes in a list of `BindGroupLayout`s instead of uniforms and samplers directly
+        - `getSamplers`, `getUniforms` -> `getBindGroupLayouts`
+            - Can get the samplers and uniforms via `BindGroupLayout#flattenSamplers`, `flattenUniforms`
+        - `$Builder#withUniform`, `withSampler` -> `withBindGroupLayout`
+            - Can add samplers and uniforms via `BindGroupLayout$Builder#withSampler`, `withUniform`
+        - `$Snippet#samplers`, `uniforms` -> `bindGroupLayouts`, not one-to-one
+        - `$UniformDescription` -> `BindGroupLayout$UniformDescription`
     - `RenderTarget#blitToScreen` is removed
         - Usage replaced by `GpuSurface#blitFromTexture`
 - `com.mojang.blaze3d.platform`
@@ -135,6 +168,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `timerQueryBegin`, `timerQueryEnd` replaced by `writeTimestamp`
     - `DeviceInfo` - A record containing information about the GPU device.
     - `DeviceLimits` - A record containing information about the limits of GPU features.
+    - `DeviceType` - The type of the device performing the rendering (e.g., cpu, discrete graphics, integrated graphics).
     - `GpuBackend#createDevice` can now throw a `BackendCreationException`
     - `GpuDevice`
         - `createSurface` - Creates the surface for a window to write data to.
@@ -202,10 +236,16 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `DEPTH32` -> `D32_FLOAT`, not one-to-one
         - This should be taken with a grain of salt as it does not exactly map to the previous version's GL type
 - `com.mojang.blaze3d.vertex`
+    - `ByteBufferBuilder$Result#size` - The size of the resulting buffer.
+    - `MeshData`
+        - `unpackQuadCentroids` -> `decodeQuadCentroids`, now `public` from `private`, not one-to-one
+        - `vertexBufferSlice` - The resulting vertex buffer containing the `MeshData`
+        - `writeSortedIndexBuffer` - Writes the sorted vertices to an index buffer.
     - `StagingBuffer` - A buffer for staging changes to write at a later point in time.
     - `Tesselator` class is removed
     - `UberGpuBuffer` now takes in the `StagingBuffer` instead of the `GpuDevice`, buffer size `int`, and `GraphicsWorkarounds`
         - `uploadStagedAllocations` now takes in the `StagingBuffer$Uploader` instead of the `CommandEncoder`
+    - `VertexFormat#uploadImmediateVertexBuffer`, `uploadImmediateIndexBuffer` are removed
     - `VertexFormatElement`, `#register` now takes in the `GpuFormat` instead of the `$Type`, normalized `boolean`, and count `int`
         - `type`, `$Type` -> `GpuFormat` following the `_` in the entries
         - `normalized` -> `GpuFormat` if `NORM` is in the entry name
@@ -250,6 +290,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `UNIFORM_FONT` replaced by `FontOption#UNIFORM`
         - `ALT_FONT` replaced by `EnchantmentNames#ALT_FONT`, now `private` from `public`
         - `screen` -> `Gui#screen`
+        - `levelExtractor` - Extracts the level into its render state.
         - `openChatScreen` -> `Gui#openChatScreen`
         - `setScreen` -> `Gui#setScreen`
         - `setOverlay` -> `Gui#setOverlay`
@@ -264,11 +305,16 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `commandHistory` -> `ChatComponent#commandHistory`, now `private` from `public`
         - `invalidateSurfaceConfiguration` - Marks the `GpuSurface` as needing configuration, typically after a change to how the framebuffer renders (e.g., screen resize).
         - `buildInitialScreens` -> `Gui#buildInitialScreens`, now `public` from `private`
+        - `getMainRenderTarget` -> `GameRenderer#mainRenderTarget`
+        - `useShaderTransparency` -> `GameRenderState#useShaderTransparency`
+        - `renderBuffers` is removed
     - `Options`
         - `hideGui` is replaced by `Hud#isHidden`, `GuiRenderState#isHudHidden`
         - `preferredGraphicsBackend` - Gets the preferred graphics library to use when rendering the game.
         - `hasPreferredGraphicsBackendChanged` - Whether the preferred graphics library selected has changed from when the game initially started up.
     - `PreferredGraphicsApi` - The graphics libraries vanilla supports to render the game.
+    - `RotatingSectionStorage` - A class for managing the order of sections in relation to a center position.
+    - `SectionUpdateTracker` - A class for tracking whether a section needs to be updated.
 - `net.minecraft.client.gui`
     - `Gui` now takes in the `Hud` and `GuiRenderState`
         - `SAVING_TEXT` -> `SAVING_LEVEL`, not one-to-one
@@ -336,17 +382,112 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `forcedGraphicsApi` - The graphics library forced by launch argument.
 - `net.minecraft.client.model.Model#renderToBuffer(PoseStack, VertexConsumer, int, int)` is removed
 - `net.minecraft.client.model.monster.slime.SulfurCubeModel` - The entity model for the sulfur cube.
+- `net.minecraft.client.multiplayer`
+    - `ClientLevel` now takes in a `LevelExtractor` instead of the `LevelRenderer`
+        - `onSectionBecomingNonEmpty` is removed
+    - `ClientPacketListener#getPlayerCompiledSectionCallback` - Gets the callback for when the section the player is on the client has finished loading.
+    - `LevelLoadTracker`
+        - `startClientLoad` no longer takes in the `LevelRenderer`
+        - `getPlayerCompiledSectionCallback` - Gets the callback for when the section the player is on the client has finished loading.
 - `net.minecraft.client.particle`
     - `BreakingItemParticle$SulfurCubeProvider` - A breaking item particle provider for the sulfur cube.
     - `NoxiousGasCloudParticle` - A particle for the noxious gas cloud.
     - `NoxiousGasParticle` - A particle for the noxious gas.
     - `SulfurBubbleParticle` - A particle for the sulfur bubbles.
+- `net.minecraft.client.profiling.ClientMetricsSamplersProvider` now takes in a `LevelExtractor`
 - `net.minecraft.client.renderer`
+    - `BindGroupLayouts` - A collection of common uniform and sampler layouts used by a renderer.
     - `DebugCrosshairRenderer` - A renderer for the debug 3D crosshair reticle.
     - `DynamicUniforms#writeTransform` now has a view overloads for taking in the various transform parameters, or the `$Transform` object itself
+    - `GameRenderer` no longer takes in the `RenderBuffers`
+        - `renderBuffers` - The render buffers used for sections, outlines, and crumbling overlays.
+        - `getSubmitNodeStorage` -> `submitNodeStorage`
+        - `getFeatureRenderDispatcher` -> `featureRenderDispatcher`
+        - `getGameRenderState` -> `gameRenderState`
+        - `getNightVisionScale` -> `nightVisionScale`
+        - `update` no longer takes in whether to advance the game time
+        - `getMinecraft` is removed
+        - `getBossOverlayWorldDarkening` -> `bossOverlayWorldDarkening`
+        - `getMainCamera` -> `mainCamera`
+        - `getGlobalSettingsUniform` is removed
+        - `getLighting` -> `lighting`
+        - `getPanorama` -> `panorama`
+    - `LevelRenderer` has been split between this class and `LevelExtractor`
+        - The class no longer implements `ResourceManagerReloadListener`
+        - `LevelRenderer(Minecraft, EntityRenderDispatcher, BlockEntityRenderDispatcher, RenderBuffers, GameRenderState, FeatureRenderDispatcher)` -> `LevelRenderer(EntityRenderDispatcher, BlockEntityRenderDispatcher, ModelManager, TextureManager, AtlasManager, ShaderManager, GameRenderer, int, int)`
+        - `SECTION_SIZE` -> `SectionPos#SECTION_SIZE`
+        - `HALF_SECTION_SIZE` -> `SectionOcclusionGraph#HALF_SECTION_SIZE`
+        - `NEARBY_SECTION_DISTANCE_IN_BLOCKS` -> `SectionRenderDispatcher#NEARBY_SECTION_DISTANCE_IN_BLOCKS`
+        - `debugRenderer` -> `LevelExtractor#debugRenderer`
+        - `gameTestBlockHighlightRenderer` -> `LevelExtractor#gameTestBlockHighlightRenderer`
+        - `destructionProgress` -> `ClientLevel#destructionProgress`
+        - `initOutline` is removed, merged into the main constructor
+        - `shouldShowEntityOutlines` -> `LevelExtractor#shouldShowEntityOutlines`, now `private` from `public`
+        - `setLevel` -> `resetLevelRenderData`, not one-to-one
+        - `allChanged` -> `invalidateCompiledGeometry`, not one-to-one
+        - `getSectionStatistics` -> `LevelExtractor#sectionStatistics`
+        - `getSectionRenderDispatcher` -> `sectionRenderDispatcher`
+        - `getTotalSections` -> `LevelExtractor#totalSections`
+        - `getLastViewDistance` -> `LevelExtractor#lastViewDistance`
+        - `countRenderedSections` -> `LevelExtractor#countRenderedSections`
+        - `resetSampler` -> `LevelExtractor#resetSampler`, not one-to-one
+        - `getEntityStatistics` -> `LevelExtractor#entityStatistics`
+        - `offsetFrustum` -> `SectionOcclusionGraph#offsetFrustum`, now `private` from `public`
+        - `addRecentlyCompiledSection` is removed, now passed into `SectionRenderDispatcher`
+        - `update` is removed
+            - Closest use is `RotatingSectionStorage#repositionCenter` calls
+        - `renderLevel` -> `render`, no longer taking in the `ChunkSectionsToRender`
+        - `extractLevel` -> `LevelExtractor#extract`, not one-to-one
+        - `tick` is removed
+            - Logic moved to `ClientLevel#tick`
+        - `blockChanged` -> `LevelExtractor#blockChanged`, no longer taking in the `BlockGetter` or `BlockState`s
+        - `setBlocksDirty` -> `LevelExtractor#setBlocksDirty`
+        - `setSectionDirtyWithNeighbors` -> `LevelExtractor#setSectionDirtyWithNeighbors`
+        - `setSectionRangeDirty` -> `LevelExtractor#setSectionRangeDirty`
+        - `setSectionDirty` -> `LevelExtractor#setSectionDirty`
+        - `onSectionBecomingNonEmpty` is removed
+        - `destroyBlockProgress` -> `Level#destroyBlockProgress`
+        - `onChunkReadyToRender` is removed
+        - `needsUpdate` is removed
+        - `getLightCoords` -> `LightCoordsUtil#getLightCoords`
+        - `entityRenderDispatcher` - Gets the dispatcher for rendering entities.
+        - `blockEntityRenderDispatcher` - Gets the dispatcher for rendering block entities.
+        - `getTranslucentTarget` -> `translucentTarget`
+        - `getItemEntityTarget` -> `itemEntityTarget`
+        - `getParticlesTarget` -> `particlesTarget`
+        - `getWeatherTarget` -> `weatherTarget`
+        - `getCloudsTarget` -> `cloudsTarget`
+        - `getVisibleSections` -> `visibleSections`
+        - `getSectionOcclusionGraph` -> `sectionOcclusionGraph`
+        - `getCloudRenderer` -> `cloudRenderer`
+        - `skyRenderer` - Gets the sky renderer.
+        - `weatherEffectRenderer` - Gets the weather renderer.
+        - `worldBorderRenderer` - Gets the world border renderer.
+        - `viewArea` - Gets the currently viewed area of the camera.
+        - `nearbyVisibleSections` - Gets the visible sections that are nearby to the camera.
+        - `collectPerFrameGizmos` -> `collectPerFrameRenderThreadGizmos`
+        - `addMainThreadGizmos` - Adds gizmos from the main thread.
+        - `$BrightnessGetter` -> `LightCoordsUtil$BrightnessGetter`
+    - `MultiBufferSource`
+        - `immediate` -> `create`, not one-to-one
+        - `$BufferSource` is now `AutoCloseable`
+            - The constructor takes in the initial buffer size and the fixed `RenderType`s instead of the shared and fixed buffers
+            - `sharedBuffer` -> `stagedBuffer`, now `private` from `protected`, not one-to-one
+            - `fixedBuffers` -> `fixedTypes`, now `private` from `protected`, not one-to-one
+            - `startedBuilders` -> `fixedDraws`, now `private` from `protected`, not one-to-one
+            - `lastSharedType` is removed
+            - `endLastBatch` is removed
+            - `endBatch` -> `uploadAndDraw`, not one-to-one
+            - `endFrame` - When everything that should be uploaded is done for the frame.
     - `OrderedSubmitNodeCollector`
         - `submitModelPart` no longer takes in the `boolean`s for whether its sheeted or has foil
         - `submitShapeOutline` - Submits a voxel shape to draw an outline of.
+        - `submitCustomGeometry` can now take in the outline color
+    - `OutlineBufferSource` is now `AutoCloseable`
+        - The constructor now takes in the `MultiBufferSource$BufferSource` outline buffer
+        - `endFrame` - When everything that should be uploaded is done for the frame.
+    - `RenderBuffers` is now `AutoCloseable`
+        - `endFrame` - When everything that should be uploaded is done for the frame.
     - `RenderPipelines`
         - Pipelines using the `DepthStencilState` have their values inverted
             - `CompareOp` depth test uses `GREATER_THAN_OR_EQUAL` instead of `LESS_THAN_OR_EQUAL`
@@ -356,18 +497,74 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `TEXT_INTENSITY_SEE_THROUGH` -> `TEXT_GRAYSCALE_SEE_THROUGH`
         - `DRAGON_RAYS_DEPTH` is removed
             - Merged with `DRAGON_RAYS`
+        - `MATRICES_PROJECTION_SNIPPET` -> `BindGroupLayouts#MATRICES_PROJECTION`, not one-to-one
+        - `FOG_SNIPPET` -> `BindGroupLayouts#FOG`, not one-to-one
+        - `GLOBALS_SNIPPET` -> `BindGroupLayouts#GLOBALS`, not one-to-one
+    - `SectionOcclusionGraph`
+        - `invalidateIfNeeded` - Invalidates the current graph based on the camera.
+        - `onChunkReadyToRender` is removed
+        - `update` now takes in the `CameraRenderState` and fov instead of the `Camera` params, and the `LongOpenHashSet` has been replaced by two for added and removed empty sections
+        - `updateEmptySections` - Updates the newly empty and non-empty sections.
     - `ScreenEffectRenderer` no longer takes in the `MultiBufferSource$BufferSource`
         - `renderScreenEffect` -> `submit`
     - `ShapeRenderer` -> `ShapeOutlineFeatureRenderer`, not one-to-one
-    - `Sheets#cutoutBlockSheet`, `translucentBlockSheet` are removed
-        - Replaced by direct construction calls or `*ItemSheet` variants
+    - `Sheets`
+        - `DECORATED_POT_SPRITES` -> `DecoratedPotRenderer#DECORATED_POT_SPRITES`, now `private` from `public`
+        - `cutoutBlockSheet`, `translucentBlockSheet` are removed
+            - Replaced by direct construction calls or `*ItemSheet` variants
+        - `getDecoratedPotSprite` -> `DecoratedPotRenderer#getSideSprite`, now `private` from `public`, not one-to-one
+    - `SkyRenderer` now takes in the `RenderTarget`
+    - `StagedVertexBuffer` - A vertex buffer for staging draws to upload at a later point in time.
     - `SubmitNodeCollection`
         - `getModelPartSubmits` is removed
         - `getShapeOutlineSubmits` - The submitted shape outlines.
     - `SubmitNodeStorage`
+        - `$CustomGeometrySubmit` now takes in a `RenderType` and outline color
         - `$ModelPartSubmit` record is removed
         - `$ShapeOutlineSubmit` - A submitted shape outline.
+    - `ViewArea` no longer takes in the `Level` or `LevelRenderer`, instead taking in the min and max Y and section Y, along with the `SectionOcclusionGraph`
+        - `levelRenderer` is removed
+        - `level` is removed
+        - `sectionGridSizeY`, `sectionGridSizeX`, `sectionGridSizeZ` are removed
+        - `sections` is now `private` from `public`, not one-to-one
+        - `setViewDistance`
+        - `size` - The number of sections in the storage.
+        - `minY`, `maxY` - The height bounds of the level.
+        - `minSectionY`, `maxSectionY` - The section height bounds of the level.
+        - `sectionCount` - The number of sections per chunk.
+        - `getLevelHeightAccessor` is removed
+        - `setDirty` is removed
+        - `getRenderSectionAt` is now `public` from `protected`
+    - `WeatherEffectRenderer` is now `AutoCloseable`
+        - `tickRainParticles` -> `ClientLevel#tickWeatherEffects`, not one-to-one
+        - `getPrecipitationAt` -> `ClientLevel#getPrecipitationAt`, now `public` from` private`
+        - `extractRenderState` now takes in the `ClientLevel` instead of the `Level`, and no longer takes in the number of ticks the game has ran
     - `WorldBorderRenderer` now implements `AutoCloseable`
+- `net.minecraft.client.renderer.block.BlockModelRenderState#blockLightCoords` - The packed light coordinates of the block.
+- `net.minecraft.client.renderer.blockentity`
+    - `BedRenderer` class is removed
+    - `BlockEntityRenderDispatcher#tryExtractRenderState` now takes in whether the block entity is globally rendered
+- `net.minecraft.client.renderer.chunk`
+    - `CompileTaskDynamicQueue` -> `SectionTaskDynamicQueue`
+    - `SectionCompiler` no longer takes in the `BlockEntityRenderDispatcher`
+    - `SectionRenderDispatcher` no longer takes in the `ClientLevel` and `LevelRenderer`, instead taking in a consumer for a listener on when the section mesh has been updated
+        - `setLevel` -> `setCompiler`, not one-to-one
+        - `uploadGlobalGeomBuffersToGPU` -> `uploadTerrainBuffersToGpu`
+        - `rebuildSectionSync` is removed
+        - `$RenderSection` now implements `RotatingSectionStorage$Value`
+            - `SIZE` -> `SectionPos#SECTION_SIZE`
+            - `hasAllNeighbors` is removed
+            - `setDirty`, `setNotDirty`, `isDirty`, `isDirtyFromPlayer` are removed
+            - `resortTransparency` no longer takes in the `SectionRenderDispatcher`
+            - `cancelTasks` is now `private` from `protected`
+            - `createCompileTask` is now `private` from `public`, now taking in the `RenderSectionRegion` instead of the `RenderRegionCache`
+            - `rebuildSectionAsync` -> `compileAsync`, now taking in the `RenderSectionRegion` instead of the `RenderRegionCache`
+            - `compileSync` now takes in the `RenderSectionRegion` instead of the `RenderRegionCache`
+            - `$CompileTask` -> `SectionRenderDispatcher$SectionTask`
+                - `isRecompile` is now `private` from `protected`
+                - `name` is removed
+            - `$RebuildTask` -> `$CompileTask`
+                - `region` is now `private` from `protected`
 - `net.minecraft.client.renderer.entity`
     - `AbstractCubeMobRenderer` - An entity renderer for cube-like mobs.
     - `MagmaCubeRenderer` now extends `AbstractCubeMobRenderer`
@@ -375,7 +572,12 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `SulfurCubeRenderer` - The entity renderer for a sulfur cube.
 - `net.minecraft.client.renderer.entity.layers.SulfurCubeInnerLayer` - The inner layer of a sulfur cube.
 - `net.minecraft.client.renderer.entity.state.SulfurCubeRenderState` - The render state for a sulfur cube.
+- `net.minecraft.client.renderer.extract.LevelExtractor` - A class that extracts the render state for level rendering.
 - `net.minecraft.client.renderer.feature`
+    - `CustomFeatureRenderer`
+        - `renderSolid`, `renderTranslucent` now take in the `OutlineBufferSource`
+        - `renderOutline` - Renders the outline of the submitted geometry.
+        - `$Storage#add` now takes in the outline color
     - `FeatureRenderDispatcher#renderTranslucentParticles` -> `renderTranslucentAfterTerrain`
     - `ItemFeatureRenderer`
         - `getFoilBuffer(MultiBufferSource, RenderType, boolean, boolean)` is removed
@@ -385,6 +587,11 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `ModelPartFeatureRenderer` class is removed
     - `ShapeOutlineFeatureRenderer` - A feature renderer for `VoxelShape` outlines.
 - `net.minecraft.client.renderer.rendertype`
+    - `RenderSetup` no longer takes in the buffer size
+        - `$RenderSetupBuilder#bufferSize` is removed
+    - `RenderType`
+        - `draw` -> `drawFromBuffer`, now taking in the `StagedVertexBuffer$ExecuteInfo`; not one-to-one
+        - `bufferSize` is removed
     - `RenderTypes`
         - `textIntensity` -> `textGrayscale`
         - `textIntensityPolygonOffset` -> `textGrayscalePolygonOffset`
@@ -392,13 +599,31 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `dragonRaysDepth` is removed
             - Merged with `dragonRays`
     - `TextureTransform#getMatrix` -> `createMatrix`
-- `net.minecraft.client.renderer.state.OptionsRenderState#hideGui` -> `GuiRenderState#isHudHidden`
+- `net.minecraft.client.renderer.special.BedSpecialRenderer` class is removed
+- `net.minecraft.client.renderer.state.OptionsRenderState`
+    - `hideGui` -> `GuiRenderState#isHudHidden`
+    - `chunkSectionFadeInTime` - The amount of seconds that should be taken for a chunk to fade in when first rendered.
+    - `prioritizeChunkUpdates` - What chunk updates to prioritize.
+    - `fov` - The field of view of the camera.
 - `net.minecraft.client.renderer.state.gui.BlitRenderState` now takes in a `Matrix3x2fc` instead of a `Matrix3x2f` for the pose
 - `net.minecraft.client.renderer.state.gui.pip`
     - `GuiEntityRenderState` now takes in `Vector3fc` and `Quaternionfc`s instead of `Vector3f` and `Quaternionf`s
     - `GuiSkinRenderState` now takes in a `Model$Simple` instead of a `PlayerModel` for the model
     - `PictureInPictureRenderState#IDENTITY_POSE`, `pose` now returns a `Matrix3x2fc` instead of a `Matrix3x2f`
-- `net.minecraft.client.renderer.state.level.LevelRenderState#render3dCrosshair` - Whether to render the 3d crosshair reticle.
+- `net.minecraft.client.renderer.state.level`
+    - `CameraRenderState`
+        - `isFrustumCaptured` - Whether the frustum has been captured.
+        - `smartCull` - Whether to use smart culling.
+    - `LevelRenderState`
+        - `render3dCrosshair` - Whether to render the 3d crosshair reticle.
+        - `chunkSectionsToRender` is removed
+        - `sectionUpdateRenderStates` - The render states of the sections to update.
+        - `playerCompiledSectionCallback` - Gets the callback for when the section the player is on the client has finished loading.
+        - `addedEmptySections`, `removedEmptySections` - The changes between empty sections.
+        - `shouldResetChunkLayerSampler` - Whether the chunk layer sampler should be reset.
+        - `shouldShowEntityOutlines` - Whether to show the outlines of entities.
+        - `shouldResetSkyRenderer` - Whether the sky renderer should be reinitialized.
+    - `SectionUpdateRenderState` - The render state of a section to update.
 - `net.minecraft.client.resources.model.ModelManager$MaterialBakerImpl` - An implemented `MaterialBaker`.
 - `net.minecraft.client.resources.model.sprite.SpriteId#buffer` are removed
 
@@ -441,10 +666,25 @@ EXAMPLE_BLOCK.forEach(block -> {
     // ...
 });
 
+// Map a collection to another collection
+ColorCollection<Item> items = ColorCollection.map(Block::asItem);
+
+// Map two collections together, zipping them per entry
+ColorCollection<Item> items = ColorCollection.zipMap(EXAMPLE_BLOCK, ColorCollection.VALUES, (exampleBlock, dyeColor) -> {
+    val id = BuiltInRegistries.BLOCK.getKey(exampleBlock);
+    return Registry.register(
+        BuiltInRegistries.ITEM, id,
+        new Item(new Item.Properties()
+            .setId(ResourceKey.create(BuiltInRegistries.ITEM, id))
+            .component(DataComponents.DYED_COLOR, new DyedItemColor(dyeColor.getTextureDiffuseColor))
+        )
+    );
+});
+
 // Do something given two collections, zipping them per entry
-ColorCollection.zipApply((exampleBlock, dye) -> {
+ColorCollection.zipApply(EXAMPLE_BLOCK, Items.DYE, (exampleBlock, dye) -> {
     // ...
-}, EXAMPLE_BLOCK, Items.DYE);
+});
 
 // Get a specific object based on the collection variant
 Block pink = EXAMPLE_BLOCK.pick(DyeColor.PINK);
@@ -455,7 +695,9 @@ Block pink = EXAMPLE_BLOCK.pick(DyeColor.PINK);
     - `createBanners` is removed
     - `createBed` no longer takes in the `Block`s for the bed and particle
     - `createBeds` is removed
+- `net.minecraft.client.renderer.Sheets#CHEST_COPPER_*` merged into `CHEST_COPPER` collection
 - `net.minecraft.client.renderer.block.BuiltInBlockModels#createBanners` no longer takes in the `Block`s for the ground and wall variants
+- `net.minecraft.client.renderer.special.ChestSpecialRenderer#COPPER_*` merged into `COPPER` collection
 - `net.minecraft.data.BlockFamilies`
     - `COPPER_BLOCK`, `WAXED_COPPER_BLOCK`, `EXPOSED_COPPER`, `WAXED_EXPOSED_COPPER`, `WEATHERED_COPPER`, `WAXED_WEATHERED_COPPER`, `OXIDIZED_COPPER`, `WAXED_OXIDIZED_COPPER` merged into `COPPER_BLOCK`, not one-to-one
     - `CUT_COPPER`, `WAXED_CUT_COPPER`, `EXPOSED_CUT_COPPER`, `WAXED_EXPOSED_CUT_COPPER`, `WEATHERED_CUT_COPPER`, `WAXED_WEATHERED_CUT_COPPER`, `OXIDIZED_CUT_COPPER`, `WAXED_OXIDIZED_CUT_COPPER` merged into `CUT_COPPER`, not one-to-one
@@ -470,6 +712,219 @@ Block pink = EXAMPLE_BLOCK.pick(DyeColor.PINK);
     - `ColorCollection` - A collection of objects whose variants represent one of sixteen colors.
     - `WeatheringCopperBlocks` -> `WeatheringCopperCollection`, not one-to-one
 - `net.minecraft.world.level.storage.loot.BuiltInLootTables` map fields are replaced by `ColorCollection`s
+
+## Advancements and Entity Sub Predicates
+
+`net.minecraft.advancements` has reorganized the location of its criteria, triggers, and predicates. Criteria and triggers are now located within `net.minecraft.advancements.triggers`, whereas predicates can be found within `net.minecraft.advancements.predicates`. `EntityPredicate` along with `EntitySubPredicate` and its implementations are within `net.minecraft.advancements.predicates.entity`.
+
+Additionally, `EntityPredicate` is now a wrapper around a map of `EntitySubPredicate`s. Since not all predicates used by the `EntityPredicate` were `EntitySubPredicate`s (e.g. `DistancePredicate`, `SlotsPredicate`), vanilla added new `EntitySubPredicate`s that wrap around these generic implementations (e.g. `DistancePredicate` -> `DistanceToPlayerPredicate`, `SlotsPredicate` -> `EntitySlotsPredicate`). Predicates that were recursive in nature (e.g. `vehicle`, `passenger`) also have an object to wrap around the `EntityPredicate` (e.g. `vehicle` now a `VehiclePredicate`, `passenger` now a `PassengerPredicate`).
+
+`EntitySubPredicate` has also changed slightly as its now just a functional interface with `matches`. `Registries#ENTITY_SUB_PREDICATE_TYPE` now registers a `Codec` of the predicate, which is used as the key of the `EntityPredicate` map.
+
+```java
+// Create a sub predicate to map.
+public class TeamColorPredicate(int color) implements EntitySubPredicate {
+
+    // The codec to register.
+    public static final Codec<TeamColorPredicate> CODEC = ExtraCodecs.STRING_RGB_COLOR.xmap(
+        TeamColorPredicate::new, TeamColorPredicate::color
+    );
+
+    public TeamColorPredicate {
+        this.color = ARGB.opaque(color);
+    }
+
+    @Override
+    public boolean matches(Entity entity, ServerLevel level, @Nullable Vec3 position) {
+        return ARGB.opaque(entity.getTeamColor()) == this.color;
+    }
+}
+
+// Register the codec.
+Registry.register(
+    BuiltInRegistries.ENTITY_SUB_PREDICATE_TYPE,
+    Identifier.fromNamespaceAndPath("examplemod", "team_color"),
+    TeamColorPredicate.CODEC
+);
+```
+
+So, if our `EntityPredicate` looks something like:
+
+```java
+var predicate = new EntityPredicate(Map.of(
+    TeamColorPredicate.CODEC, new TeamColorPredicate(0x00FF00),
+    DistanceToPlayerPredicate.CODEC, new DistanceToPlayerPredicate(DistancePredicate.vertical(MinMaxBounds.Doubles.exactly(1d)))
+));
+```
+
+Then, it will be serialized into the advancement JSON as:
+
+```json5
+// In some advancement JSON
+
+// Only the `EntityPredicate` part
+{
+    "examplemod:team_color": "#00FF00",
+    "minecraft:distance": {
+        "y": 1
+    }
+}
+```
+
+- `net.minecraft.advancements`
+    - `CriteriaTriggers` -> `.advancements.triggers.CriteriaTriggers`
+    - `Criterion` -> `.advancements.triggers.Criterion`
+    - `CriterionTrigger` -> `.advancements.triggers.CriterionTrigger`
+- `net.minecraft.advancements.criterion.*`
+    - `*Predicate` -> `.advancements.predicates.*Predicate`
+    - `*Trigger` -> `.advancements.triggers.*Trigger`
+    - `BlockPredicate` -> `.advancements.predicates.BlockPredicate`
+    - `CollectionContentsPredicate` -> `.advancements.predicates.CollectionContentsPredicate`
+    - `CollectionCountsPredicate` -> `.advancements.predicates.CollectionCountsPredicate`
+    - `CollectionPredicate` -> `.advancements.predicates.CollectionPredicate`
+    - `ContextAwarePredicate` -> `.advancements.predicates.ContextAwarePredicate`
+    - `DamagePredicate` -> `.advancements.predicates.DamagePredicate`
+    - `DamageSourcePredicate` -> `.advancements.predicates.DamageSourcePredicate`
+    - `DataComponentMatchers` -> `.advancements.predicates.DataComponentMatchers`
+    - `DistancePredicate` -> `.advancements.predicates.DistancePredicate`
+    - `EnchantmentPredicate` -> `.advancements.predicates.EnchantmentPredicate`
+    - `EntityEquipmentPredicate` -> `.advancements.predicates.entity.EntityEquipmentPredicate`
+        - Now implements `EntitySubPredicate`
+    - `EntityFlagsPredicate` -> `.advancements.predicates.entity.EntityFlagsPredicate`
+        - Now implements `EntitySubPredicate`
+    - `EntityPredicate` -> `.advancements.predicates.entity.EntityPredicate`
+        - The constructor now takes in a map of `EntitySubPredicate`s
+        - `entityType` replaced by adding an `EntityTypePredicate` to the map
+        - `distanceToPlayer` replaced by adding a `DistanceToPlayerPredicate` to the map
+        - `movement` replaced by adding a `DistanceToPlayerPredicate` to the map
+        - `location` replaced by adding some of the following to the map:
+            - `EntityLocationPredicate`
+            - `SteppingOnPredicate`
+            - `MovementAffectedByPredicate`
+        - `effects` replaced by adding a `EntityEffectsPredicate` to the map
+        - `nbt` replaced by adding a `EntityNbtPredicate` to the map
+        - `flags` replaced by adding a `EntityFlagsPredicate` to the map
+        - `equipment` replaced by adding a `EntityEquipmentPredicate` to the map
+        - `subPredicate` -> `parts`, now `private` from `public`, not one-to-one
+        - `periodicTick` replaced by adding a `PeriodicEntityTickPredicate` to the map
+        - `vehicle` replaced by adding a `VehiclePredicate` to the map
+        - `passenger` replaced by adding a `PassengerPredicate` to the map
+        - `targetedEntity` replaced by adding a `TargetedEntityPredicate` to the map
+        - `team` replaced by adding a `TeamPredicate` to the map
+        - `slots` replaced by adding a `EntitySlotsPredicate` to the map
+        - `components` replaced by adding either `EntityExactDataComponentsPredicate` or `EntityPartialComponentsPredicate` to the map
+        - `$Builder`
+            - `components` now has an overload that takes in a map of `DataComponentType`s to `DataComponentPredicate`s
+            - `lightingBolt` - Adds a predicate for a lightning bolt.
+            - `player` - Adds a predicate for a player.
+            - `sheep` - Adds a predicate for a sheep.
+            - `cubeMob` - Adds a predicate for a cube mob.
+            - `raider` - Adds a predicate for a raider.
+            - `fishingHook` - Adds a predicate for a fishing hook.
+        - `$LocationWrapper` record is removed
+    - `EntitySubPredicate` -> `.advancements.predicates.entity.EntitySubPredicate`
+        - `CODEC` -> `EntityPredicate#MAP_CODEC`, not one-to-one
+        - `codec` is removed
+        - `ALWAYS_TRUE` - A predicate that returns true.
+        - `and` - Chains another predicate with this one using an `AND` statement.
+    - `EntitySubPredicates` -> `.advancements.predicates.entity.EntitySubPredicates`
+        - Static fields are now inlined into `bootstrap`
+    - `EntityTypePredicate` -> `.advancements.predicates.entity.EntityTypePredicate`
+        - Now implements `EntitySubPredicate`
+    - `FishingHookPredicate` -> `.advancements.predicates.entity.FishingHookPredicate`
+    - `FluidPredicate` -> `.advancements.predicates.FluidPredicate`
+    - `FoodPredicate` -> `.advancements.predicates.FoodPredicate`
+    - `GameTypePredicate` -> `.advancements.predicates.GameTypePredicate`
+    - `InputPredicate` -> `.advancements.predicates.InputPredicate`
+    - `ItemPredicate` -> `.advancements.predicates.ItemPredicate`
+    - `LightningBoltPredicate` -> `.advancements.predicates.entity.LightningBoltPredicate`
+    - `LightPredicate` -> `.advancements.predicates.LightPredicate`
+    - `LocationPredicate` -> `.advancements.predicates.LocationPredicate`
+    - `MinMaxBounds` -> `.advancements.predicates.MinMaxBounds`
+    - `MobEffectsPredicate` -> `.advancements.predicates.MobEffectsPredicate`
+    - `MovementPredicate` -> `.advancements.predicates.entity.MovementPredicate`
+        - Now implements `EntitySubPredicate`
+    - `NbtPredicate` -> `.advancements.predicates.NbtPredicate`
+    - `PlayerPredicate` -> `.advancements.predicates.entity.PlayerPredicate`
+    - `RaiderPredicate` -> `.advancements.predicates.entity.RaiderPredicate`
+    - `SheepPredicate` -> `.advancements.predicates.entity.SheepPredicate`
+    - `SingleComponentItemPredicate` -> `.advancements.predicates.SingleComponentItemPredicate`
+    - `SlimePredicate` -> `.advancements.predicates.entity.CubeMobPredicate`
+    - `SlotsPredicate` -> `.advancements.predicates.SlotsPredicate`
+    - `StatePropertiesPredicate` -> `.advancements.predicates.StatePropertiesPredicate`
+    - `TagPredicate` -> `.advancements.predicates.TagPredicate`
+- `net.minecraft.advancements.predicates.entity`
+    - `DistanceToPlayerPredicate` - An entity sub predicate that checks a `DistancePredicate`.
+    - `EntityEffectsPredicate` - An entity sub predicate that checks a `MobEffectsPredicate`.
+    - `EntityLocationPredicate` - An entity sub predicate that checks a `LocationPredicate`.
+    - `EntityNbtPredicate` - An entity sub predicate that checks a `NbtPredicate`.
+    - `EntityPartialComponentsPredicate` - An entity sub predicate that checks if the specified data components match the `DataComponentPredicate`.
+    - `EntitySlotsPredicate` - An entity sub predicate that checks a `SlotsPredicate`.
+    - `EntityTagPredicate` - An entity sub predicate that checks if an entity is in or not in `Entity#entityTags`.
+    - `MovementAffectedByPredicate` - An entity sub predicate that checks a `LocationPredicate` on `Entity#getBlockPosBelowThatAffectsMyMovement`.
+    - `PassengerPredicate` - An entity sub predicate that checks an `EntityPredicate` on all passengers.
+    - `SteppingOnPredicate` - An entity sub predicate that checks a `LocationPredicate` on `Entity#getOnPos`.
+    - `TargetedEntityPredicate` - An entity sub predicate that checks an `EntityPredicate` on `Mob#getTarget`.
+    - `TeamPredicate` - An entity sub predicate that checks if an entity is on the specified team.
+    - `VehiclePredicate` - An entity sub predicate that checks an `EntityPredicate` on `Entity#getVehicle`.
+- `net.minecraft.core.registries.BuiltInRegistries`, `Registries#ENTITY_SUB_PREDICATE_TYPE` is now a `Codec` instead of a `MapCodec`
+- `net.minecraft.server.PlayerAdvancements`
+    - `stopListening` -> `clearTriggers`, not one-to-one
+    - `getTriggerMapForType` - Gets the map of advancement to trigger value for the given `CriterionTrigger`.
+    - `$TriggerInstanceKey` - A record that holds the advancement and associated string criterion.
+
+## More Resource Keys and Separating Registry Objects
+
+`Block`s, `Item`s, `EntityType`s, `BlockEntityType`s, `Fluid`s, and `Potion`s have had their `ResourceKey`s stored in a separate `*Ids` class, which is then referenced whenever an identifier is needed. Blocks with an item representation, known as block items, have their own identifiers stored as a `BlockItemId`, which is just a pair of `ResourceKey`s, in `BlockItemIds`.
+
+Additionally, the `BlockEntityType` and `EntityType` registry entries have been moved into their own separate class: `BlockEntityTypes` and `EntityTypes`, respectively.
+
+### Tags Provider Changes
+
+Since all registry objects in a tag has an accessible `ResourceKey`, all utility subclasses of `TagsProvider` have been removed (i.e. `HolderTagProvider`, `IntrinsicHolderTagsProvider`, `KeyTagProvider`), with the two `KeyTagProvider#tag` methods moved into `TagsProvider`. In addition, the `TagAppender` now only takes in `ResourceKey`s, the arbitrary element mapping completely removed.
+
+This means that either a `ResourceKey` or `TagKey` must be provided to add an element to a tag through `TagsProvider`s.
+
+For block items and block item tags (tags that exist within the block and item registry), `BlockItemTagsProvider` has been updated to use `BlockItemId`s and `BlockItemTagId`s, which are functionally records that hold the names of the object in the block and item registries. Entries are added in the `run` block, which is then called within the block or item `TagsProvider`, respectively.
+
+- `net.minecraft.data.tags`
+    - All `*TagsProvider` that extended `TagsProvider` or one of its subclasses now extend `TagsProvider`
+    - `BlockItemTagAppender` - A `TagAppender` that converts a `BlockItemId` to its appropriate object resource key, usually for a `Block` or `Item`.
+    - `BlockItemTagsProvider` now takes in a function with a `BlockItemTagId` and returning a `$CombinedAppender`
+        - The original behavior of this class has moved to `VanillaBlockItemTagsProvider`
+        - `tag` now takes in a `BlockItemTagId` instead of the `TagKey`s for each
+        - `run` is now abstract
+        - `wrapForBlocks`, `wrapForItems` - Wraps around an existing block or item `TagAppender` to take in a `BlockItemId` or `BlockItemTagId`.
+        - `$CombinedAppender` - An appender that allows for `BlockItemId`s and `BlockItemTagId`s to be added.
+    - `HolderTagProvider` class is removed
+    - `IntrinsicHolderTagsProvider` class is removed
+    - `KeyTagProvider` class is removed
+        - `tag` -> `KeyTagProvider#tag`
+    - `TagAppender` no longer takes in the `E` element generic
+        - The `E` generic in methods have been replaced with `ResourceKey<T>`
+        - `map` is removed
+- `net.minecraft.references`
+    - `BlockIds` now contain `ResourceKey`s for all blocks without item representations available in a tag
+    - `BlockItemId` - An identifier that applies to a block with an item representation.
+    - `BlockItemIds` - Identifiers for vanilla blocks with an item representation.
+    - `ItemIds` now contain `ResourceKey`s for all non-block items available in a tag
+- `net.minecraft.resources.ResourceKey#dependent` - Creates a new resource key by modifying the path of the object `Identifier`, either via a suffix or a `UnaryOperator`.
+- `net.minecraft.tags`
+    - `BlockItemTagId` - An identifier that applies to a block tag with an item tag representation.
+    - `BlockItemTags` - Identifiers for block tags with an item tag representation.
+- `net.minecraft.world.entity`
+    - `EntityType` registry objects have been moved to `EntityTypes`
+        - `byString` is removed
+    - `EntityTypeIds` - Identifiers for entity types.
+    - `EntityTypes` - All vanilla entity types.
+- `net.minecraft.world.item.alchemy.PotionIds` - Identifiers for vanilla potions.
+- `net.minecraft.world.level.block.entity`
+    - `BlockEntityType` registry objects have been moved to `BlockEntityTypes`
+        - The constructor is now `public` from `private`
+        - `$BlockEntitySupplier` is now `public` from `private`
+    - `BlockEntityTypeIds` - Identifiers for block entity types.
+    - `BlockEntityTypes` - All vanilla block entity types.
+- `net.minecraft.world.level.material.FluidIds` - Identifiers for fluids.
 
 ## Minor Migrations
 
@@ -628,6 +1083,8 @@ public void exampleTest(GameTestHelper helper) {
     - `shears_major_breaking_speed`
     - `shears_minor_breaking_speed`
     - `suppresses_bounce`
+    - `speleothems`
+    - `sulfur_spike_replaceable_blocks`
 - `minecraft:damage_type`
     - `sulfur_cube_with_block_immune_to`
 - `minecraft:item`
@@ -649,14 +1106,27 @@ public void exampleTest(GameTestHelper helper) {
 ### List of Additions
 
 - `net.minecraft.ExitCodes` - A list of exit codes Minecraft can throw when crashing.
-- `net.minecraft.client.Minecraft#getProfileResult` - Gets the loaded profile of the user, or `null`.
+- `net.minecraft.client`
+    - `Minecraft`
+        - `getProfileResult` - Gets the loaded profile of the user, or `null`.
+        - `getMetricsRecorder` - Gets the recorder for the game metrics.
+    - `OptionInstance`
+        - `NO_ACTION` - A listener that ignores the changed value.
+        - `$ValueUpdateListener` - A listener that handles what to do when an option value is changed.
+- `net.minecraft.client.data.models.BlockModelGenerators#createBed` - Creates a bed with variants for the head and foot.
+- `net.minecraft.client.data.models.model`
+    - `ModelTemplates#BED_HEAD`, `BED_FOOT` - Model templates for the bed parts.
+    - `TextureMapping#bed` - Creates a texture map for a bed-like model.
+- `net.minecraft.client.multiplayer.ClientChunkCache#flipEmptySectionUpdates` - Updates the section arrays to their next index, clearing them for use. 
 - `net.minecraft.core.BlockPos#neighborColumn` - An iterable of positions that starts at some given XYZ, goes until some other Y, and then loop through the same column space in the four horizontally orthogonal directions.
 - `net.minecraft.core.dispenser.SulfurCubeBlockDispenseItemBehavior` - The dispense behavior allowing sulfur cubes to equip items.
 - `net.minecraft.data.BlockFamilies`
     - `SULFUR`, `POLISHED_SULFUR`, `SULFUR_BRICKS` - Sulfur block variants.
     - `CINNABAR`, `POLISHED_CINNABAR`, `CINNABAR_BRICKS` - Cinnabar block variants.
 - `net.minecraft.data.worldgen`
-    - `BiomeDefaultFeatures#addSulfurCavesVegetationFeatures` - Vegetation features for the sulfur caves biome.
+    - `BiomeDefaultFeatures`
+        - `addSulfurCavesVegetationFeatures` - Vegetation features for the sulfur caves biome.
+        - `addSulfurSpikeFeatures` - Sulfur spike features.
     - `TerrainProvider#peaksAndValleys` - Calculates the peaks and valleys scalar given the weirdness.
 - `net.minecraft.data.worldgen.biome.OverworldBiomes#sulfurCaves` - The sulfur caves biome.
 - `net.minecraft.gametest.framework.GameTestHelper#assertValueInBetween` - Assert the `Comparable` value is between some bounds.
@@ -666,7 +1136,11 @@ public void exampleTest(GameTestHelper helper) {
         - `sample`, `$Multipoint#sample` - Samples the spline at the given coordinates.
         - `asSampler` - Returns the sampler for the spine.
         - `$Multipoint#codec` - Gets the codec for the spline.
-    - `Util#join` - Flattens a varargs of lists of elements into a single list.
+    - `Util`
+        - `join` - Flattens lists of elements into a single list.
+        - `dumpThreadInfo` - Dumps the info for all live platform threads.
+- `net.minecraft.util.profiling.metrics.MetricSampler#samplingPhase`, `$MetricSamplerBuilder#withSamplingPhase`, `$SamplingPhase` - The phase when the metric sampling should occur.
+- `net.minecraft.util.profiling.metrics.profiling.MetricsRecorder#sampleDuringExtract` - Samples the metrics, marking the phase as during render state extraction.
 - `net.minecraft.world.entity`
     - `AgeableMob#canBeABaby` - Whether the mob can have a baby variant.
     - `Entity`
@@ -688,8 +1162,12 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.world.level.block`
     - `CopperChestBlock#getHingeSound` - Gets the hinge sound to play based on the current state of the chest.
     - `PotentSulfurBlock` - A sulfur block that can apply noxious gas effects.
+    - `SpeleothemBlock` - An abstract representation of a speleothem.
+    - `SulfurSpikeBlock` - A sulfur spike speleothem.
     - `WeatheringCopper$WeatherState#forEach` - Loops through the available weather states.
-- `net.minecraft.world.level.block.entity.PotentSulfurEntity` - A sulfur block entity that can apply noxious gas effects.
+- `net.minecraft.world.level.block.entity`
+    - `DecoratedPotPatterns#itemToPatternMappings` - Operates on the keys for an item and its associated pot pattern.
+    - `PotentSulfurEntity` - A sulfur block entity that can apply noxious gas effects.
 - `net.minecraft.world.level.block.state.BlockBehavior#bounceRestitution`, `$Properties#bounceRestitution` - How much the entity should bounce after colliding with this block.
 - `net.minecraft.world.level.levelgen.SurfaceRules#noiseGradient` - Creates a noise gradient rule from the given noise parameters and blockstate gradient.
 - `net.minecraft.world.level.levelgen.feature`
@@ -707,23 +1185,33 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft`
     - `CrashReportCategory$Entry` is now a record and `public` from `private`
     - `SystemReport#setDetail` now takes in a `CrashReportDetail` instead of a `String` supplier
-- `net.minecraft.client.Minecraft`
-    - `saveReport` now has an overload that takes in the crash report exit code `int`
-    - `crash` now takes in the crash report exit code `int`
-    - `saveReportAndShutdownSoundManager` is now `public` from `private`, taking in the crash report exit code `int`
-    - `destroy` -> `exitWorldAndClose`, not one-to-one
-    - `isMultiplayerServer` is now `public` from `private`
-    - `getRunningThread` has been expanded to `public` from `protected`
-    - `$GameLoadCookie` -> `GameLoadCookie`, now `public` from `private`
+- `net.minecraft.client`
+    - `Minecraft`
+        - `saveReport` now has an overload that takes in the crash report exit code `int`
+        - `crash` now takes in the crash report exit code `int`
+        - `saveReportAndShutdownSoundManager` is now `public` from `private`, taking in the crash report exit code `int`
+        - `destroy` -> `exitWorldAndClose`, not one-to-one
+        - `isMultiplayerServer` is now `public` from `private`
+        - `getRunningThread` has been expanded to `public` from `protected`
+        - `$GameLoadCookie` -> `GameLoadCookie`, now `public` from `private`
+    - `OptionInstance` constructor, `#createBoolean`, `createButton` now take in a `$ValueUpdateListener` instead of a consumer
+        - `$SliderableValueSet` is now `public` from package-private
+        - `$ValueSet` is now `public` from package-private
+            - `createButton` now takes in a `$ValueUpdateListener` instead of a consumer
 - `net.minecraft.client.data.models.BlockModelGenerators`
     - `createColoredBlockWithRandomRotations`, `createColoredBlockWithStateRotations` now take in a list of `Block`s instead of a varargs
-    - `createPointedDripstoneVariant` now takes in a `SpeleothemThickness` instead of a `DripstoneThickness`
+    - `createPointedDripstoneVariant` -> `createSpeleothemVariant`, now taking in a `Block`
     - `createBanner` no longer takes in the `Block`s for the standalone and wall variant
+    - `createPointedDripstone` -> `createSpeleothem`, now taking in a `Block`
+- `net.minecraft.client.data.models.model.ItemModelUtils#plainModel` now has an overload that takes in a `Transformation`
+- `net.minecraft.client.multiplayer.ClientChunkCache#getLoadedEmptySections` split into `addedEmptySections`, `removedEmptySections`
 - `net.minecraft.core.Holder` is now `sealed` to `$Direct` and `$Reference`
     - `$Reference` is now `non-sealed`
 - `net.minecraft.data.worldgen.TerrainProvider` methods no longer bind the `BoundedFloatFunction` generic
     - `buildErosionOffsetSpline` now takes in a `Float2FloatFunction` instead of a `BoundedFloatFunction`
-- `net.minecraft.server.level.ServerEntityGetter#getNearestEntity` now has an overload that takes in the list of `Entity`s to loop through along with the center position as three `double`s
+- `net.minecraft.server.level`
+    - `BlockDestructionProgress#updateTick`, `getUpdatedRenderTick` now deal with `long`s instead of `int`s
+    - `ServerEntityGetter#getNearestEntity` now has an overload that takes in the list of `Entity`s to loop through along with the center position as three `double`s
 - `net.minecraft.util`
     - `BoundedFloatFunction#createUnlimited` -> `constant`, not one-to-one
     - `CubicSpline` is now `sealed` to `$Multipoint` and `$Constant`
@@ -739,6 +1227,8 @@ public void exampleTest(GameTestHelper helper) {
         - `tryGetVersion` -> `tryGetModuleVersion`, now `public` from `private`
         - `$NativeModuleInfo`, `$NativeModuleVersion` are now `record`s
 - `net.minecraft.util.filefix.access.ChunkNbt#updateChunk` now returns a `CompletableFuture`
+- `net.minecraft.util.profiling.metrics.MetricSampler` now takes in a `$SamplingPhase`
+    - `create(String, MetricCategory, T, ToDoubleFunction<T>)` -> `createExtractSampler(String, MetricCategory, DoubleSupplier)`
 - `net.minecraft.world`
     - `InstantenousMobEffect` -> `InstantaneousMobEffect`
     - `MobEffect`
@@ -773,12 +1263,26 @@ public void exampleTest(GameTestHelper helper) {
         - The class now extends `AbstractCubeMob` and implements `Enemy`
 - `net.minecraft.world.entity.monster.zombie.Drowned#wantsToSwim` is now `public` from `private`
 - `net.minecraft.world.item`
-    - `BucketItem#content` is now `protected` from `private`
+    - `BucketItem`
+        - `content` is now `protected` from `private`
+        - `getFluidContext` - Gets the fluid clip context based on its contents.
     - `DyeColor` now takes in the `MapColor` for the terracotta variant.
 - `net.minecraft.world.item.trading`
     - `TradeRebalanceVillagerTrades` now extends `VillagerTrades`
     - `VillagerTrade` one constructor now takes in the raw `HolderSet` of `Enchantment`s instead of being optionally-wrapped
-- `net.minecraft.world.level.block.Block#updateEntityMovementAfterFallOn` replaced by `getBounceRestitution`
+- `net.minecraft.world.level.block`
+    - `BedBlock` no longer implements `EntityBlock`
+    - `Block#updateEntityMovementAfterFallOn` replaced by `getBounceRestitution`
+    - `PointedDripstoneBlock` now extends `SpeleothemBlock`
+        - The constructor now takes in the `BlockState` it can grow on
+        - `TIP_DIRECTION` -> `SpeleothemBlock#TIP_DIRECTION`
+        - `THICKNESS` -> `SpeleothemBlock#THICKNESS`
+        - `WATERLOGGED` -> `SpeleothemBlock#WATERLOGGED`
+        - `growStalactiteOrStalagmiteIfPossible` -> `SpeleothemBlock#growStalactiteOrStalagmiteIfPossible`, now an instance method
+        - `canDrip` -> `isFreeHangingStalactite`, now `protected` from `public`
+- `net.minecraft.world.level.block.state.BlockBehaviour`
+    - `$BlockStateBase#emissiveRendering` no longer takes in the `BlockGetter` and `BlockPos`
+    - `$Properties#emissiveRendering` now takes in a `BlockState` predicate instead of a `$StatePredicate`
 - `net.minecraft.world.level.block.state.properties`
     - `BlockStateProperties#DRIPSTONE_THICKNESS` -> `SPELEOTHEM_THICKNESS`
     - `DripstoneThickness` -> `SpeleothemThickness`
@@ -798,6 +1302,7 @@ public void exampleTest(GameTestHelper helper) {
     - `Feature`
         - `DRIPSTONE_CLUSTER` -> `SPELEOTHEM_CLUSTER`
         - `POINTED_DRIPSTONE` -> `SPELEOTHEM`
+    - `LakeFeature$Configuration` now takes in `BlockPredicate`s for where the feature can be placed, what blocks can be replaced with air or fluid, and what blocks can be replaced with the border/barrier blocks
     - `PointedDripstoneFeature` -> `SpeleothemFeature`
 - `net.minecraft.world.level.levelgen.feature.configurations`
     - `DripstoneClusterConfiguration` -> `SpeleothemClusterConfiguration`
@@ -818,7 +1323,12 @@ public void exampleTest(GameTestHelper helper) {
 
 ### List of Removals
 
+- `net.minecraft.client.data.models.model.ModelTemplates#BED_INVENTORY`
+- `net.minecraft.client.geom.ModelLayers#BED_FOOT`, `BED_HEAD`
 - `net.minecraft.util.Tuple`
 - `net.minecraft.util.thread.BlockableEventLoop#hasDelayedCrash`
 - `net.minecraft.world.entity.Mob#setBodyArmorItem`
+- `net.minecraft.world.level.block.entity`
+    - `BedBlockEntity`
+    - `DecoratedPotPatterns#getPatternFromItem`
 - `net.minecraft.world.level.levelgen.DensityFunction#DIRECT_CODEC`, `HOLDER_HELPER_CODEC`
