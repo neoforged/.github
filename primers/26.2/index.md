@@ -56,6 +56,10 @@ public static final RenderPipeline EXAMPLE_PIPELINE = RenderPipeline.builder()
 
 Note that all `BindGroupLayout`s added to a `RenderPipeline` must not contain any duplicate entries (e.g. two shaders named `Sampler0`, two uniforms named `Globals`), or an error will be thrown during the shader compilation process.
 
+### Render Areas
+
+`RenderPass`es can now define a rectangle within a texture to draw its data to via `CommandEncoder#createRenderPass`. If this not specified, it defaults to the size of the color `GpuTextureView`.
+
 ### Gui Reorganization
 
 The `Gui` class has been reorganized to handle all of the components of the graphical user interface (as the name implies). As such, fields like the current `Screen` or `ChatListener` have been moved off of their previous class (e.g. `Minecraft`) and into `Gui`. Additionally, the in-game heads-up display has been moved into a separate class called `Hud`, which `Gui` takes in.
@@ -71,6 +75,54 @@ As such, some field and method calls will need to go through `Gui` or `Hud`:
 - Minecraft.getInstance().gui.setOverlayMessage(...)
 + Minecraft.getInstance().gui.hud.setOverlayMessage(...)
 ```
+
+### Font Preparations
+
+`Font` draw methods have been completely removed, and instead need to be prepared and handled manually. This should only be done if your text cannot be submitted as a feature via `OrderedSubmitNodeCollector#submitText`.
+
+The text rendering pipeline works like so: the `Font` prepares the text into a `$PreparedText`, which can visit the glyphs in the string. Then, a `$GlyphVisitor` loops through all the glyph components, which typically call `$GlyphVisitor#acceptRenderable`. `acceptRenderable` is where the text is uploaded to the buffer, ready to be drawn to the screen.
+
+```java
+// Font has `prepareText` if don't want to implement the glyph parsing manually
+// For some Font font
+Font.PreparedText text = font.prepareText(
+    // The text to draw
+    "Hello world!",
+    // The position of the text on the string
+    0, 0,
+    // The color of the text
+    0xFF00FF00,
+    // Whether to draw the drop shadow
+    false,
+    // The background color of the text
+    0
+);
+
+// We can create a glyph visitor to loop through the text components
+public class ExampleVisitor implements Font.GlyphVisitor {
+
+    @Override
+    public void acceptRenderable(TextRenderable renderable) {
+        // Both glyphs and effects call this by default
+        // If you want more specialized rendering, override:
+        // - 'acceptGlyph' for text characters
+        // - 'acceptEffect' for any effects applied to the characters
+
+        // Render to the buffer
+        VertexConsumer buffer = Minecraft.getInstance().gameRenderer.renderBuffers().bufferSource()
+            .getBuffer(renderable.renderType(Font.DisplayMode.NORMAL);
+        renderable.render(new Matrix4f(), buffer, 0xF000F0, false);
+    }
+}
+
+// Then, we can visit all the renderables in our prepared text,
+// which will upload them to the buffer.
+text.visit(new ExampleVisitor());
+```
+
+### Submitting Gizmos
+
+Gizmos are now rendered using the `GizmoFeatureRenderer`. Gizmos that do not call `GizmoProperties#setAlwaysOnTop` are render after translucents but before the translucent terrain features, while those that do are rendered after all other features.
 
 ### Dispatching Picture-In-Picture
 
@@ -115,6 +167,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `isFormatNormalized` - Returns whether the format uses normalized data.
         - `toGlInternalId`, `toGlExternalId`, `toGlType` now take in a `GpuFormat` instead of the `TextureFormat`
     - `GlProgram#setupUniforms` -> `setupBindGroupLayouts`, now taking a list of `BindGroupLayout`s instead of uniforms and samplers directly
+    - `GlRenderPass` now takes in the default `ScissorState`
     - `GlStateManager`
         - `_blendEquationSeparate`, `glBlendEquationSeparate` - Sets the blend mode of the RGB and alpha channels.
         - `$BlendState`
@@ -135,8 +188,10 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
             - Can add samplers and uniforms via `BindGroupLayout$Builder#withSampler`, `withUniform`
         - `$Snippet#samplers`, `uniforms` -> `bindGroupLayouts`, not one-to-one
         - `$UniformDescription` -> `BindGroupLayout$UniformDescription`
-    - `RenderTarget#blitToScreen` is removed
-        - Usage replaced by `GpuSurface#blitFromTexture`
+    - `RenderTarget`
+        - `blitToScreen` is removed
+            - Usage replaced by `GpuSurface#blitFromTexture`
+        - `blitAndBlendToTexture` now takes in a `GpuTextureView` for the output depth texture
 - `com.mojang.blaze3d.platform`
     - `BackendOptions` record is removed
     - `BlendOp` - The operation performed when blending the source and destination outputs.
@@ -161,11 +216,14 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `submitRenderPass` - Submits the current render pass, handled as part of the try-with-resources.
         - `presentTexture` -> `GpuSurface#blitFromTexture`, not one-to-one
         - `timerQueryBegin`, `timerQueryEnd` replaced by `writeTimestamp`
+        - `createRenderPass` now has an overload that takes in a `$RenderArea` for where to draw to
     - `CommandEncoderBackend`
         - `isInRenderPass` -> `CommandEncoder#isInRenderPass`, now `protected` from `public`
         - `submitRenderPass` - Submits the current render pass, handled as part of the try-with-resources.
         - `presentTexture` -> `GpuSurface#blitFromTexture`, not one-to-one
         - `timerQueryBegin`, `timerQueryEnd` replaced by `writeTimestamp`
+        - `createRenderPass(Supplier, GpuTextureView, OptionalInt)` is removed
+        - `createRenderPass` now has an overload that takes in a `$RenderArea` for where to draw to
     - `DeviceInfo` - A record containing information about the GPU device.
     - `DeviceLimits` - A record containing information about the limits of GPU features.
     - `DeviceType` - The type of the device performing the rendering (e.g., cpu, discrete graphics, integrated graphics).
@@ -206,8 +264,9 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `GpuSurface` - The surface wrapper and validator.
     - `GpuSurfaceBackend` - An API for modifying and writing data to linked window using its handle.
     - `HintsAndWorkarounds` - A record containing issues with the supported GPU device and what workarounds are required.
-    - `RenderPass` now takes in a `Runnable` for what to do on close, typically from a try-with-resources
+    - `RenderPass` now takes in a `Runnable` for what to do on close, typically from a try-with-resources; and a `$RenderArea` of where to draw to
         - `writeTimestamp` - Writes the timestamp to the pool at the given index.
+        - `$RenderArea` - A rectangle defining where the pass can write data to.
     - `RenderPassBackend` is no longer `AutoCloseable`
         - `isClosed` is removed
         - `writeTimestamp` - Writes the timestamp to the pool at the given index.
@@ -219,6 +278,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `getModelViewMatrix` -> `getModelViewMatrixCopy`, not one-to-one
         - `initBackendSystem` no longer takes in the `BackendOptions`
         - `$AutoStorageIndexBuffer` now implements `AutoCloseable`
+    - `ScissorState#setFrom` - Copies the state from another scissor.
     - `SurfaceException` - An exception thrown when operating on or with a GPU surface.
     - `TimerQuery` now implements `AutoCloseable`
         - `getInstance` replaced by using the constructor
@@ -316,6 +376,14 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `RotatingSectionStorage` - A class for managing the order of sections in relation to a center position.
     - `SectionUpdateTracker` - A class for tracking whether a section needs to be updated.
 - `net.minecraft.client.gui`
+    - `Font`
+        - `drawInBatch` methods are removed
+            - Replaced by `Font$PreparedText` and `Font$GlyphVisitor`
+        - `drawInBatch8xOutline` -> `prepare8xTextOutline`, only taking in the `FormattedCharSequence`, XY position, and outline color; not one-to-one
+        - `$GlyphVisitor`
+            - `forMultiBufferSource` is removed
+            - `acceptRenderable` - Accepts the `TextRenderable` to operate upon, usually for rendering.
+        - `$PreparedTextBuilder#discardEffects` - Removes the text's effects.
     - `Gui` now takes in the `Hud` and `GuiRenderState`
         - `SAVING_TEXT` -> `SAVING_LEVEL`, not one-to-one
         - `hud` - The heads-up display of the user interface.
@@ -353,6 +421,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `GuiGraphicsExtractor`
         - `entity` now takes in `Vector3fc` and `Quaternionfc`s instead of `Vector3f` and `Quaternionf`s
         - `skin` now takes in a `Model$Simple` instead of a `PlayerModel` for the model
+        - `$ScissorStack#push`, `pop` now return nothing instead of the `ScreenRectangle`
     - `Hud` - The heads-up display that's rendered atop the GUI when in-game.
 - `net.minecraft.client.gui.components`
     - `AbstractWidget#extractTooltipForNextRenderPass` - Extracts the tooltip to render during the next pass.
@@ -483,11 +552,16 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `submitModelPart` no longer takes in the `boolean`s for whether its sheeted or has foil
         - `submitShapeOutline` - Submits a voxel shape to draw an outline of.
         - `submitCustomGeometry` can now take in the outline color
+        - `submitNameTag` no longer takes in the squared distance to the camera `double`
+        - `submitBreakingBlockModel` now takes in a list of `BlockStatModelPart`s instead of a `BlockStateModel` and a `long` seed
+        - `submitParticleGroup` now takes in a `QuadParticleRenderState` instead of a `SubmitNodeCollector$ParticleGroupRenderer`
+        - `submitGizmoPrimitives` - Submits the gizmo primitive to render.
     - `OutlineBufferSource` is now `AutoCloseable`
         - The constructor now takes in the `MultiBufferSource$BufferSource` outline buffer
         - `endFrame` - When everything that should be uploaded is done for the frame.
     - `RenderBuffers` is now `AutoCloseable`
         - `endFrame` - When everything that should be uploaded is done for the frame.
+        - `crumblingBufferSource` is removed
     - `RenderPipelines`
         - Pipelines using the `DepthStencilState` have their values inverted
             - `CompareOp` depth test uses `GREATER_THAN_OR_EQUAL` instead of `LESS_THAN_OR_EQUAL`
@@ -510,18 +584,23 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `ShapeRenderer` -> `ShapeOutlineFeatureRenderer`, not one-to-one
     - `Sheets`
         - `DECORATED_POT_SPRITES` -> `DecoratedPotRenderer#DECORATED_POT_SPRITES`, now `private` from `public`
+        - `BED_SHEET`, `BED_MAPPER`, `getBedSprite`, `createBedSprite` are removed
         - `cutoutBlockSheet`, `translucentBlockSheet` are removed
             - Replaced by direct construction calls or `*ItemSheet` variants
         - `getDecoratedPotSprite` -> `DecoratedPotRenderer#getSideSprite`, now `private` from `public`, not one-to-one
+        - `colorToResourceSprite` is removed
     - `SkyRenderer` now takes in the `RenderTarget`
     - `StagedVertexBuffer` - A vertex buffer for staging draws to upload at a later point in time.
     - `SubmitNodeCollection`
         - `getModelPartSubmits` is removed
         - `getShapeOutlineSubmits` - The submitted shape outlines.
+        - `getGizmoSubmits` - The submitted gizmos.
+    - `SubmitNodeCollector$ParticleGroupRenderer` interface is removed
     - `SubmitNodeStorage`
-        - `$CustomGeometrySubmit` now takes in a `RenderType` and outline color
+        - `$*Submit` storage classes have been moved to their feature renderer class under `<feature renderer>$Sumbit`
+        - `$CustomGeometrySubmit` -> `CustomFeatureRenderer$Submit`
+            - The constructor now takes in a `RenderType` and outline color
         - `$ModelPartSubmit` record is removed
-        - `$ShapeOutlineSubmit` - A submitted shape outline.
     - `ViewArea` no longer takes in the `Level` or `LevelRenderer`, instead taking in the min and max Y and section Y, along with the `SectionOcclusionGraph`
         - `levelRenderer` is removed
         - `level` is removed
@@ -574,18 +653,49 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
 - `net.minecraft.client.renderer.entity.state.SulfurCubeRenderState` - The render state for a sulfur cube.
 - `net.minecraft.client.renderer.extract.LevelExtractor` - A class that extracts the render state for level rendering.
 - `net.minecraft.client.renderer.feature`
+    - `BlockFeatureRenderer` -> `BlockModelFeatureRenderer`
+        - `renderSolid`, `renderTranslucent` now only take in the `SubmitNodeCollection` and a `FeatureFrameContext`
+        - `renderMovingBlockSubmits` -> `MovingBlockFeatureRenderer`, not one-to-one
     - `CustomFeatureRenderer`
-        - `renderSolid`, `renderTranslucent` now take in the `OutlineBufferSource`
+        - `renderSolid`, `renderTranslucent` now take in a `FeatureFrameContext` instead of the buffer sources
         - `renderOutline` - Renders the outline of the submitted geometry.
         - `$Storage#add` now takes in the outline color
-    - `FeatureRenderDispatcher#renderTranslucentParticles` -> `renderTranslucentAfterTerrain`
-    - `ItemFeatureRenderer`
+    - `FeatureFrameContext` - A record that contains the context for rendering a feature.
+    - `FeatureRenderDispatcher` no longer takes in the crumbling `MultiBufferSource$BufferSource`
+        - `renderTranslucentParticles` -> `renderTranslucentAfterTerrain`
+        - `renderAlwaysOnTop` - Render these features last, used for on top gizmos.
+        - `hasAnyAlwaysOnTop` - If there are any features that should be rendered last, used for on top gizmos.
+    - `FlameFeatureRenderer#renderSolid` now only takes in the `SubmitNodeCollection` and a `FeatureFrameContext`
+    - `GizmoFeatureRenderer` - A feature renderer for `Gizmo`s.
+    - `ItemFeatureRenderer` 
         - `getFoilBuffer(MultiBufferSource, RenderType, boolean, boolean)` is removed
             - Use the other `getFoilBuffer` instead
         - `getFoilRenderType` is removed
             - Directly merged into the other `getFoilBuffer`
+        - `renderSolid`, `renderTranslucent` now only take in the `SubmitNodeCollection` and a `FeatureFrameContext`
+    - `LeashFeatureRenderer#renderSolid` now only takes in the `SubmitNodeCollection` and a `FeatureFrameContext`
+    - `ModelFeatureRenderer#renderSolid`, `renderTranslucent` now only take in the `SubmitNodeCollection` and a `FeatureFrameContext`
+        - `$Submit` now implements `TranslucentSubmit`
     - `ModelPartFeatureRenderer` class is removed
+    - `MovingBlockFeatureRenderer` - A feature renderer for moving blocks.
+    - `NameTagFeatureRenderer#renderTranslucent` now only takes in the `SubmitNodeCollection` and a `FeatureFrameContext`
+        - `$Storage#add` no longer takes in the squared distance to camera `double`
+        - `$Submit` now implements `TranslucentSubmit`
+    - `ParticleFeatureRenderer` -> `QuadParticleFeatureRenderer`
+        - `renderSolid`, `renderTranslucent` now take in a `FeatureFrameContext`
+    - `ShadowFeatureRenderer#renderTranslucent` now takes in a `FeatureFrameContext` instead of the `MultiBufferSource$BufferSource`
     - `ShapeOutlineFeatureRenderer` - A feature renderer for `VoxelShape` outlines.
+        - `$Submit` - A submitted shape outline.
+    - `TextFeatureRenderer#renderTranslucent` now takes in a `FeatureFrameContext` instead of the `MultiBufferSource$BufferSource`
+- `net.minecraft.client.renderer.feature.submit`
+    - `SubmitNode` - An interface that represents a submitted feature.
+    - `TranslucentSubmit` - An interface that represents a submitted feature with translucency.
+- `net.minecraft.client.renderer.gizmos.DrawableGizmoPrimitives`
+    - `render` replaced by `submit`
+    - `isEmpty` is removed
+    - `$Group` is now `public` from `private`
+        - `render` is removed
+    - `$Line`, `$Point`, `$Quad`, `$Text`, `$TriangleFan` are now `public` from `private`
 - `net.minecraft.client.renderer.rendertype`
     - `RenderSetup` no longer takes in the buffer size
         - `$RenderSetupBuilder#bufferSize` is removed
@@ -623,9 +733,23 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `shouldResetChunkLayerSampler` - Whether the chunk layer sampler should be reset.
         - `shouldShowEntityOutlines` - Whether to show the outlines of entities.
         - `shouldResetSkyRenderer` - Whether the sky renderer should be reinitialized.
+    - `ParticlesRenderState#submit` now takes in a `SubmitNodeCollector` instead of the `SubmitNodeStorage`
+    - `QuadParticleRenderState` no longer implements `SubmitNodeCollector$ParticleGroupRenderer`
+        - `prepare` replaced by `buildLayer`, not one-to-one
+        - `render` -> `QuadParticleFeatureRenderer#render`, not one-to-one
+        - `layers` - The set of quad layers to render.
+        - `$PreparedBuffers`, `$PreparedLayer` are removed
     - `SectionUpdateRenderState` - The render state of a section to update.
 - `net.minecraft.client.resources.model.ModelManager$MaterialBakerImpl` - An implemented `MaterialBaker`.
 - `net.minecraft.client.resources.model.sprite.SpriteId#buffer` are removed
+- `net.minecraft.client.telemetry`
+    - `TelemetryEventType#GRAPHICS_CAPABILITIES` - The capabilities of the graphics card.
+    - `TelemetryProperty`
+        - `BACKEND_NAME` - The name of the graphics backend.
+        - `BACKEND_FAILURE_MESSAGE` - The message provided by the backend when failing during construction.
+        - `BACKEND_FAILURE_REASON` - The reason the backend failed during construction.
+        - `BACKEND_FAILURE_MISSING_CAPABILITIES` - The backend failed during construction due to missing capabilities.
+- `net.minecraft.data.AtlasIds#BEDS` is removed
 
 ## Object Collections
 
@@ -1073,6 +1197,8 @@ public void exampleTest(GameTestHelper helper) {
 - `bounciness` - How much the entity should bounce after colliding with another bounding box. Must be between `[0, 1]` and defaults to `0`.
 - `friction_modifier` - A scalar that used to modify the block friction when traveling in air. Must be between `[0, 2048]` and defaults to `1`.
 - `knockback_resistance` now allows values between `[-2, 1]`
+- `below_name_distance` - The maximum distance that the additional information below an entity's nameplate can be seen. Must be between `[0, 512]` and defaults to `10`.
+- `nameplate_distance` - The maximum distance that an entity's nameplate can be seen. Must be between `[0, 512]` and defaults to `64`.
 
 ### Tag Changes
 
@@ -1130,6 +1256,7 @@ public void exampleTest(GameTestHelper helper) {
     - `TerrainProvider#peaksAndValleys` - Calculates the peaks and valleys scalar given the weirdness.
 - `net.minecraft.data.worldgen.biome.OverworldBiomes#sulfurCaves` - The sulfur caves biome.
 - `net.minecraft.gametest.framework.GameTestHelper#assertValueInBetween` - Assert the `Comparable` value is between some bounds.
+- `net.minecraft.server.MinecraftServer#SERVER_THREAD_NAME` - The name of the server thread.
 - `net.minecraft.util`
     - `CubicSpline`
         - `minValue`, `maxValue` - The bounds of the spline.
@@ -1137,13 +1264,17 @@ public void exampleTest(GameTestHelper helper) {
         - `asSampler` - Returns the sampler for the spine.
         - `$Multipoint#codec` - Gets the codec for the spline.
     - `Util`
+        - `CONTROL_CHARACTER_ESCAPER` - An escaper for control characters.
         - `join` - Flattens lists of elements into a single list.
         - `dumpThreadInfo` - Dumps the info for all live platform threads.
+- `net.minecraft.util.profiling.jfr.stats.ThreadAllocationStat#LOGGER` - The stat logger.
 - `net.minecraft.util.profiling.metrics.MetricSampler#samplingPhase`, `$MetricSamplerBuilder#withSamplingPhase`, `$SamplingPhase` - The phase when the metric sampling should occur.
 - `net.minecraft.util.profiling.metrics.profiling.MetricsRecorder#sampleDuringExtract` - Samples the metrics, marking the phase as during render state extraction.
 - `net.minecraft.world.entity`
     - `AgeableMob#canBeABaby` - Whether the mob can have a baby variant.
     - `Entity`
+        - `DEFAULT_NAMEPLATE_DISTANCE` - The default maximum distance an entity nameplate can be seen from.
+        - `DEFAULT_BELOW_NAME_DISTANCE` - The default maximum distance that additional nameplate information on an entity can be seen from.
         - `getEntityBounciness` - How bouncy the entity is after a collision.
         - `getEffectiveGravity` - Gets the gravity currently being applied to the entity.
         - `omnidirectionalAirMover` - Whether the entity can omnidirectionally move in the air.
@@ -1159,6 +1290,7 @@ public void exampleTest(GameTestHelper helper) {
     - `SulfurCube` - A sulfur cube entity.
 - `net.minecraft.world.entity.monster.zombie.Drowned#isSearchingForLand` - If the drowned is searching for land.
 - `net.minecraft.world.item.DyeColor#getTerracottaColor` - The `MapColor` of a terracotta block dyed this color.
+- `net.minecraft.world.level.Level#ACROSS_THE_WHOLE_WORLD` - The maximum diameter of a level.
 - `net.minecraft.world.level.block`
     - `CopperChestBlock#getHingeSound` - Gets the hinge sound to play based on the current state of the chest.
     - `PotentSulfurBlock` - A sulfur block that can apply noxious gas effects.
@@ -1169,7 +1301,12 @@ public void exampleTest(GameTestHelper helper) {
     - `DecoratedPotPatterns#itemToPatternMappings` - Operates on the keys for an item and its associated pot pattern.
     - `PotentSulfurEntity` - A sulfur block entity that can apply noxious gas effects.
 - `net.minecraft.world.level.block.state.BlockBehavior#bounceRestitution`, `$Properties#bounceRestitution` - How much the entity should bounce after colliding with this block.
-- `net.minecraft.world.level.levelgen.SurfaceRules#noiseGradient` - Creates a noise gradient rule from the given noise parameters and blockstate gradient.
+- `net.minecraft.world.level.chunk`
+    - `ChunkAccess#collectBiomesInPalette` - Collects all the biomes in the chunk sections.
+    - `PalettedContainerRO#forEachInPalette` - Loop through all elements in the palette.
+- `net.minecraft.world.level.levelgen.SurfaceRules`
+    - `noiseGradient` - Creates a noise gradient rule from the given noise parameters and blockstate gradient.
+    - `$Context#getBiome` - Gets the biome at the context position.
 - `net.minecraft.world.level.levelgen.feature`
     - `SequenceFeature` - A feature made up of other placed features, applying them in the order they are given until either one of them fails or all succeeds.
     - `TemplateFeature` - A feature that attempts to place a structure template in the world.
@@ -1207,8 +1344,10 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.client.multiplayer.ClientChunkCache#getLoadedEmptySections` split into `addedEmptySections`, `removedEmptySections`
 - `net.minecraft.core.Holder` is now `sealed` to `$Direct` and `$Reference`
     - `$Reference` is now `non-sealed`
-- `net.minecraft.data.worldgen.TerrainProvider` methods no longer bind the `BoundedFloatFunction` generic
-    - `buildErosionOffsetSpline` now takes in a `Float2FloatFunction` instead of a `BoundedFloatFunction`
+- `net.minecraft.data.worldgen`
+    - `SurfaceRuleData` methods now take in the `HolderGetter<Biome>`
+    - `TerrainProvider` methods no longer bind the `BoundedFloatFunction` generic
+        - `buildErosionOffsetSpline` now takes in a `Float2FloatFunction` instead of a `BoundedFloatFunction`
 - `net.minecraft.server.level`
     - `BlockDestructionProgress#updateTick`, `getUpdatedRenderTick` now deal with `long`s instead of `int`s
     - `ServerEntityGetter#getNearestEntity` now has an overload that takes in the list of `Entity`s to loop through along with the center position as three `double`s
@@ -1270,6 +1409,7 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.world.item.trading`
     - `TradeRebalanceVillagerTrades` now extends `VillagerTrades`
     - `VillagerTrade` one constructor now takes in the raw `HolderSet` of `Enchantment`s instead of being optionally-wrapped
+- `net.minecraft.world.level.NaturalSpawner#getFilteredSpawningCategories` no longer takes in the `boolean`s for whether to spawn friendlies and enemies
 - `net.minecraft.world.level.block`
     - `BedBlock` no longer implements `EntityBlock`
     - `Block#updateEntityMovementAfterFallOn` replaced by `getBounceRestitution`
@@ -1296,6 +1436,13 @@ public void exampleTest(GameTestHelper helper) {
         - `$Coordinate` now holds the raw `DensityFunction` instead of being `Holder`-wrapped
     - `GeodeBlockSettings` is now a `record`
         - `cannotReplace`, `invalidBlocks` now take in a `HolderSet` of `Block`s instead of the referenced `TagKey`
+    - `NoiseBasedChunkGenerator#buildSurface` now takes in a set of `Holder<Biome>`s instead of the `Registry<Biome>`
+    - `SurfaceRules`
+        - `isBiome(ResourceKey<Biome>...)` now takes in a `HolderGetter<Biome>`
+        - `$ConditionSource#codec` is now a `MapCodec` instead of a `KeyDispatchDataCodec`
+        - `$Context` now takes in now takes in a set of `Holder<Biome>`s instead of the `Registry<Biome>`
+            - `updateY` no longer takes in the block XZ `int`s
+    - `SurfaceSystem#buildSurface` now takes in a set of `Holder<Biome>`s instead of the `Registry<Biome>`
 - `net.minecraft.world.level.levelgen.feature`
     - `DripstoneClusterFeature` -> `SpeleothemClusterFeature`
     - `DripstoneUtils` -> `SpeleothemUtils`
@@ -1331,4 +1478,7 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.world.level.block.entity`
     - `BedBlockEntity`
     - `DecoratedPotPatterns#getPatternFromItem`
-- `net.minecraft.world.level.levelgen.DensityFunction#DIRECT_CODEC`, `HOLDER_HELPER_CODEC`
+- `net.minecraft.world.level.levelgen`
+    - `DensityFunction#DIRECT_CODEC`, `HOLDER_HELPER_CODEC`
+    - `SurfaceRules#isBiome(List<ResourceKey<Biome>>)`
+- `net.minecraft.world.waypoints.Waypoint#MAX_RANGE`
