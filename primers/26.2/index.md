@@ -60,6 +60,10 @@ Note that all `BindGroupLayout`s added to a `RenderPipeline` must not contain an
 
 `RenderPass`es can now define a rectangle within a texture to draw its data to via `CommandEncoder#createRenderPass`. If this not specified, it defaults to the size of the color `GpuTextureView`.
 
+### Replacing `ChatFormatting` in Components
+
+`ChatFormatting` has been mostly gutted in favor of using `Style` for `Component`s. The text color can be set via `Style#withColor`, while the formatting can be set using `withBold`, `withItalic`, `withUnderlined`, `withStrikethrough`, and `withObfuscated`. `ChatFormatting#RESET` is the same as using a different component.
+
 ### Gui Reorganization
 
 The `Gui` class has been reorganized to handle all of the components of the graphical user interface (as the name implies). As such, fields like the current `Screen` or `ChatListener` have been moved off of their previous class (e.g. `Minecraft`) and into `Gui`. Additionally, the in-game heads-up display has been moved into a separate class called `Hud`, which `Gui` takes in.
@@ -123,6 +127,159 @@ text.visit(new ExampleVisitor());
 ### Submitting Gizmos
 
 Gizmos are now rendered using the `GizmoFeatureRenderer`. Gizmos that do not call `GizmoProperties#setAlwaysOnTop` are render after translucents but before the translucent terrain features, while those that do are rendered after all other features.
+
+### Feature Rendering: The Takeover
+
+The feature rendering system has been overhauled to completely replace `MultiBufferSource` and any direct vertex uploads outside of vanilla chunk rendering.
+
+For users of the system, `FeatureRenderDispatcher` now takes in a `SubmitNodeStorage` as part of its render methods. This allows for a specific subset of features to be rendered depending on user implementation rather than only at vanilla entrypoints:
+
+```java
+// Create your own storage to submit elements to
+SubmitNodeStorage collector = new SubmitNodeStorage();
+
+collector.submitModel(...);
+
+// Render the features through the dispatcher
+Minecraft.getInstance().gameRenderer.featureRenderDispatcher().renderAllFeatures(collector);
+
+// If you need more granular control of when individual passes should be rendered,
+// you can use `FeatureRenderDispatcher#prepareFrame` instead.
+FeatureRenderDispatcher.PreparedFrame frame = Minecraft.getInstance()
+    .gameRenderer.featureRenderDispatcher().prepareFrame(collector);
+
+frame.executeSolid(); // Replaces `renderSolidFeatures`
+frame.executeTranslucent(); // Replaces `renderTranslucentFeatures`
+frame.executeTranslucentAfterTerrain(); // Replaces `renderTranslucentParticles`
+frame.executeAlwaysOnTop(); // Replaces gizmo rendering
+
+// The frame must be closed once finished.
+frame.close();
+```
+
+For modders that want to create custom features outside of the already existing submissions, three things a required: a `SubmitNode` to represent the data of the submitted feature, the `FeatureRenderPhase`(s) to store the `SubmitNode`s and supply them to the correct renderer, and the `FeatureRenderer` responsible for rendering the submissions.
+
+A `SubmitNode` is, as the name implies, a node for some submitted element. It holds a record of the submitted data that is used by the specified `FeatureRenderer`. `SubmitNode#featureType` is used to link the node to the `FeatureRenderer` that should be used.
+
+`SubmitNode` contains two other useful subtypes: `TranslucentSubmit`, which specifies the squared distance to the camera for ordering (`distanceToCameraSq`); and `BatchableSubmit`, which just groups similar features together using the `batchKey` such that they are rendered one after the other.
+
+```java
+// The node should contain whatever data is necessary to properly render
+// the object.
+public record ExampleSubmit(Matrix4fc pose, RenderType type, ...) implements TranslucentSubmit, BatchableSubmit {
+    @Override
+    public FeatureRendererType<? extends TranslucentSubmit> featureType() {
+        // The identifier for our feature renderer.
+    }
+
+    @Override
+    public Object batchKey() {
+        // The batch key should be an object that allows the renderer or
+        // phase to hold its state for as long as possible before switching.
+        return this.type;
+    }
+
+    @Override
+    public float distanceToCameraSq() {
+        // Compute the camera distance.
+        return TranslucentSubmit.computeDistanceToCameraSq(this.pose);
+    }
+}
+```
+
+The `FeatureRenderPhase` is then responsible for collecting these submissions and supplying them to an `$Output` for rendering. `FeatureRenderPhase` defines three methods: `submit` which is what the `OrderedSubmitNodeCollector#submit*` methods delegate to, `isEmpty` for checking if there are any submissions to render, and `sortInto` for passing the submissions to their appropriate group via `$Output#accept`.
+
+If you are making use of `SubmitNode` or `TranslucentSubmit` with no additional sorting behavior, then you can instead make use of `SimpleFeatureRenderPhase` and `TranslucentFeatureRenderPhase`, respectively. Alternatively, you can instead submit to an existing render phase in `SubmitNodeCollection`. It purely depends on how much the render order of your elements matter.
+
+```java
+// Assume we have some method of injecting into `SubmitNodeCollection` collection
+
+// `TranslucentFeatureRenderPhase` is used because of `TranslucentSubmit`
+public final TranslucentFeatureRenderPhase examplePhase = new TranslucentFeatureRenderPhase();
+
+// Assuming we have some method of making `SubmitNodeCollection#allPhases` mutable
+
+// The order of the phases in this list does not matter. It is only used by the
+// `SubmitNodeStorage` to know what phases can be rendered.
+collection.allPhases.add(examplePhase);
+```
+
+Finally, there is the `FeatureRenderer` used to render the submitted elements to the desired output. The rendering process is broken into two sections: preparation and execution.
+
+The preparation section is responsible for turning the submitted elements into an intermediate state, usually buffer data stored in the `StagedVertexBuffer`. Preparation can be broken into three parts: `beginPrepare` for setting up any state required to generate the intermediate buffer data, `prepareGroup` for creating the draw calls to generate the intermediate buffer data, and `finishPrepare` to restore the initial state and setup anything for the execution section. The `StagedVertexBuffer` is uploaded after the preparation stage has been completed, so the only thing that should be stored during `prepareGroup` is the draw reference (for `StagedVertexBuffer` this is `StagedVertexBuffer$Draw`).
+
+The execution section is responsible for drawing the intermediate buffer data to the desired output (e.g. `RenderTarget`). Execution can be broken into two parts: `executeGroup` for using a `RenderPass` to draw the target color and depth texture, and `finishExecute` for cleaning up the renderer for the next render frame.
+
+The `FeatureRenderer` is also `AutoCloseable` in case the renderer stores allocations that need to be released.
+
+If your `SubmitNode` contains a `RenderType`, then you can extend `RenderTypeFeatureRenderer` instead. `RenderTypeFeatureRenderer` functions similarly to the now removed `MultiBufferSource`, where within `buildGroup`, the `VertexConsumer` can be obtained from the render type via `getVertexBuffer`, which can then be written to. 
+
+```java
+public class ExampleFeatureRenderer extends RenderTypeFeatureRenderer<ExampleSubmit> {
+    // The unique identifier that represents this feature renderer.
+    public static final FeatureRendererType<ExampleSubmit> TYPE = FeatureRenderer.type("examplemod:example_submit");
+
+    @Override
+    protected void buildGroup(FeatureFrameContext context, List<ExampleSubmit> submits) {
+        // For each submit
+        for (ExampleSubmit submit : submits) {
+            // Get the `VertexConsumer` to write to
+            VertexConsumer builder = this.getVertexBuilder(submit.renderType());
+            
+            // Write the vertex data
+            builder.addVertex(...);
+        }
+    }
+}
+```
+
+From there, everything just needs to be linked together.
+
+First, `SubmitNode#featureType` must return the renderer to use:
+
+```java
+public record ExampleSubmit(Matrix4fc pose, RenderType type, ...) implements TranslucentSubmit, BatchableSubmit {
+    @Override
+    public FeatureRendererType<? extends TranslucentSubmit> featureType() {
+        // The identifier for our feature renderer.
+        return ExampleFeatureRenderer.TYPE;
+    }
+}
+```
+
+Then, the `FeatureRenderer` must be linked to its type in `FeatureRendererDispatcher`:
+
+```java
+// Assume we can inject into the end of the `FeatureRendererDispatcher` constructor
+// and that `featureRenderers` is accessible.
+public FeatureRenderDispatcher(...) {
+    // Injecting into the tail
+    this.featureRenderers.put(ExampleFeatureRenderer.TYPE, new ExampleFeatureRenderer());
+}
+```
+
+And, if you created a new `FeatureRenderPhase`, you will need to add the phase for execution within `FeatureRenderDispatcher$PreparedFrame`:
+
+```java
+// Assume we can inject into `FeatureRenderDispatcher$PreparedFrame`
+// Since our render phase contains translucent elements, we will somehow inject
+// into `executeTranslucent` before gizmos.
+public void executeTranslucent() {
+    // ...
+
+    for (SubmitNodeCollection collection : submitNodeStorage.getSubmitsPerOrder().values()) {
+        // ...
+        this.executePhase(collection.shapeOutlines, context);
+
+        // Add our own phase here
+        this.executePhase(collection.examplePhase, context);
+
+        this.executePhase(collection.gizmos, context);
+    }
+
+    // ...
+}
+```
 
 ### Dispatching Picture-In-Picture
 
@@ -278,7 +435,8 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `getModelViewMatrix` -> `getModelViewMatrixCopy`, not one-to-one
         - `initBackendSystem` no longer takes in the `BackendOptions`
         - `$AutoStorageIndexBuffer` now implements `AutoCloseable`
-    - `ScissorState#setFrom` - Copies the state from another scissor.
+    - `ScissorState` now has a constructor that takes in the `ScissorState` to copy from
+        - `setFrom` - Copies the state from another scissor.
     - `SurfaceException` - An exception thrown when operating on or with a GPU surface.
     - `TimerQuery` now implements `AutoCloseable`
         - `getInstance` replaced by using the constructor
@@ -344,7 +502,16 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
 - `com.mojang.blaze3d.vulkan.init`
     - `VulkanFeature` - A Vulkan feature on the device.
     - `VulkanPNextStruct` - A representation of a Vulkan struct on the `pNext` chain.
-- `net.minecraft.SharedConstants#DEBUG_SIMULATE_LIBRARY_LOAD_FAILURE` - A debug flag that simulates a native library failing to load.
+- `net.minecraft`
+    - `ChatFormatting` is no longer `StringRepresentable`
+        - `CODEC`, `COLOR_CODEC` replaced by `TextColor#CODEC`, not one-to-one
+        - `getChar` is removed
+        - `getId`, `getName` replaced by `TextColor#serialize`, not one-to-one
+        - `isFormat` is removed
+        - `isColor`, `getColor` replaced by `TextColor#getValue`, not one-to-one
+        - `getByName`, `getById` replaced by `TextColor#parseColor`, not one-to-one
+        - `getNames` is removed
+    - `SharedConstants#DEBUG_SIMULATE_LIBRARY_LOAD_FAILURE` - A debug flag that simulates a native library failing to load.
 - `net.minecraft.client`
     - `Minecraft`
         - `UNIFORM_FONT` replaced by `FontOption#UNIFORM`
@@ -437,8 +604,9 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `LocatorBarRenderer` -> `LocatorBar`
 - `net.minecraft.client.gui.font.GlyphRenderTypes#createForIntensityTexture` -> `createForGrayscaleTexture`
 - `net.minecraft.client.gui.render`
-    - `GuiItemAtlas` no longer takes in the `MultiBufferSource$BufferSource`
-    - `GuiRenderer#render` no longer takes in the `GpuBufferSlice` for the fog buffer
+    - `GuiItemAtlas` no longer takes in the `SubmitNodeCollector` nor `MultiBufferSource$BufferSource`
+    - `GuiRenderer` no longer takes in the `SubmitNodeCollector` nor `MultiBufferSource$BufferSource`
+        - `render` no longer takes in the `GpuBufferSlice` for the fog buffer
 - `net.minecraft.client.gui.renderer.pip` no longer takes in the `MultiBufferSource$BufferSource` in any constructor
     - `PictureInPictureRenderer` no longer takes in the `MultiBufferSource$BufferSource`
         - `bufferSource` is removed
@@ -470,7 +638,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `DynamicUniforms#writeTransform` now has a view overloads for taking in the various transform parameters, or the `$Transform` object itself
     - `GameRenderer` no longer takes in the `RenderBuffers`
         - `renderBuffers` - The render buffers used for sections, outlines, and crumbling overlays.
-        - `getSubmitNodeStorage` -> `submitNodeStorage`
+        - `getSubmitNodeStorage` is removed
         - `getFeatureRenderDispatcher` -> `featureRenderDispatcher`
         - `getGameRenderState` -> `gameRenderState`
         - `getNightVisionScale` -> `nightVisionScale`
@@ -481,6 +649,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `getGlobalSettingsUniform` is removed
         - `getLighting` -> `lighting`
         - `getPanorama` -> `panorama`
+    - `ItemInHandRenderer#renderHandsWithItems` -> `submitHandsWithItems`
     - `LevelRenderer` has been split between this class and `LevelExtractor`
         - The class no longer implements `ResourceManagerReloadListener`
         - `LevelRenderer(Minecraft, EntityRenderDispatcher, BlockEntityRenderDispatcher, RenderBuffers, GameRenderState, FeatureRenderDispatcher)` -> `LevelRenderer(EntityRenderDispatcher, BlockEntityRenderDispatcher, ModelManager, TextureManager, AtlasManager, ShaderManager, GameRenderer, int, int)`
@@ -537,31 +706,20 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `collectPerFrameGizmos` -> `collectPerFrameRenderThreadGizmos`
         - `addMainThreadGizmos` - Adds gizmos from the main thread.
         - `$BrightnessGetter` -> `LightCoordsUtil$BrightnessGetter`
-    - `MultiBufferSource`
-        - `immediate` -> `create`, not one-to-one
-        - `$BufferSource` is now `AutoCloseable`
-            - The constructor takes in the initial buffer size and the fixed `RenderType`s instead of the shared and fixed buffers
-            - `sharedBuffer` -> `stagedBuffer`, now `private` from `protected`, not one-to-one
-            - `fixedBuffers` -> `fixedTypes`, now `private` from `protected`, not one-to-one
-            - `startedBuilders` -> `fixedDraws`, now `private` from `protected`, not one-to-one
-            - `lastSharedType` is removed
-            - `endLastBatch` is removed
-            - `endBatch` -> `uploadAndDraw`, not one-to-one
-            - `endFrame` - When everything that should be uploaded is done for the frame.
+    - `MultiBufferSource` interface is removed
+        - Closest replacement is `PreparedRenderType` in the feature system
     - `OrderedSubmitNodeCollector`
         - `submitModelPart` no longer takes in the `boolean`s for whether its sheeted or has foil
         - `submitShapeOutline` - Submits a voxel shape to draw an outline of.
-        - `submitCustomGeometry` can now take in the outline color
         - `submitNameTag` no longer takes in the squared distance to the camera `double`
         - `submitBreakingBlockModel` now takes in a list of `BlockStatModelPart`s instead of a `BlockStateModel` and a `long` seed
         - `submitParticleGroup` now takes in a `QuadParticleRenderState` instead of a `SubmitNodeCollector$ParticleGroupRenderer`
         - `submitGizmoPrimitives` - Submits the gizmo primitive to render.
-    - `OutlineBufferSource` is now `AutoCloseable`
-        - The constructor now takes in the `MultiBufferSource$BufferSource` outline buffer
-        - `endFrame` - When everything that should be uploaded is done for the frame.
+    - `OutlineBufferSource` class is removed
     - `RenderBuffers` is now `AutoCloseable`
         - `endFrame` - When everything that should be uploaded is done for the frame.
         - `crumblingBufferSource` is removed
+        - `bufferSource`, `outlineBufferSource` replaced by `stagedVertexBuffer`, not one-to-one
     - `RenderPipelines`
         - Pipelines using the `DepthStencilState` have their values inverted
             - `CompareOp` depth test uses `GREATER_THAN_OR_EQUAL` instead of `LESS_THAN_OR_EQUAL`
@@ -574,6 +732,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `MATRICES_PROJECTION_SNIPPET` -> `BindGroupLayouts#MATRICES_PROJECTION`, not one-to-one
         - `FOG_SNIPPET` -> `BindGroupLayouts#FOG`, not one-to-one
         - `GLOBALS_SNIPPET` -> `BindGroupLayouts#GLOBALS`, not one-to-one
+    - `SectionBufferBuilderPool` is now `AutoCloseable`
     - `SectionOcclusionGraph`
         - `invalidateIfNeeded` - Invalidates the current graph based on the camera.
         - `onChunkReadyToRender` is removed
@@ -592,11 +751,15 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `SkyRenderer` now takes in the `RenderTarget`
     - `StagedVertexBuffer` - A vertex buffer for staging draws to upload at a later point in time.
     - `SubmitNodeCollection`
+        - All submit list fields are now `public` from `private`, renamed from `*Submits` -> `*`, and are some `FeatureRenderPhase` subtype
+        - `get*Submits` are replaced by their field calls, not one-to-one
         - `getModelPartSubmits` is removed
-        - `getShapeOutlineSubmits` - The submitted shape outlines.
-        - `getGizmoSubmits` - The submitted gizmos.
+        - `wasUsed` replaced by `FeatureRenderPhase#isEmpty`, not one-to-one
+        - `allPhases` - The list of feature render phases containing the submitted elements.
     - `SubmitNodeCollector$ParticleGroupRenderer` interface is removed
     - `SubmitNodeStorage`
+        - `clear`, `endFrame` are removed
+        - `drawPhases` - Operates on the render phases containing the submitted elements, removing them if the phase contains nothing.
         - `$*Submit` storage classes have been moved to their feature renderer class under `<feature renderer>$Sumbit`
         - `$CustomGeometrySubmit` -> `CustomFeatureRenderer$Submit`
             - The constructor now takes in a `RenderType` and outline color
@@ -646,48 +809,63 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
                 - `region` is now `private` from `protected`
 - `net.minecraft.client.renderer.entity`
     - `AbstractCubeMobRenderer` - An entity renderer for cube-like mobs.
+    - `EntityRenderer#extractNameplates` -> `extractNameTags`
     - `MagmaCubeRenderer` now extends `AbstractCubeMobRenderer`
     - `SlimeRenderer` now extends `AbstractCubeMobRenderer`
     - `SulfurCubeRenderer` - The entity renderer for a sulfur cube.
+    - `TntRenderer`
+        - `getSwellAmount` - How much to inflate the TNT model by, given the fuse timer.
+        - `isLit` - Whether the TNT has been lit.
 - `net.minecraft.client.renderer.entity.layers.SulfurCubeInnerLayer` - The inner layer of a sulfur cube.
 - `net.minecraft.client.renderer.entity.state.SulfurCubeRenderState` - The render state for a sulfur cube.
 - `net.minecraft.client.renderer.extract.LevelExtractor` - A class that extracts the render state for level rendering.
 - `net.minecraft.client.renderer.feature`
+    - All `*FeatureRenderer` classes now implement `FeatureRenderer<SUBMIT>` where `SUBMIT` is the type of the storage passed in.
+        - All `*FeatureRenderer` classes except `QuadParticleFeatureRenderer` extend `RenderTypeFeatureRenderer`
+        - `TYPE` - The identifier for the feature renderer
+        - `$Submit` now implements a `SubmitNode` subtype: either `SubmitNode`, `BatachableSubmit`, or `TranslucentSubmit`
+        - `render*` methods replaced with `RenderTypeFeatureRenderer#buildGroup`
+            - `QuadParticleFeatureRenderer#render*` methods replaced by `FeatureRenderer#prepareGroup`, `executeGroup`, `finishPrepare`, `finishExecute`
     - `BlockFeatureRenderer` -> `BlockModelFeatureRenderer`
-        - `renderSolid`, `renderTranslucent` now only take in the `SubmitNodeCollection` and a `FeatureFrameContext`
         - `renderMovingBlockSubmits` -> `MovingBlockFeatureRenderer`, not one-to-one
     - `CustomFeatureRenderer`
-        - `renderSolid`, `renderTranslucent` now take in a `FeatureFrameContext` instead of the buffer sources
-        - `renderOutline` - Renders the outline of the submitted geometry.
         - `$Storage#add` now takes in the outline color
     - `FeatureFrameContext` - A record that contains the context for rendering a feature.
-    - `FeatureRenderDispatcher` no longer takes in the crumbling `MultiBufferSource$BufferSource`
-        - `renderTranslucentParticles` -> `renderTranslucentAfterTerrain`
-        - `renderAlwaysOnTop` - Render these features last, used for on top gizmos.
-        - `hasAnyAlwaysOnTop` - If there are any features that should be rendered last, used for on top gizmos.
-    - `FlameFeatureRenderer#renderSolid` now only takes in the `SubmitNodeCollection` and a `FeatureFrameContext`
+    - `FeatureRenderDispatcher` no longer takes in the `SubmitNodeStorage`, `MultiBufferSource$BufferSource`, or `OutlineBufferSource`; now taking in the `RenderBuffers`
+        - `createFrameContext` replaced by `prepareFrame`, not one-to-one
+        - `renderSolidFeatures` -> `$PreparedFrame#executeSolid`
+        - `renderTranslucentFeatures` -> `$PreparedFrame#executeTranslucent`
+        - `renderTranslucentParticles` -> `$PreparedFrame#executeTranslucentAfterTerrain`
+        - `clearSubmitNodes` is removed
+        - `renderAllFeatures` now takes in the `SubmitNodeStorage` to render
+        - `endFrame` is removed
+        - `getSubmitNodeStorage` is removed
+        - `$PhaseSubmitGrouper` - A group of features to be rendered in a given phase.
+        - `$PreparedFrame` - The prepared features to render and execute for each phase.
+        - `$PreparedGroup` - A sub-list of a given submitted feature to be prepared and executed for rendering.
+    - `FeatureRenderer` - The base interface representing a renderer for a specific feature.
+    - `FeatureRendererMap` - A registry of feature renderers.
+    - `FeatureRendererType` - A unique identifier for a feature renderer.
     - `GizmoFeatureRenderer` - A feature renderer for `Gizmo`s.
     - `ItemFeatureRenderer` 
         - `getFoilBuffer(MultiBufferSource, RenderType, boolean, boolean)` is removed
             - Use the other `getFoilBuffer` instead
         - `getFoilRenderType` is removed
             - Directly merged into the other `getFoilBuffer`
-        - `renderSolid`, `renderTranslucent` now only take in the `SubmitNodeCollection` and a `FeatureFrameContext`
-    - `LeashFeatureRenderer#renderSolid` now only takes in the `SubmitNodeCollection` and a `FeatureFrameContext`
-    - `ModelFeatureRenderer#renderSolid`, `renderTranslucent` now only take in the `SubmitNodeCollection` and a `FeatureFrameContext`
-        - `$Submit` now implements `TranslucentSubmit`
     - `ModelPartFeatureRenderer` class is removed
     - `MovingBlockFeatureRenderer` - A feature renderer for moving blocks.
-    - `NameTagFeatureRenderer#renderTranslucent` now only takes in the `SubmitNodeCollection` and a `FeatureFrameContext`
-        - `$Storage#add` no longer takes in the squared distance to camera `double`
-        - `$Submit` now implements `TranslucentSubmit`
     - `ParticleFeatureRenderer` -> `QuadParticleFeatureRenderer`
-        - `renderSolid`, `renderTranslucent` now take in a `FeatureFrameContext`
-    - `ShadowFeatureRenderer#renderTranslucent` now takes in a `FeatureFrameContext` instead of the `MultiBufferSource$BufferSource`
+        - `endFrame` is removed
+    - `RenderTypeFeatureRenderer` - A feature renderer that prepares and renders elements using the submitted `RenderType`.
     - `ShapeOutlineFeatureRenderer` - A feature renderer for `VoxelShape` outlines.
         - `$Submit` - A submitted shape outline.
     - `TextFeatureRenderer#renderTranslucent` now takes in a `FeatureFrameContext` instead of the `MultiBufferSource$BufferSource`
+- `net.minecraft.client.renderer.feature.phase`
+    - `FeatureRenderPhase` - A group of submitted features for a single type to render.
+    - `SimpleFeatureRenderPhase` - A basic implementation of the render phase storage for features.
+    - `TranslucentFeatureRenderPhase` - An implementation of the render phase for features with translucency.
 - `net.minecraft.client.renderer.feature.submit`
+    - `BatchableSubmit` - An interface that represents a submitted feature that can be batched together in one render upload.
     - `SubmitNode` - An interface that represents a submitted feature.
     - `TranslucentSubmit` - An interface that represents a submitted feature with translucency.
 - `net.minecraft.client.renderer.gizmos.DrawableGizmoPrimitives`
@@ -697,11 +875,17 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `render` is removed
     - `$Line`, `$Point`, `$Quad`, `$Text`, `$TriangleFan` are now `public` from `private`
 - `net.minecraft.client.renderer.rendertype`
+    - `LayeringTransform`, `getModifier` now deals with a `Matrix4f` consumer instead of a `Matrix4fStack`
+    - `PreparedRenderType` - The state of a `RenderType` with all of the necessary components to draw the buffered data to the output.
     - `RenderSetup` no longer takes in the buffer size
+        - `getTextures` replaced by `prepareTextures`, not one-to-one
         - `$RenderSetupBuilder#bufferSize` is removed
+        - `$TextureAndSampler` record is removed
     - `RenderType`
-        - `draw` -> `drawFromBuffer`, now taking in the `StagedVertexBuffer$ExecuteInfo`; not one-to-one
+        - `draw` -> `PreparedRenderType#drawFromBuffer`, now taking in the `StagedVertexBuffer$ExecuteInfo`; not one-to-one
+        - `drawFromBuffer` -> `PreparedRenderType#drawFromBuffer`, not one-to-one
         - `bufferSize` is removed
+        - `prepare` - Constructs the `PreparedRenderType` used to draw the buffered data to the output.
     - `RenderTypes`
         - `textIntensity` -> `textGrayscale`
         - `textIntensityPolygonOffset` -> `textGrayscalePolygonOffset`
@@ -733,6 +917,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `shouldResetChunkLayerSampler` - Whether the chunk layer sampler should be reset.
         - `shouldShowEntityOutlines` - Whether to show the outlines of entities.
         - `shouldResetSkyRenderer` - Whether the sky renderer should be reinitialized.
+        - `hasGlowingEntities` is removed
     - `ParticlesRenderState#submit` now takes in a `SubmitNodeCollector` instead of the `SubmitNodeStorage`
     - `QuadParticleRenderState` no longer implements `SubmitNodeCollector$ParticleGroupRenderer`
         - `prepare` replaced by `buildLayer`, not one-to-one
@@ -750,6 +935,10 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `BACKEND_FAILURE_REASON` - The reason the backend failed during construction.
         - `BACKEND_FAILURE_MISSING_CAPABILITIES` - The backend failed during construction due to missing capabilities.
 - `net.minecraft.data.AtlasIds#BEDS` is removed
+- `net.minecraft.network.chat`
+    - `MutableComponent#withColor` - Sets the color style of the component.
+    - `TextColor` now has constants representing the color `ChatFormatting`
+        - `named` - Creates a new text color with the given name and RGB value.
 
 ## Object Collections
 
@@ -1085,7 +1274,9 @@ Sulfur cubes behave differently depending on the item it absorbed. This is known
         }
     ],
     // When `true`, the sulfur cube will float in liquids.
-    "buoyant": true
+    "buoyant": true,
+    // When present, the number of ticks before the sulfur cube explodes after being primed.
+    "explosion_fuse": 120
 }
 ```
 
@@ -1183,6 +1374,7 @@ public void exampleTest(GameTestHelper helper) {
     - `GameTestHelper`
         - `makeMockServerPlayer` - Creates a mock server player in the desired `GameType`.
         - `spawn` now has overloads that take in `BlockPos` for the position
+        - `spawn(EntityType, int, int, int, EntitySpawnReason)` -> `spawn(EntityType, double, double, double, EntitySpawnReason)`
         - `spawnEntity` - Creates a builder for spawning some entity at the given position.
         - `spawnMob` - Creates a builder for spawning some mob at the given position.
     - `GameTestMobBuilder` - A builder that creates a mock mob for a test.
@@ -1197,8 +1389,8 @@ public void exampleTest(GameTestHelper helper) {
 - `bounciness` - How much the entity should bounce after colliding with another bounding box. Must be between `[0, 1]` and defaults to `0`.
 - `friction_modifier` - A scalar that used to modify the block friction when traveling in air. Must be between `[0, 2048]` and defaults to `1`.
 - `knockback_resistance` now allows values between `[-2, 1]`
-- `below_name_distance` - The maximum distance that the additional information below an entity's nameplate can be seen. Must be between `[0, 512]` and defaults to `10`.
-- `nameplate_distance` - The maximum distance that an entity's nameplate can be seen. Must be between `[0, 512]` and defaults to `64`.
+- `below_name_distance` - The maximum distance that the additional information below an entity's name tag can be seen. Must be between `[0, 512]` and defaults to `10`.
+- `name_tag_distance` - The maximum distance that an entity's name tag can be seen. Must be between `[0, 512]` and defaults to `64`.
 
 ### Tag Changes
 
@@ -1211,6 +1403,13 @@ public void exampleTest(GameTestHelper helper) {
     - `suppresses_bounce`
     - `speleothems`
     - `sulfur_spike_replaceable_blocks`
+    - `fox_immune_to`
+    - `polar_bear_immune_to`
+    - `snow_golem_immune_to`
+    - `stray_immune_to`
+    - `wither_immune_to`
+    - `wither_skeleton_immune_to`
+    - `default_immune_to`
 - `minecraft:damage_type`
     - `sulfur_cube_with_block_immune_to`
 - `minecraft:item`
@@ -1226,6 +1425,7 @@ public void exampleTest(GameTestHelper helper) {
     - `sulfur_cube_archetype/slow_sliding`
     - `sulfur_cube_archetype/sticky`
     - `sulfur_cube_archetype/high_resistance`
+    - `sulfur_cube_archetype/explosive`
     - `sulfur_cube_swallowable`
     - `sulfur_cube_food`
 
@@ -1244,8 +1444,20 @@ public void exampleTest(GameTestHelper helper) {
     - `ModelTemplates#BED_HEAD`, `BED_FOOT` - Model templates for the bed parts.
     - `TextureMapping#bed` - Creates a texture map for a bed-like model.
 - `net.minecraft.client.multiplayer.ClientChunkCache#flipEmptySectionUpdates` - Updates the section arrays to their next index, clearing them for use. 
+- `net.minecraft.client.particle`
+    - `GeyserBaseParticle` - The base particle for a geyser.
+    - `GeyserEruptionParticle` - The particle for when a geyser is erupting.
+    - `GeyserPlumeParticle` - The particle for when a plume emanates from a geyser.
+- `net.minecraft.commands.arguments.selector.options`
+    - `InvertableSetOptionState` - A parsed option state that represents a value that can include or exclude.
+    - `SetOnceOptionState` - A parsed option state that can only be set once.
 - `net.minecraft.core.BlockPos#neighborColumn` - An iterable of positions that starts at some given XYZ, goes until some other Y, and then loop through the same column space in the four horizontally orthogonal directions.
-- `net.minecraft.core.dispenser.SulfurCubeBlockDispenseItemBehavior` - The dispense behavior allowing sulfur cubes to equip items.
+- `net.minecraft.core.dispenser`
+    - `FlintAndSteelDispenseItemBehavior` - The dispense behavior of flint and steal.
+    - `SulfurCubeBlockDispenseItemBehavior` - The dispense behavior allowing sulfur cubes to equip items.
+- `net.minecraft.core.particles`
+    - `GeyserBaseParticleOptions` - The base particle options for a geyser.
+    - `GeyserParticleOptions` - The particle options for a geyser.
 - `net.minecraft.data.BlockFamilies`
     - `SULFUR`, `POLISHED_SULFUR`, `SULFUR_BRICKS` - Sulfur block variants.
     - `CINNABAR`, `POLISHED_CINNABAR`, `CINNABAR_BRICKS` - Cinnabar block variants.
@@ -1255,14 +1467,21 @@ public void exampleTest(GameTestHelper helper) {
         - `addSulfurSpikeFeatures` - Sulfur spike features.
     - `TerrainProvider#peaksAndValleys` - Calculates the peaks and valleys scalar given the weirdness.
 - `net.minecraft.data.worldgen.biome.OverworldBiomes#sulfurCaves` - The sulfur caves biome.
-- `net.minecraft.gametest.framework.GameTestHelper#assertValueInBetween` - Assert the `Comparable` value is between some bounds.
+- `net.minecraft.gametest.framework`
+    - `GameTestHelper#assertValueInBetween` - Assert the `Comparable` value is between some bounds.
+    - `TestEnvironmentDefinition$Difficulty` - A test environment that sets the world difficulty.
 - `net.minecraft.server.MinecraftServer#SERVER_THREAD_NAME` - The name of the server thread.
+- `net.minecraft.server.jsonrpc`
+    - `JsonRpc` - A utility for constructing the `ManagementServer`.
+    - `ManagementServer#scheduleHeartbeat` - Sets the number of seconds between each heartbeat check.
+- `net.minecraft.server.notifications.NotificationManager#setServer`, `server` - Handles the `DedicatedServer` consuming the `NotificationManager`
 - `net.minecraft.util`
     - `CubicSpline`
         - `minValue`, `maxValue` - The bounds of the spline.
         - `sample`, `$Multipoint#sample` - Samples the spline at the given coordinates.
         - `asSampler` - Returns the sampler for the spine.
         - `$Multipoint#codec` - Gets the codec for the spline.
+    - `ExtraCodecs#optionalAlwaysPresentFieldOf` - Constructs a optional `MapCodec` that, while should be present, can default to the specified value.
     - `Util`
         - `CONTROL_CHARACTER_ESCAPER` - An escaper for control characters.
         - `join` - Flattens lists of elements into a single list.
@@ -1273,11 +1492,14 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.world.entity`
     - `AgeableMob#canBeABaby` - Whether the mob can have a baby variant.
     - `Entity`
-        - `DEFAULT_NAMEPLATE_DISTANCE` - The default maximum distance an entity nameplate can be seen from.
-        - `DEFAULT_BELOW_NAME_DISTANCE` - The default maximum distance that additional nameplate information on an entity can be seen from.
+        - `DEFAULT_NAME_TAG_DISTANCE` - The default maximum distance an entity name tag can be seen from.
+        - `DEFAULT_BELOW_NAME_DISTANCE` - The default maximum distance that additional name tag information on an entity can be seen from.
+        - `MAX_NAME_TAG_DISTANCE` - The true maximum distance a name tag can be seen from.
         - `getEntityBounciness` - How bouncy the entity is after a collision.
         - `getEffectiveGravity` - Gets the gravity currently being applied to the entity.
         - `omnidirectionalAirMover` - Whether the entity can omnidirectionally move in the air.
+    - `EntityEvent#TNT_PRIME` - An event id for when a TNT is primed.
+    - `EntityType#canSpawn` - Checks whether the entity can spawn in the given level.
     - `LivingEntity`
         - `BASE_AIR_DRAG` - The base drag when within the air.
         - `BASE_VERTICAL_DRAG_FOR_NON_FLYERS` - The base air drag when a non-flyable entity is moving vertically.
@@ -1285,33 +1507,53 @@ public void exampleTest(GameTestHelper helper) {
     - `MobCategory#getDebugAbbreviation` - An abbreviation of the category when looking through one of the debug menus.
 - `net.minecraft.world.entity.ai.navigation.PathNavigation#getMaxVerticalDistanceToWaypoint` - Gets the maximum vertical distance from the current node the entity pathfinding through.
 - `net.minecraft.world.entity.animal.turtle.Turtle#getHomePos` - Gets the home position of the turtle.
+- `net.minecraft.world.entity.item.PrimedTnt`
+    - `NO_FUSE` - The value if a primed explosion object has no fuse.
+    - `getRandomShortFuse` - Returns between an eighth and three eighths of the original fuse time.
 - `net.minecraft.world.entity.monster.cubemob`
     - `AbstractCubeMob` - A cube-like mob.
     - `SulfurCube` - A sulfur cube entity.
-- `net.minecraft.world.entity.monster.zombie.Drowned#isSearchingForLand` - If the drowned is searching for land.
+- `net.minecraft.world.entity.monster.zombie`
+    - `Drowned#isSearchingForLand` - If the drowned is searching for land.
+    - `ZombieVillager#getVillagerDataFinalized`, `setVillagerDataFinalized` - Handles whether the villager data has been finalized, typically after conversion.
+- `net.minecraft.world.entity.monster.npc.Villager#getVillagerDataFinalized`, `setVillagerDataFinalized` - Handles whether the villager data has been finalized, typically after conversion.
 - `net.minecraft.world.item.DyeColor#getTerracottaColor` - The `MapColor` of a terracotta block dyed this color.
-- `net.minecraft.world.level.Level#ACROSS_THE_WHOLE_WORLD` - The maximum diameter of a level.
+- `net.minecraft.world.level`
+    - `Level#ACROSS_THE_WHOLE_WORLD` - The maximum diameter of a level.
+    - `SignalGetter#getBestOwnOrNeighbourSignal` - Returns the best redstone signal from the current block position or its surrounding neighbors.
 - `net.minecraft.world.level.block`
     - `CopperChestBlock#getHingeSound` - Gets the hinge sound to play based on the current state of the chest.
+    - `LevelEvent#SOUND_SULFUR_SPIKE_LAND` - The level event that plays a sound when an entity lands on a sulfur spike.
     - `PotentSulfurBlock` - A sulfur block that can apply noxious gas effects.
     - `SpeleothemBlock` - An abstract representation of a speleothem.
     - `SulfurSpikeBlock` - A sulfur spike speleothem.
     - `WeatheringCopper$WeatherState#forEach` - Loops through the available weather states.
 - `net.minecraft.world.level.block.entity`
+    - `BlockEntityTicker#andThen` - Chains two tickers together.
     - `DecoratedPotPatterns#itemToPatternMappings` - Operates on the keys for an item and its associated pot pattern.
-    - `PotentSulfurEntity` - A sulfur block entity that can apply noxious gas effects.
-- `net.minecraft.world.level.block.state.BlockBehavior#bounceRestitution`, `$Properties#bounceRestitution` - How much the entity should bounce after colliding with this block.
+    - `PotentSulfurBlockEntity` - A sulfur block entity that can apply noxious gas effects.
+- `net.minecraft.world.level.block.state.BlockBehaviour`
+    - `bounceRestitution`, `$Properties#bounceRestitution` - How much the entity should bounce after colliding with this block.
+    - `ownSignal`, `$BlockStateBase#getOwnSignal` - The redstone signal this block is outputting.
+- `net.minecraft.world.level.block.state.properties.BlockStateProperties#POTENT_SULFUR_STATE`, `PotentSulfurState` - The state of the potent sulfur.
 - `net.minecraft.world.level.chunk`
     - `ChunkAccess#collectBiomesInPalette` - Collects all the biomes in the chunk sections.
     - `PalettedContainerRO#forEachInPalette` - Loop through all elements in the palette.
-- `net.minecraft.world.level.levelgen.SurfaceRules`
-    - `noiseGradient` - Creates a noise gradient rule from the given noise parameters and blockstate gradient.
-    - `$Context#getBiome` - Gets the biome at the context position.
+- `net.minecraft.world.level.levelgen`
+    - `DensityFunction#mapChildren` - Maps the children density functions used by this function.
+    - `DensityFunctions#intervalSelect`, `$IntervalSelect` - Computes the density using the given function if its corresponding threshold is above the input value.
+    - `SurfaceRules`
+        - `noiseGradient` - Creates a noise gradient rule from the given noise parameters and blockstate gradient.
+        - `$Context#getBiome` - Gets the biome at the context position.
+- `net.minecraft.world.level.levelgen.blockpredicates.BlockPredicate#matchesBiomes`, `$MatchingBiomesPredicate` - Checks whether the give block position is in the given set of biomes.
 - `net.minecraft.world.level.levelgen.feature`
     - `SequenceFeature` - A feature made up of other placed features, applying them in the order they are given until either one of them fails or all succeeds.
     - `TemplateFeature` - A feature that attempts to place a structure template in the world.
 - `net.minecraft.world.level.levelgen.feature.configurations.TemplateFeatureConfiguration` - A configuration for the `TemplateFeature`.
 - `net.minecraft.world.level.storage.loot.LootPool#addAll` - Adds all pool entries.
+- `net.minecraft.world.scores`
+    - `PlayerTeam$OptionFlags` - An annotation that marks whether a given byte defines the usage flags of the team options.
+    - `TeamColor` - The color representing a player team.
 
 ### List of Changes
 
@@ -1342,12 +1584,31 @@ public void exampleTest(GameTestHelper helper) {
     - `createPointedDripstone` -> `createSpeleothem`, now taking in a `Block`
 - `net.minecraft.client.data.models.model.ItemModelUtils#plainModel` now has an overload that takes in a `Transformation`
 - `net.minecraft.client.multiplayer.ClientChunkCache#getLoadedEmptySections` split into `addedEmptySections`, `removedEmptySections`
+- `net.minecraft.commands.arguments.ColorArgument` -> `TeamColorArgument`
+- `net.minecraft.commands.arguments.selector.EntitySelectorParser`
+    - `hasNameEquals`, `setHasNameEquals`, `hasNameNotEquals`, `setHasNameNotEquals` -> `nameOption`, not one-to-one
+    - `isLimited`, `setLimited` -> `limitedOption`, not one-to-one
+    - `isSorted`, `setSorted` -> `sortedOption`, not one-to-one
+    - `hasGamemodeEquals`, `setHasGamemodeEquals`, `hasGamemodeNotEquals`, `setHasGamemodeNotEquals`, -> `gamemodeOption`, not one-to-one
+    - `hasTeamEquals`, `setHasTeamEquals`, `hasTeamNotEquals`, `setHasTeamNotEquals` -> `teamOption`, not one-to-one
+    - `setTypeLimitedInversely`, `isTypeLimited`, `isTypeLimitedInversely` -> `typeOption`, not one-to-one
+    - `hasScores`, `setHasScores` -> `scoresOption`, not one-to-one
+    - `hasAdvancements`, `setHasAdvancements` -> `advancementsOption`, not one-to-one
 - `net.minecraft.core.Holder` is now `sealed` to `$Direct` and `$Reference`
     - `$Reference` is now `non-sealed`
 - `net.minecraft.data.worldgen`
     - `SurfaceRuleData` methods now take in the `HolderGetter<Biome>`
     - `TerrainProvider` methods no longer bind the `BoundedFloatFunction` generic
         - `buildErosionOffsetSpline` now takes in a `Float2FloatFunction` instead of a `BoundedFloatFunction`
+- `net.minecraft.data.worldgen.features.TreeFeatures` methods that return a `TreeConfiguration$TreeConfigurationBuilder` now take in a `BlockStateProvider` for the block below the trunk
+- `net.minecraft.network.protocol.game.ClientboundSetPlayerTeamPacket$Parameters` is now a record
+- `net.minecraft.server.MinecraftServer` now takes in the `NotificationManager`
+- `net.minecraft.server.dedicated.DedicatedServer` now takes in the json rpc `ManagementServer` and `NotificationManager`
+    - `setStatusHeartbeatInterval` now returns whether the heartbeat was scheduled successfully
+- `net.minecraft.server.jsonrpc`
+    - `IncomingRpcMethod$Attributes`, `$IncomingRpcMethodBuilder#allowPreServerInit` now handles whether the method can be dispatched prior to server initialization
+    - `OutgoingRpcMethod$Attributes`, `$OutgoingRpcMethodBuilder#allowPreServerInit` now handles whether the method can be dispatched prior to server initialization
+- `net.minecraft.server.jsonrpc.internalapi.MinecraftApi#of`, `Minecraft*Impl` classes now take in the `NotificationManager` instead of the `DedicatedServer`
 - `net.minecraft.server.level`
     - `BlockDestructionProgress#updateTick`, `getUpdatedRenderTick` now deal with `long`s instead of `int`s
     - `ServerEntityGetter#getNearestEntity` now has an overload that takes in the list of `Entity`s to loop through along with the center position as three `double`s
@@ -1376,6 +1637,7 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.world.entity`
     - `AgeableMob#isBaby`, `setBaby` are now `final`
         - Override `canBeABaby` instead
+    - `EntityType`, `$Builder#immuneTo` now takes in a `TagKey` instead of a `ImmutableSet` for the blocks the entity is immune to damage from
     - `LivingEntity`
         - `WATER_FLOAT_IMPULSE` -> `LIQUID_FLOAT_IMPULSE`, now `protected` from `private`
         - `travelInFluid` is now `protected` from `private`
@@ -1392,8 +1654,10 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.world.entity.animal.bee.Bee` no longer implements `FlyingAnimal`
     - `getGoalSelector` -> `Mob#getGoalSelector`
 - `net.minecraft.world.entity.animal.fox.Fox#canMove` is now `public` from `private`
+- `net.minecraft.world.entity.animal.goat.Goat#LONG_JUMPING_DIMENSIONS` replaced by `LONG_JUMPING_DIMENSION_SCALE_FACTOR`, `BABY_DIMENSIONS` (private), not one-to-one
 - `net.minecraft.world.entity.animal.happyghast.HappyGhast$HappyGhastLookControl#wrapDegrees90` -> `Mth#wrapDegrees90`
 - `net.minecraft.world.entity.animal.parrot.Parrot` no longer implements `FlyingAnimal`
+- `net.minecraft.world.entity.item.PrimedTnt#DEFAULT_FUSE_TIME` is now `public` from `private`
 - `net.minecraft.world.entity.monster`
     - `Guardian#setMoving` is now `public` from `private`
     - `MagmaCube` -> `.monster.cubemob.MagmaCube`
@@ -1401,6 +1665,7 @@ public void exampleTest(GameTestHelper helper) {
     - `Slime` -> `.monster.cubemob.Slime`
         - The class now extends `AbstractCubeMob` and implements `Enemy`
 - `net.minecraft.world.entity.monster.zombie.Drowned#wantsToSwim` is now `public` from `private`
+- `net.minecraft.world.inventory.AbstractFuranceMenu` no longer takes in the `RecipeType`
 - `net.minecraft.world.item`
     - `BucketItem`
         - `content` is now `protected` from `private`
@@ -1409,7 +1674,7 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.world.item.trading`
     - `TradeRebalanceVillagerTrades` now extends `VillagerTrades`
     - `VillagerTrade` one constructor now takes in the raw `HolderSet` of `Enchantment`s instead of being optionally-wrapped
-- `net.minecraft.world.level.NaturalSpawner#getFilteredSpawningCategories` no longer takes in the `boolean`s for whether to spawn friendlies and enemies
+- `net.minecraft.world.level.NaturalSpawner#getFilteredSpawningCategories` no longer takes in the `boolean` for whether to spawn friendlies
 - `net.minecraft.world.level.block`
     - `BedBlock` no longer implements `EntityBlock`
     - `Block#updateEntityMovementAfterFallOn` replaced by `getBounceRestitution`
@@ -1426,17 +1691,28 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.world.level.block.state.properties`
     - `BlockStateProperties#DRIPSTONE_THICKNESS` -> `SPELEOTHEM_THICKNESS`
     - `DripstoneThickness` -> `SpeleothemThickness`
-- `net.minecraft.world.level.chucnk.LevelChunkSection`
-    - `SECTION_WIDTH`, `SECTION_HEIGHT` replaced by `SectionPos#SECTION_SIZE`
-    - `SECTION_SIZE` -> `SectionPos#SECTION_BLOCK_COUNT`
+- `net.minecraft.world.level.chunk`
+    - `ChunkAccess#markPosForPostprocessing` -> `markPosForPostProcessing`
+    - `LevelChunkSection`
+        - `SECTION_WIDTH`, `SECTION_HEIGHT` replaced by `SectionPos#SECTION_SIZE`
+        - `SECTION_SIZE` -> `SectionPos#SECTION_BLOCK_COUNT`
 - `net.minecraft.world.level.dimension.DimensionType#infiniburn` now takes in a `HolderSet` of `Block`s instead of the referenced `TagKey`
 - `net.minecraft.world.level.levelgen`
+    - `DensityFunction#mapAll` is now default, visiting all functions and their wrapped children.
     - `DensityFunctions`
+        - `weirdScaledSampler`, `$WeirdScaledSampler` replaced by `NoiseRouterData$QuantizedSpaghettiRarity#wrapRarity*d` methods, not one-to-one
+            - `$RarityValueMapper`
+                - `TYPE1` -> `NoiseRouterData$QuantizedSpaghettiRarity#wrapRarity3d`
+                - `TYPE2` -> `NoiseRouterData$QuantizedSpaghettiRarity#wrapRarity2d`
+        - `$BlendDensity` replaced by `$Marker` with `$Marker$Type#BlendDensity`
         - `$Spline` is now a static final `class` instead of a `record`
         - `$Coordinate` now holds the raw `DensityFunction` instead of being `Holder`-wrapped
     - `GeodeBlockSettings` is now a `record`
         - `cannotReplace`, `invalidBlocks` now take in a `HolderSet` of `Block`s instead of the referenced `TagKey`
     - `NoiseBasedChunkGenerator#buildSurface` now takes in a set of `Holder<Biome>`s instead of the `Registry<Biome>`
+    - `NoiseRouterData$QuantizedSpaghettiRarity`
+        - `getSphaghettiRarity2D` -> `wrapRarity2d`, not one-to-one
+        - `getSpaghettiRarity3D` -> `wrapRarity3d`, not one-to-one
     - `SurfaceRules`
         - `isBiome(ResourceKey<Biome>...)` now takes in a `HolderGetter<Biome>`
         - `$ConditionSource#codec` is now a `MapCodec` instead of a `KeyDispatchDataCodec`
@@ -1450,16 +1726,24 @@ public void exampleTest(GameTestHelper helper) {
         - `DRIPSTONE_CLUSTER` -> `SPELEOTHEM_CLUSTER`
         - `POINTED_DRIPSTONE` -> `SPELEOTHEM`
     - `LakeFeature$Configuration` now takes in `BlockPredicate`s for where the feature can be placed, what blocks can be replaced with air or fluid, and what blocks can be replaced with the border/barrier blocks
+    - `MultifaceGrowthFeature` now takes in the `MultifaceSpreadeableBlock`
     - `PointedDripstoneFeature` -> `SpeleothemFeature`
 - `net.minecraft.world.level.levelgen.feature.configurations`
     - `DripstoneClusterConfiguration` -> `SpeleothemClusterConfiguration`
+    - `GeodeConfiguration` is now a record
     - `LargeDripstoneFeature` now takes in a `HolderSet` of `Block`s that can be replaced
+    - `MultifaceGrowthConfiguration` can now take in a `Block` instead of a `MultifaceSpreadeableBlock` for the placing block
     - `PointedDripstoneConfiguration` -> `SpeleothemConfiguration`
     - `RootSystemConfiguration` is now a `record`
         - `rootReplaceable` now takes in a `HolderSet` of `Block`s instead of the referenced `TagKey`
     - `SimpleRandomFeatureConfiguration` -> `CompositeFeatureConfiguration`
+    - `TreeConfiguration`
+        - `CAN_PLACE_BELOW_OVERWORLD_TRUNKS` -> `CAN_PLACE_BELOW_TREE_TRUNKS`
+        - `PLACE_BELOW_OVERWORLD_TRUNKS` -> `defaultPlaceBelowTreeTrunkProvider`
+        - `$TreeConfigurationBuilder` must now always take in the `BlockStateProvider` for the block below the tree trunk
     - `VegetationPatchConfiguration` is now a `record`
         - `replaceable` now takes in a `HolderSet` of `Block`s instead of the referenced `TagKey`
+- `net.minecraft.world.level.levelgen.flat.FlatLayerInfo` now has an overload that takes in a holder-wrapped `Block`
 - `net.minecraft.world.level.levelgen.structure.structures.RuinedPortalPiece` now takes in the `HolderLookup$Provider` of registries
     - The other constructor now takes in a `StructurePieceSerializationContext` instead of the `StructureTemplateManager`
     - `$Properties` is now a `record`
@@ -1467,11 +1751,27 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.world.level.storage.loot.functions`
     - `EnchantRandomlyFunction$Builder#withOptions` now takes in the raw `HolderSet` of `Enchantment`s instead of being optionally-wrapped
     - `SetRandomPotionFunction#fromTagKey` now takes in the raw `HolderSet` of `Potion`s instead of being optionally-wrapped
+- `net.minecraft.world.scores`
+    - `DisplaySlot#teamColorToSlot` replaced by `TeamColor`, not one-to-one
+    - `PlayerTeam`
+        - `packOptions`, `unpackOptions` now deals with a `byte` instead of an `int`
+        - `setColor`, `getColor` now deals with an optional `TeamColor`
+        - `$Packed` now takes in an optional `TeamColor` instead of a `ChatFormatting`
+    - `Team#getColor` now returns an optional `TeamColor` instead of a `ChatFormatting`
+- `net.minecraft.world.scores.criteria.ObjectiveCriteria#TEAM_KILL`, `KILLED_BY_TEAM` are now `TeamColor` to `ObjectiveCriteria` maps instead of arrays of `ObjectiveCriteria`
 
 ### List of Removals
 
+- `net.minecraft.client`
+    - `Minecraft`
+        - `getVersionType`
+        - `isSingleplayer`
+    - `Options#touchscreen` is removed
 - `net.minecraft.client.data.models.model.ModelTemplates#BED_INVENTORY`
 - `net.minecraft.client.geom.ModelLayers#BED_FOOT`, `BED_HEAD`
+- `net.minecraft.client.gui.screens.inventory.AbstractContainerScreen`
+    - `extractSnapbackItem` is removed
+    - `clearDraggingState` is removed
 - `net.minecraft.util.Tuple`
 - `net.minecraft.util.thread.BlockableEventLoop#hasDelayedCrash`
 - `net.minecraft.world.entity.Mob#setBodyArmorItem`
@@ -1479,6 +1779,11 @@ public void exampleTest(GameTestHelper helper) {
     - `BedBlockEntity`
     - `DecoratedPotPatterns#getPatternFromItem`
 - `net.minecraft.world.level.levelgen`
-    - `DensityFunction#DIRECT_CODEC`, `HOLDER_HELPER_CODEC`
+    - `DensityFunction`
+        - `DIRECT_CODEC`, `HOLDER_HELPER_CODEC`
+        - `$FunctionContext#getBlender`
     - `SurfaceRules#isBiome(List<ResourceKey<Biome>>)`
+- `net.minecraft.world.scores.ReadOnlyScoreInfo#safeFormatValue`
 - `net.minecraft.world.waypoints.Waypoint#MAX_RANGE`
+
+
