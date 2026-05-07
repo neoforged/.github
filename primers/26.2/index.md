@@ -30,6 +30,12 @@ Vanilla has added support for the Vulkan graphics API, which can be set in the o
 
 The previous data types of `RGBA8`, `RED8`, `RED8I`, `DEPTH32` can be represented using one of these `GpuFormat`s, though their mappings do not have one-to-one parity for the GL codes previously used.
 
+### Rewriting Vertex Formats
+
+`VertexFormat` along with `VertexFormatElement` has been partially rewritten into a more dynamic framework. There is no longer a set of existing `VertexFormatElement`s. Instead, the elements are constructed when building the `VertexFormat` by adding attributes via `$Builder#addAttribute`. A `VertexFormat` can define at most sixteen elements or attributes, each providing at least the name and `GpuFormat`.
+
+`VertexFormat$IndexType` and `VertexFormat$Mode` have also been moved into their own `IndexType` and `PrimitiveTopology` enums, respectively. This is because `RenderPipeline`s can now define up to sixteen vertex buffers with different `VertexFormat`s, but must be applied to the same `PrimitiveTopology`. This expansion also allows for up to eight `ColorTargetState`s; though, it must match the number of color attachments specified as part of a `RenderPass`.
+
 ### Bind Group Layouts
 
 `BindGroupLayout` is a collection of sampler names and `$UniformDescription`s, replacing the single list of sampler names and `RenderPipeline#UniformDescription`. Due to this separate object, `RenderPipeline$Snippet`s that were made up of only samplers and uniforms are now decoupled, allowing for a modular, non-repeatable implementation when dealing with many pipelines and layouts. All vanilla layouts are stored in `BindGroupLayouts` and are attached to a `RenderPipeline` via `RenderPipeline$Builder#withBindGroupLayout`.
@@ -314,7 +320,21 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `GraphicsWorkarounds` -> `GlHeuristics`, `HintsAndWorkarounds`; not one-to-one
         - `alwaysCreateFreshImmediateBuffer` is removed
     - `GpuFormat` - An object representing the format and color components of a pixel.
+- `com.mojang.blaze3d.audio.OpenAlUtil#checkALError`, `checkALCError`, `audioFormatToOpenAl` are now `public` from package-private
+- `com.mojang.blaze3d.buffers.GpuBuffer$MappedView` -> `GpuBufferSlice$MappedView`, not one-to-one
 - `com.mojang.blaze3d.opengl`
+    - `BufferStorage#mapBuffer` replaced by `GpuBuffer#map`, `GpuBufferSlice#map`
+    - `DirectStateAccess` methods are now `public` from package-private
+        - `bindFrameBufferTextures` now has an overload that takes in arrays for the color and mip levels, along with an `int` for the mip level depth
+    - `FrameBufferAttachment` - An object that is bound to a framebuffer, like a texture.
+    - `FrameBufferCache` - A cache that creates framebuffers given its attachments.
+    - `GlBuffer` now takes in a `boolean` for whether a persistent buffer can be mapped rather than the persistent `ByteBuffer`
+        - `persistentBuffer` replaced by `mappedBuffer`, not one-to-one
+        - `canPersistentMap` - Whether the persistent buffer can be mapped to another buffer.
+        - `mappingFlags` - The flags that define how the persistent buffer should be mapped.
+        - `mappingRefCount` - The number of buffers currently mapped to the persistent buffer.
+        - `checkCanBeUsed` - Checks whether the persistent buffer can be mapped.
+        - `$GlMappedView` replaced by `GpuBufferSlice$MappedView`, not one-to-one
     - `GlCommandEncoder#finishRenderPass` -> `CommandEncoder#submitRenderPass`
     - `GlConst`
         - `toGl(DestFactor)`, `toGl(SourceFactor)` -> `toGl(BlendFactor)`
@@ -323,32 +343,66 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `isGlFormatInteger` - Returns whether the format is backed by an integer-like data type.
         - `isFormatNormalized` - Returns whether the format uses normalized data.
         - `toGlInternalId`, `toGlExternalId`, `toGlType` now take in a `GpuFormat` instead of the `TextureFormat`
-    - `GlProgram#setupUniforms` -> `setupBindGroupLayouts`, now taking a list of `BindGroupLayout`s instead of uniforms and samplers directly
-    - `GlRenderPass` now takes in the default `ScissorState`
+    - `GlDevice#frameBufferCache` - Returns the framebuffer cache.
+    - `GlHeuristics` class is now `public` from package-private
+    - `GlProgram`
+        - `setupUniforms` -> `setupBindGroupLayouts`, now taking a list of `BindGroupLayout`s instead of uniforms and samplers directly
+        - `link` now takes in an array of `VertexFormat`s rather than a single one
+    - `GlRenderPass` now takes in the default `ScissorState` and how many color textures are used.
+        - `MAX_VERTEX_BUFFERS` -> `RenderPass#MAX_VERTEX_BUFFERS`, not one-to-one
+        - `vertexBuffers` is now an array of `GpuBufferSlice`s instead of `GpuBuffer`s
+        - `vertexBufferDirty` - Returns whether there is a dirty vertex buffer to upload.
+        - `colorAttachmentCount` - The number of color textures used.
     - `GlStateManager`
         - `_blendEquationSeparate`, `glBlendEquationSeparate` - Sets the blend mode of the RGB and alpha channels.
+        - `_disableBlend`, `_enableBlend` now take in an `int` index for the buffer the blend is applied to
+        - `_colorMask` now has an overload that specifies the index of the buffer to apply the write mask to
+        - `_clearBuffer` - Clears the give buffer using the associated value.
         - `$BlendState`
             - `modeRgb` - The blend mode of the RGB color channels.
             - `modeAlpha` - The blend mode of the alpha channel.
     - `GlSurface` - The OpenGL implementation of the surface backend.
-    - `GlTexture` now takes in the `GpuFormat` instead of the `TextureFormat`
+    - `GlTexture` now implements `FrameBufferAttachment`
+        - The constructor now takes in the `GpuFormat` instead of the `TextureFormat`, and the `FrameBufferCache`
+        - `getFbo` replaced by `FrameBufferCache#getFbo`
+    - `GlTextureView` now implements `FrameBufferAttachment`
+        - The constructor now takes in the `FrameBufferCache`
+        - `getFbo` replaced by `FrameBufferCache#getFbo`
     - `GlTimerQuery` replaced by `GlQueryPool`
     - `Uniform$Utb` now takes in the `GpuFormat` instead of the `TextureFormat`
+    - `VertexArrayCache#bindVertexArray` now takes in arrays for the `VertexFormat` bindings and `GpuBufferSlice` buffers along with the last bound `$VertexArray`, returning the newly bound `$VertexArray`
 - `com.mojang.blaze3d.pipeline`
     - `BindGroupLayout` - The samplers and uniforms a shader will use.
     - `BlendEquation` - An equation that blends the source and destination factors using the provided operation.
     - `BlendFunction` now takes in `BlendEquation`s, `BlendFactor`s, or `BlendOp`s instead of `SourceFactor`s and `DestFactor`s
-    - `RenderPipeline` now takes in a list of `BindGroupLayout`s instead of uniforms and samplers directly
+    - `ColorTargetState` now takes in the `GpuFormat`
+        - `MAX_COLOR_TARGETS` - The maximum number of color states a buffer can use.
+    - `RenderPipeline` now takes in a list of `BindGroupLayout`s instead of uniforms and samplers directly, and an array of `ColorTargetState`s and `VertexFormat`s instead of just one
         - `getSamplers`, `getUniforms` -> `getBindGroupLayouts`
             - Can get the samplers and uniforms via `BindGroupLayout#flattenSamplers`, `flattenUniforms`
-        - `$Builder#withUniform`, `withSampler` -> `withBindGroupLayout`
-            - Can add samplers and uniforms via `BindGroupLayout$Builder#withSampler`, `withUniform`
-        - `$Snippet#samplers`, `uniforms` -> `bindGroupLayouts`, not one-to-one
+        - `getColorTargetStates` - Returns the array of color target states.
+            - The original now just returns the first one
+        - `getVertexFormat` replaced by `getVertexFormatBinding`, taking in the bound index
+        - `getVertexFormatBindings` - Returns the array of vertex formats.
+        - `getVertexFormatMode` -> `getPrimitiveTopology`
+        - `$Builder`
+            - `withUniform`, `withSampler` -> `withBindGroupLayout`
+                - Can add samplers and uniforms via `BindGroupLayout$Builder#withSampler`, `withUniform`
+            - `withColorTargetState` now takes in the `int` index to bind
+            - `withUnusedColorTargetState` - Unbinds the specified `int` index.
+            - `withVertexFormat` -> `withVertexBinding`, now taking in the `int` index to bind, and no longer taking in the `VertexFormat$Mode`
+            - `withPrimitiveTopology` - Sets the topology the pipeline uses.
+        - `$Snippet`
+            - `samplers`, `uniforms` -> `bindGroupLayouts`, not one-to-one
+            - `colorTargetState` -> `colorTargetStates`, now a nullable array of `ColorTargetState`s instead of an optional single state
+            - `activeColorTargetStateCount` - The number of active color states used by the pipeline.
+            - `vertexFormat` -> `vertexFormatPerBuffer`, now a nullable array of `VertexFormat`s instead of an optional single state
         - `$UniformDescription` -> `BindGroupLayout$UniformDescription`
-    - `RenderTarget`
+    - `RenderTarget` now takes in the `GpuFormat`
         - `blitToScreen` is removed
             - Usage replaced by `GpuSurface#blitFromTexture`
         - `blitAndBlendToTexture` now takes in a `GpuTextureView` for the output depth texture
+    - `TextureTarget` now takes in the `GpuFormat`
 - `com.mojang.blaze3d.platform`
     - `BackendOptions` record is removed
     - `BlendOp` - The operation performed when blending the source and destination outputs.
@@ -360,8 +414,12 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `TextureUtil#writeAsPNG` now only allows `RGBA8_UNORM` formatted textures to be written to disk.
     - `Window#updateVsync` is removed
         - Usage replaced by `Window#setMode` and `WindowEventHandler#framebufferSizeChanged`
+        - `isResized`, `resetIsResized` are removed
     - `WindowEventHandler#framebufferSizeChanged` - Handles when the window buffer size has changed.
-- `com.mojang.blaze3d.shaders.GpuDebugOptions` now takes in a `boolean` of whether to use validation layers; only used by the Vulkan backend
+- `com.mojang.blaze3d.resource.RenderTargetDescriptor` now takes in a `Vector4fc` for the clear color instead of an `int`, and the `GpuFormat`
+- `com.mojang.blaze3d.shaders`
+    - `GpuDebugOptions` now takes in a `boolean` of whether to use validation layers; only used by the Vulkan backend
+    - `UniformType` no longer specifies the name
 - `com.mojang.blaze3d.systems`
     - `BackendCreationException` now takes in a `$Reason` and optional string list of missing capabilities
         - `getReason` - The reason for the creation error.
@@ -373,14 +431,21 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `submitRenderPass` - Submits the current render pass, handled as part of the try-with-resources.
         - `presentTexture` -> `GpuSurface#blitFromTexture`, not one-to-one
         - `timerQueryBegin`, `timerQueryEnd` replaced by `writeTimestamp`
-        - `createRenderPass` now has an overload that takes in a `$RenderArea` for where to draw to
+        - `createRenderPass`
+            - Now takes in an optional `Vector4fc` instead of an `int` for the clear color
+            - Now has an overload that takes in a `$RenderArea` for where to draw to
+            - Now has an overload that only takes in a `RenderPassDescriptor`
+        - `clearColorTexture`, `clearColorAndDepthTextures` now take in an optional `Vector4fc` instead of an `int` for the clear color
+        - `mapBuffer` replaced by `GpuBuffer#map`, `GpuBufferSlice#map`
     - `CommandEncoderBackend`
         - `isInRenderPass` -> `CommandEncoder#isInRenderPass`, now `protected` from `public`
         - `submitRenderPass` - Submits the current render pass, handled as part of the try-with-resources.
         - `presentTexture` -> `GpuSurface#blitFromTexture`, not one-to-one
         - `timerQueryBegin`, `timerQueryEnd` replaced by `writeTimestamp`
-        - `createRenderPass(Supplier, GpuTextureView, OptionalInt)` is removed
-        - `createRenderPass` now has an overload that takes in a `$RenderArea` for where to draw to
+        - `createRenderPass` now only takes in the `RenderPassDescriptor`
+        - `clearColorTexture`, `clearColorAndDepthTextures` now take in an optional `Vector4fc` instead of an `int` for the clear color
+        - `mapBuffer` replaced by `GpuBuffer#map`, `GpuBufferSlice#map`
+    - `DeviceFeatures` - A record containing the features that the GPU device supports.
     - `DeviceInfo` - A record containing information about the GPU device.
     - `DeviceLimits` - A record containing information about the limits of GPU features.
     - `DeviceType` - The type of the device performing the rendering (e.g., cpu, discrete graphics, integrated graphics).
@@ -421,12 +486,15 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `GpuSurface` - The surface wrapper and validator.
     - `GpuSurfaceBackend` - An API for modifying and writing data to linked window using its handle.
     - `HintsAndWorkarounds` - A record containing issues with the supported GPU device and what workarounds are required.
-    - `RenderPass` now takes in a `Runnable` for what to do on close, typically from a try-with-resources; and a `$RenderArea` of where to draw to
+    - `RenderPass` now takes in a `Runnable` for what to do on close, typically from a try-with-resources; a list of `RenderPassDescriptor$Attachment` color textures; and a `$RenderArea` of where to draw to
         - `writeTimestamp` - Writes the timestamp to the pool at the given index.
+        - `setVertexBuffer` now takes in a `GpuBufferSlice` instead of a `GpuBuffer`
         - `$RenderArea` - A rectangle defining where the pass can write data to.
     - `RenderPassBackend` is no longer `AutoCloseable`
         - `isClosed` is removed
         - `writeTimestamp` - Writes the timestamp to the pool at the given index.
+        - `setVertexBuffer` now takes in a `GpuBufferSlice` instead of a `GpuBuffer`
+    - `RenderPassDescriptor` - A class containing the configuration of the `RenderPass` to use during drawing.
     - `RenderSystem`
         - `DEFAULT_DEPTH_CLEAR_VALUE` - The default clear value for the depth buffer.
         - `flipFrame` is removed
@@ -455,16 +523,45 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - This should be taken with a grain of salt as it does not exactly map to the previous version's GL type
 - `com.mojang.blaze3d.vertex`
     - `ByteBufferBuilder$Result#size` - The size of the resulting buffer.
+    - `DefaultVertexFormat`
+        - `*_SEMANTIC_NAME` - The name of the attributes used by the default vertex formats.
+        - `EMPTY` is removed
+            - This is typically replaced with either a `null` value or an empty array
     - `MeshData`
         - `unpackQuadCentroids` -> `decodeQuadCentroids`, now `public` from `private`, not one-to-one
         - `vertexBufferSlice` - The resulting vertex buffer containing the `MeshData`
         - `writeSortedIndexBuffer` - Writes the sorted vertices to an index buffer.
     - `StagingBuffer` - A buffer for staging changes to write at a later point in time.
     - `Tesselator` class is removed
+    - `TlsfAllocator`
+        - `$Block` instance fields are now `public` from package-private
+        - `$Heap` constructor is now `public` from package-private
     - `UberGpuBuffer` now takes in the `StagingBuffer` instead of the `GpuDevice`, buffer size `int`, and `GraphicsWorkarounds`
         - `uploadStagedAllocations` now takes in the `StagingBuffer$Uploader` instead of the `CommandEncoder`
-    - `VertexFormat#uploadImmediateVertexBuffer`, `uploadImmediateIndexBuffer` are removed
-    - `VertexFormatElement`, `#register` now takes in the `GpuFormat` instead of the `$Type`, normalized `boolean`, and count `int`
+        - `$UberGpuBufferHeap` constructor is now `public` from package-private
+    - `VertexFormat`
+        - `UNKNOWN_ELEMENT` is removed
+        - `MAX_VERTEX_ELEMENTS` - The maximum number of elements or attributes that can be defined on the format.
+        - `uploadImmediateVertexBuffer`, `uploadImmediateIndexBuffer` are removed
+        - `builder` now takes in an `int` for how many instances pass between updates to the attribute
+        - `getStepRate` - How many instances pass between updates to the attribute.
+        - `getElementAttributeNames` is removed
+        - `getOffsetsByElement` is removed
+        - `getOffset` replaced by `getElement`
+        - `contains` now takes in the `String` attribute name instead of the `VertexFormatElement`
+        - `getElementsMask`, `getElementName` are removed
+        - `$Builder`
+            - `add` -> `addAttribute`, not one-to-one
+            - `padding` is removed
+        - `$IndexType` -> `.blaze3d.IndexType`
+        - `$Mode` -> `PrimitiveTopology`
+    - `VertexFormatElement` now takes in the `GpuFormat` instead of the `$Type`, normalized `boolean`, and count `int`; the `String` attribute name instead of the `int` id, and the `int` offset` instead of the index
+        -  Constant `VertexFormatElement` fields are now removed
+            - They are constructed when creating the `VertexFormat`
+        - `MAX_COUNT` is removed
+        - `register` is removed
+        - `mask`, `byteSize` are removed
+        - `byId`, `elementsFromMask` are removed
         - `type`, `$Type` -> `GpuFormat` following the `_` in the entries
         - `normalized` -> `GpuFormat` if `NORM` is in the entry name
         - `count` -> `GpuFormat` counting `R`, `G`, `B`, `A` in the initial characters before the size
@@ -542,6 +639,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `PreferredGraphicsApi` - The graphics libraries vanilla supports to render the game.
     - `RotatingSectionStorage` - A class for managing the order of sections in relation to a center position.
     - `SectionUpdateTracker` - A class for tracking whether a section needs to be updated.
+- `net.minecraft.client.color.block.BlockTintCache$LatestCacheInfo#x`, `z` are now `private` from `public`
 - `net.minecraft.client.gui`
     - `Font`
         - `drawInBatch` methods are removed
@@ -594,6 +692,8 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `AbstractWidget#extractTooltipForNextRenderPass` - Extracts the tooltip to render during the next pass.
     - `DebugScreenOverlay#render3dCrosshair` is replaced by `DebugCrosshairRenderer`
     - `PlayerTabOverlay` now takes in the `Hud` instead of the `Gui`
+- `net.minecraft.client.gui.components.debug.DebugEntryVersion` class is now `public` from package-private
+- `net.minecraft.client.gui.font.FontTexture$Node#insert` is now `public` from package-private
 - `net.minecraft.client.gui.components.toasts.SystemToast`
     - `multiline` is replaced by the default constructor calling `update`
     - `recalculateWidth` - Recalculates the maximum width of the toast, up to 190.
@@ -606,6 +706,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
 - `net.minecraft.client.gui.render`
     - `GuiItemAtlas` no longer takes in the `SubmitNodeCollector` nor `MultiBufferSource$BufferSource`
     - `GuiRenderer` no longer takes in the `SubmitNodeCollector` nor `MultiBufferSource$BufferSource`
+        - `CLEAR_COLOR` is now a `Vector4fc` instead of an `int`
         - `render` no longer takes in the `GpuBufferSlice` for the fog buffer
 - `net.minecraft.client.gui.renderer.pip` no longer takes in the `MultiBufferSource$BufferSource` in any constructor
     - `PictureInPictureRenderer` no longer takes in the `MultiBufferSource$BufferSource`
@@ -613,13 +714,27 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `prepare` now takes in the `FeatureRenderDispatcher`
         - `renderToTexture` now takes in the `SubmitNodeCollector`
 - `net.minecraft.client.gui.screens.Overlay#isPauseScreen` -> `isPausing`
-- `net.minecraft.client.gui.screens.inventory.AbstractSignEditScreen#getSignTextScale` now returns a `Vector3fc` instead of a `Vector3f`
+- `net.minecraft.client.gui.screens.advancements.AdvancementTabType` enum is now `public` from package-private
+- `net.minecraft.client.gui.screens.inventory`
+    - `AbstractCommandBlockEditScreen`
+        - `getCommandBlock` is now `protected` from package-private
+        - `getPreviousY` is now `protected` from package-private
+    - `AbstractContainerScreen#onMouseClickAction` is now `protected` from package-private
+    - `AbstractSignEditScreen#getSignTextScale` now returns a `Vector3fc` instead of a `Vector3f`
+- `net.minecraft.client.gui.screens.multiplayer.ServerSelectionList$Entry#matches` is now `protected` from package-private
+- `net.minecraft.client.gui.screens.options.controls.KeyBindsList$Entry#refreshEntry` is now `public` from package-private
 - `net.minecraft.client.main.GameConfig$GameData` now takes in `boolean`s for whether to use the validation layers for Vulkan, and the graphics api forced by launch argument
     - `vulkanValidation` - Whether to use the validation layers for Vulkan.
     - `forcedGraphicsApi` - The graphics library forced by launch argument.
-- `net.minecraft.client.model.Model#renderToBuffer(PoseStack, VertexConsumer, int, int)` is removed
+- `net.minecraft.client.model`
+    - `Model#renderToBuffer(PoseStack, VertexConsumer, int, int)` is removed
+    - `QuadrupedModel#createLegs` is now `public` from package-private
+- `net.minecraft.client.model.animal.cow.CowModel#createBaseCowModel` is now `public` from package-private
+- `net.minecraft.client.model.geom.builders.CubeDefinition` is now `public` from `protected`
+- `net.minecraft.client.model.monster.piglin.AbstractPiglinModel#getDefaultEarAngleInDegrees` is now `protected` from package-private
 - `net.minecraft.client.model.monster.slime.SulfurCubeModel` - The entity model for the sulfur cube.
 - `net.minecraft.client.multiplayer`
+    - `ClientChunkCache#getChunk` is now `public` from `protected`
     - `ClientLevel` now takes in a `LevelExtractor` instead of the `LevelRenderer`
         - `onSectionBecomingNonEmpty` is removed
     - `ClientPacketListener#getPlayerCompiledSectionCallback` - Gets the callback for when the section the player is on the client has finished loading.
@@ -649,7 +764,9 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `getGlobalSettingsUniform` is removed
         - `getLighting` -> `lighting`
         - `getPanorama` -> `panorama`
-    - `ItemInHandRenderer#renderHandsWithItems` -> `submitHandsWithItems`
+    - `ItemInHandRenderer`
+        - `renderHandsWithItems` -> `submitHandsWithItems`
+        - `$HandRenderSelection#renderMainHand`, `renderOffHand` are now `public` from package-private
     - `LevelRenderer` has been split between this class and `LevelExtractor`
         - The class no longer implements `ResourceManagerReloadListener`
         - `LevelRenderer(Minecraft, EntityRenderDispatcher, BlockEntityRenderDispatcher, RenderBuffers, GameRenderState, FeatureRenderDispatcher)` -> `LevelRenderer(EntityRenderDispatcher, BlockEntityRenderDispatcher, ModelManager, TextureManager, AtlasManager, ShaderManager, GameRenderer, int, int)`
@@ -715,6 +832,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `submitBreakingBlockModel` now takes in a list of `BlockStatModelPart`s instead of a `BlockStateModel` and a `long` seed
         - `submitParticleGroup` now takes in a `QuadParticleRenderState` instead of a `SubmitNodeCollector$ParticleGroupRenderer`
         - `submitGizmoPrimitives` - Submits the gizmo primitive to render.
+        - `submitMovingBlock` now takes in the `int` outline color
     - `OutlineBufferSource` class is removed
     - `RenderBuffers` is now `AutoCloseable`
         - `endFrame` - When everything that should be uploaded is done for the frame.
@@ -784,11 +902,15 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `WorldBorderRenderer` now implements `AutoCloseable`
 - `net.minecraft.client.renderer.block.BlockModelRenderState#blockLightCoords` - The packed light coordinates of the block.
 - `net.minecraft.client.renderer.blockentity`
+    - `BannerRenderer#submitPatternLayer` now takes in an `OrderedSubmitNodeCollector` instead of a `SubmitNodeCollector`
     - `BedRenderer` class is removed
     - `BlockEntityRenderDispatcher#tryExtractRenderState` now takes in whether the block entity is globally rendered
+    - `TrialSpawnerRenderer#extractSpawnerData` is now `public` from package-private
 - `net.minecraft.client.renderer.chunk`
     - `CompileTaskDynamicQueue` -> `SectionTaskDynamicQueue`
+    - `RenderSectionRegion` is now `public` from package-private
     - `SectionCompiler` no longer takes in the `BlockEntityRenderDispatcher`
+    - `SectionCopy` is now `public` from package-private
     - `SectionRenderDispatcher` no longer takes in the `ClientLevel` and `LevelRenderer`, instead taking in a consumer for a listener on when the section mesh has been updated
         - `setLevel` -> `setCompiler`, not one-to-one
         - `uploadGlobalGeomBuffersToGPU` -> `uploadTerrainBuffersToGpu`
@@ -809,6 +931,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
                 - `region` is now `private` from `protected`
 - `net.minecraft.client.renderer.entity`
     - `AbstractCubeMobRenderer` - An entity renderer for cube-like mobs.
+    - `CamelRenderer#extractAdditionalState` is now `public` from package-private
     - `EntityRenderer#extractNameplates` -> `extractNameTags`
     - `MagmaCubeRenderer` now extends `AbstractCubeMobRenderer`
     - `SlimeRenderer` now extends `AbstractCubeMobRenderer`
@@ -874,6 +997,9 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `$Group` is now `public` from `private`
         - `render` is removed
     - `$Line`, `$Point`, `$Quad`, `$Text`, `$TriangleFan` are now `public` from `private`
+- `net.minecraft.client.renderer.item.properties.numeric`
+    - `CompassAngleState#get` is now `public` from package-private
+    - `Time#get` is now `public` from package-private
 - `net.minecraft.client.renderer.rendertype`
     - `LayeringTransform`, `getModifier` now deals with a `Matrix4f` consumer instead of a `Matrix4fStack`
     - `PreparedRenderType` - The state of a `RenderType` with all of the necessary components to draw the buffered data to the output.
@@ -886,6 +1012,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `drawFromBuffer` -> `PreparedRenderType#drawFromBuffer`, not one-to-one
         - `bufferSize` is removed
         - `prepare` - Constructs the `PreparedRenderType` used to draw the buffered data to the output.
+        - `mode` -> `primitiveTopology`
     - `RenderTypes`
         - `textIntensity` -> `textGrayscale`
         - `textIntensityPolygonOffset` -> `textGrayscalePolygonOffset`
@@ -894,12 +1021,17 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
             - Merged with `dragonRays`
     - `TextureTransform#getMatrix` -> `createMatrix`
 - `net.minecraft.client.renderer.special.BedSpecialRenderer` class is removed
-- `net.minecraft.client.renderer.state.OptionsRenderState`
-    - `hideGui` -> `GuiRenderState#isHudHidden`
-    - `chunkSectionFadeInTime` - The amount of seconds that should be taken for a chunk to fade in when first rendered.
-    - `prioritizeChunkUpdates` - What chunk updates to prioritize.
-    - `fov` - The field of view of the camera.
-- `net.minecraft.client.renderer.state.gui.BlitRenderState` now takes in a `Matrix3x2fc` instead of a `Matrix3x2f` for the pose
+- `net.minecraft.client.renderer.state`
+    - `OptionsRenderState`
+        - `hideGui` -> `GuiRenderState#isHudHidden`
+        - `chunkSectionFadeInTime` - The amount of seconds that should be taken for a chunk to fade in when first rendered.
+        - `prioritizeChunkUpdates` - What chunk updates to prioritize.
+        - `fov` - The field of view of the camera.
+    - `WindowRenderState#isResized` is removed
+- `net.minecraft.client.renderer.state.gui`
+    - `BlitRenderState` now takes in a `Matrix3x2fc` instead of a `Matrix3x2f` for the pose
+    - `GuiRenderState#clearColorOverride` is now a `Vector4f` instead of an `int`
+    - `GuiTextRenderState#font`, `text`, `x`, `y`, `color`, `backgroundColor`, `dropShadow` are now `private` from `public`
 - `net.minecraft.client.renderer.state.gui.pip`
     - `GuiEntityRenderState` now takes in `Vector3fc` and `Quaternionfc`s instead of `Vector3f` and `Quaternionf`s
     - `GuiSkinRenderState` now takes in a `Model$Simple` instead of a `PlayerModel` for the model
@@ -925,7 +1057,10 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `layers` - The set of quad layers to render.
         - `$PreparedBuffers`, `$PreparedLayer` are removed
     - `SectionUpdateRenderState` - The render state of a section to update.
-- `net.minecraft.client.resources.model.ModelManager$MaterialBakerImpl` - An implemented `MaterialBaker`.
+- `net.minecraft.client.renderer.texture.TextureAtlasSprite#isAnimated` is now `public` from package-private
+- `net.minecraft.client.resources.model`
+    - `BlockStateDefinitions#definitionLocationToBlockStateMapper` is now `public` from package-private
+    - `ModelManager$MaterialBakerImpl` - An implemented `MaterialBaker`.
 - `net.minecraft.client.resources.model.sprite.SpriteId#buffer` are removed
 - `net.minecraft.client.telemetry`
     - `TelemetryEventType#GRAPHICS_CAPABILITIES` - The capabilities of the graphics card.
@@ -1154,6 +1289,7 @@ Then, it will be serialized into the advancement JSON as:
     - `LightPredicate` -> `.advancements.predicates.LightPredicate`
     - `LocationPredicate` -> `.advancements.predicates.LocationPredicate`
     - `MinMaxBounds` -> `.advancements.predicates.MinMaxBounds`
+        - `createCodec`, `createStreamCodec` are now `public` from package-private
     - `MobEffectsPredicate` -> `.advancements.predicates.MobEffectsPredicate`
     - `MovementPredicate` -> `.advancements.predicates.entity.MovementPredicate`
         - Now implements `EntitySubPredicate`
@@ -1245,7 +1381,7 @@ The following is a list of useful or interesting additions, changes, and removal
 
 ### Sulfur Cube Archetypes
 
-Sulfur cubes behave differently depending on the item it absorbed. This is known as a `SulfurCubeArchetype`, a datapack registry object that takes in the set of `Item`s it should apply to, the cube's attributes to modify, and whether the cube should float in liquids.
+Sulfur cubes behave differently depending on the item it absorbed. What behavior the cube exhibits depends on the `SulfurCubeArchetype`, a datapack registry object, containing the corresponding `Item`.
 
 ```json5
 // A file located at:
@@ -1275,8 +1411,31 @@ Sulfur cubes behave differently depending on the item it absorbed. This is known
     ],
     // When `true`, the sulfur cube will float in liquids.
     "buoyant": true,
-    // When present, the number of ticks before the sulfur cube explodes after being primed.
-    "explosion_fuse": 120
+    // When present, a sulfur cube can be primed.
+    "explosion": {
+        // The maximum radius of the explosion. (e.g., 4.0 for regular tnt)
+        "power": 4,
+        // When `true`, the explosion can set other blocks on fire.
+        "causes_fire": true,
+        // The number of ticks before the sulfur cube explodes.
+        "fuse": 120
+    },
+    // When present, the sulfur cube will deal damage to entities it comes in contact with.
+    "contact_damage": {
+        // The float provider specifying how many half-hearts to remove.
+        "amount": 2,
+        // The registry name of the damage type.
+        "damage_type": "minecraft:cactus",
+        // When `true`, the damage is attributed to the sulfur cube.
+        "attribute_to_source": false
+    },
+    // When present, specifies the knockback the sulfur cube receives when hit.
+    "knockback_modifiers": {
+        // The base delta movement to apply along the XZ axis.
+        "horizontal_power": 0.33,
+        // The base delta movement to apply along the Y axis.
+        "vertical_power": 0.06
+    }
 }
 ```
 
@@ -1426,6 +1585,8 @@ public void exampleTest(GameTestHelper helper) {
     - `sulfur_cube_archetype/sticky`
     - `sulfur_cube_archetype/high_resistance`
     - `sulfur_cube_archetype/explosive`
+    - `sulfur_cube_archetype/slow_bouncy`
+    - `sulfur_cube_archetype/hot`
     - `sulfur_cube_swallowable`
     - `sulfur_cube_food`
 
@@ -1470,12 +1631,15 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.gametest.framework`
     - `GameTestHelper#assertValueInBetween` - Assert the `Comparable` value is between some bounds.
     - `TestEnvironmentDefinition$Difficulty` - A test environment that sets the world difficulty.
+- `net.minecraft.nbt.NbtOps#getBooleanValue` - Gets the `boolean` result from the given `Tag`.
 - `net.minecraft.server.MinecraftServer#SERVER_THREAD_NAME` - The name of the server thread.
 - `net.minecraft.server.jsonrpc`
     - `JsonRpc` - A utility for constructing the `ManagementServer`.
     - `ManagementServer#scheduleHeartbeat` - Sets the number of seconds between each heartbeat check.
+- `net.minecraft.server.level.WorldGenRegion#isWithinWriteZone` - If the given position is within the write radius of the region.
 - `net.minecraft.server.notifications.NotificationManager#setServer`, `server` - Handles the `DedicatedServer` consuming the `NotificationManager`
 - `net.minecraft.util`
+    - `ARGB#setVector4fFromARGB32` - Directly sets the vector data with the color.
     - `CubicSpline`
         - `minValue`, `maxValue` - The bounds of the spline.
         - `sample`, `$Multipoint#sample` - Samples the spline at the given coordinates.
@@ -1498,12 +1662,16 @@ public void exampleTest(GameTestHelper helper) {
         - `getEntityBounciness` - How bouncy the entity is after a collision.
         - `getEffectiveGravity` - Gets the gravity currently being applied to the entity.
         - `omnidirectionalAirMover` - Whether the entity can omnidirectionally move in the air.
+        - `getAirDrag` - The drag applied to an entity when traveling through the air.
     - `EntityEvent#TNT_PRIME` - An event id for when a TNT is primed.
     - `EntityType#canSpawn` - Checks whether the entity can spawn in the given level.
     - `LivingEntity`
         - `BASE_AIR_DRAG` - The base drag when within the air.
         - `BASE_VERTICAL_DRAG_FOR_NON_FLYERS` - The base air drag when a non-flyable entity is moving vertically.
         - `handleKillingBlow` - Handles when the killing blow has been made to this entity.
+        - `dealDefaultKnockback` - Applies the default knockback to this entity.
+        - `createDamageSource` - Creates the default mob attack damage source from this entity.
+    - `Mob#TAG_PERSISTENCE_REQUIRED` - A tag that marks whether the entity should be persisted.
     - `MobCategory#getDebugAbbreviation` - An abbreviation of the category when looking through one of the debug menus.
 - `net.minecraft.world.entity.ai.navigation.PathNavigation#getMaxVerticalDistanceToWaypoint` - Gets the maximum vertical distance from the current node the entity pathfinding through.
 - `net.minecraft.world.entity.animal.turtle.Turtle#getHomePos` - Gets the home position of the turtle.
@@ -1517,7 +1685,9 @@ public void exampleTest(GameTestHelper helper) {
     - `Drowned#isSearchingForLand` - If the drowned is searching for land.
     - `ZombieVillager#getVillagerDataFinalized`, `setVillagerDataFinalized` - Handles whether the villager data has been finalized, typically after conversion.
 - `net.minecraft.world.entity.monster.npc.Villager#getVillagerDataFinalized`, `setVillagerDataFinalized` - Handles whether the villager data has been finalized, typically after conversion.
-- `net.minecraft.world.item.DyeColor#getTerracottaColor` - The `MapColor` of a terracotta block dyed this color.
+- `net.minecraft.world.item`
+    - `BucketItem#getFluidContext` - Gets the fluid clip context based on its contents
+    - `DyeColor#getTerracottaColor` - The `MapColor` of a terracotta block dyed this color.
 - `net.minecraft.world.level`
     - `Level#ACROSS_THE_WHOLE_WORLD` - The maximum diameter of a level.
     - `SignalGetter#getBestOwnOrNeighbourSignal` - Returns the best redstone signal from the current block position or its surrounding neighbors.
@@ -1542,15 +1712,22 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.world.level.levelgen`
     - `DensityFunction#mapChildren` - Maps the children density functions used by this function.
     - `DensityFunctions#intervalSelect`, `$IntervalSelect` - Computes the density using the given function if its corresponding threshold is above the input value.
-    - `SurfaceRules`
-        - `noiseGradient` - Creates a noise gradient rule from the given noise parameters and blockstate gradient.
-        - `$Context#getBiome` - Gets the biome at the context position.
+    - `SurfaceRules$Context`
+        - `getBiome` - Gets the biome at the context position.
+        - `getNoiseSampler` - Returns the sampler to use for the noise given whether it should be three-dimensional.
 - `net.minecraft.world.level.levelgen.blockpredicates.BlockPredicate#matchesBiomes`, `$MatchingBiomesPredicate` - Checks whether the give block position is in the given set of biomes.
 - `net.minecraft.world.level.levelgen.feature`
     - `SequenceFeature` - A feature made up of other placed features, applying them in the order they are given until either one of them fails or all succeeds.
     - `TemplateFeature` - A feature that attempts to place a structure template in the world.
-- `net.minecraft.world.level.levelgen.feature.configurations.TemplateFeatureConfiguration` - A configuration for the `TemplateFeature`.
+    - `WeightedRandomSelectorFeature` - A feature that selects a random `PlacedFeature` from a weighted list to generate.
+- `net.minecraft.world.level.levelgen.feature.configurations`
+    - `TemplateFeatureConfiguration` - A configuration for the `TemplateFeature`.
+    - `WeightedRandomFeatureConfiguration` - A configuration for the `WeightedRandomSelectorFeature`.
+- `net.minecraft.world.level.levelgen.structure.templatesystem`
+    - `RuleTest#testAgainstWorldState` - Tests the `BlockState` at the given `BlockPos` in the world.
+    - `StructureProcessor#evaluatesEntirePieceState` - Whether the structure can process outside of the current chunk.
 - `net.minecraft.world.level.storage.loot.LootPool#addAll` - Adds all pool entries.
+- `net.minecraft.world.phys.Vec2#rotate` - Rotates the vector the given angle in radians.
 - `net.minecraft.world.scores`
     - `PlayerTeam$OptionFlags` - An annotation that marks whether a given byte defines the usage flags of the team options.
     - `TeamColor` - The color representing a player team.
@@ -1564,6 +1741,7 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft`
     - `CrashReportCategory$Entry` is now a record and `public` from `private`
     - `SystemReport#setDetail` now takes in a `CrashReportDetail` instead of a `String` supplier
+- `net.minecraft.advancements.triggers.PickedUpItemTrigger#thrownItemPickedUpByEntity` now takes in an optional `ContextAwarePredicate` for the player rather than the raw predicate
 - `net.minecraft.client`
     - `Minecraft`
         - `saveReport` now has an overload that takes in the crash report exit code `int`
@@ -1574,6 +1752,9 @@ public void exampleTest(GameTestHelper helper) {
         - `getRunningThread` has been expanded to `public` from `protected`
         - `$GameLoadCookie` -> `GameLoadCookie`, now `public` from `private`
     - `OptionInstance` constructor, `#createBoolean`, `createButton` now take in a `$ValueUpdateListener` instead of a consumer
+        - `$CycleableValueSet` is now `public` from package-private
+        - `$IntRangeBase` is now `public` from package-private
+        - `$SliderableOrCyclableValueSet` is now `public` from package-private
         - `$SliderableValueSet` is now `public` from package-private
         - `$ValueSet` is now `public` from package-private
             - `createButton` now takes in a `$ValueUpdateListener` instead of a consumer
@@ -1584,6 +1765,7 @@ public void exampleTest(GameTestHelper helper) {
     - `createPointedDripstone` -> `createSpeleothem`, now taking in a `Block`
 - `net.minecraft.client.data.models.model.ItemModelUtils#plainModel` now has an overload that takes in a `Transformation`
 - `net.minecraft.client.multiplayer.ClientChunkCache#getLoadedEmptySections` split into `addedEmptySections`, `removedEmptySections`
+- `net.minecraft.client.multiplayer.resolver.ServerAddress#parsePort` is now `public` from package-private
 - `net.minecraft.commands.arguments.ColorArgument` -> `TeamColorArgument`
 - `net.minecraft.commands.arguments.selector.EntitySelectorParser`
     - `hasNameEquals`, `setHasNameEquals`, `hasNameNotEquals`, `setHasNameNotEquals` -> `nameOption`, not one-to-one
@@ -1596,13 +1778,29 @@ public void exampleTest(GameTestHelper helper) {
     - `hasAdvancements`, `setHasAdvancements` -> `advancementsOption`, not one-to-one
 - `net.minecraft.core.Holder` is now `sealed` to `$Direct` and `$Reference`
     - `$Reference` is now `non-sealed`
+- `net.minecraft.core.cauldron.CauldronInteractions`
+    - `addDefaultInteractions` is now `public` from package-private
+    - `fillBucket`, `emptyBucket` are now `public` from package-private
+- `net.minecraft.data.HashCache$ProviderCacheBuilder(String)` is now `public` from package-private
 - `net.minecraft.data.worldgen`
     - `SurfaceRuleData` methods now take in the `HolderGetter<Biome>`
     - `TerrainProvider` methods no longer bind the `BoundedFloatFunction` generic
         - `buildErosionOffsetSpline` now takes in a `Float2FloatFunction` instead of a `BoundedFloatFunction`
 - `net.minecraft.data.worldgen.features.TreeFeatures` methods that return a `TreeConfiguration$TreeConfigurationBuilder` now take in a `BlockStateProvider` for the block below the trunk
+- `net.minecraft.gametest.framework`
+    - `ExahustedAttemptsException` is now `public` from package-private
+    - `GameTestEvent` class and static methods are now `public` from package-private
+    - `GameTestInfo`
+        - `getTick` is now `public` from package-private
+        - `createSequence` is now `public` from package-private
+    - `GameTestSequence` constructor is now `public` from package-private
+        - `$Condition#trigger` is now `public` from package-private
+    - `ReportGameListener` class is now `public` from package-private
+    - `TestEnvironmentDefinition$Type#apply` is now `public` from package-private
+- `net.minecraft.nbt.CompoundTag#shallowCopy` is now package-private from `protected`
 - `net.minecraft.network.protocol.game.ClientboundSetPlayerTeamPacket$Parameters` is now a record
 - `net.minecraft.server.MinecraftServer` now takes in the `NotificationManager`
+- `net.minecraft.server.commands.SpreadPlayersCommand$Position#dist`, `normalize`, `getLength` are now `public` from package-private
 - `net.minecraft.server.dedicated.DedicatedServer` now takes in the json rpc `ManagementServer` and `NotificationManager`
     - `setStatusHeartbeatInterval` now returns whether the heartbeat was scheduled successfully
 - `net.minecraft.server.jsonrpc`
@@ -1611,15 +1809,27 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.server.jsonrpc.internalapi.MinecraftApi#of`, `Minecraft*Impl` classes now take in the `NotificationManager` instead of the `DedicatedServer`
 - `net.minecraft.server.level`
     - `BlockDestructionProgress#updateTick`, `getUpdatedRenderTick` now deal with `long`s instead of `int`s
+    - `ChunkMap`
+        - `collectSpawningChunks`, `forEachBlockTickingChunk` are now `public` from package-private
+        - `anyPlayerCloseEnoughForSpawning`, `anyPlayerCloseEnoughTo` are now `public` from package-private
+    - `ChunkTrackingView#squareIntersects` is now package-private from `protected`
+    - `LoadingChunkTracker` class is now `public` from package-private
     - `ServerEntityGetter#getNearestEntity` now has an overload that takes in the list of `Entity`s to loop through along with the center position as three `double`s
+- `net.minecraft.server.packs.resources.FallbackResourceManager$EntryStack` constructor is now `public` from package-private
+- `net.minecraft.server.players.StoredUserEntry#hasExpired` is now `public` from package-private
+- `net.minecraft.server.rcon.thread.RconClient` is now `public` from package-private
+- `net.minecraft.tags.TagNetworkSerialization$NetworkPayload` is now `public` from package-private
 - `net.minecraft.util`
+    - `AbstractListBuilder` class is now `public` from package-private
     - `BoundedFloatFunction#createUnlimited` -> `constant`, not one-to-one
     - `CubicSpline` is now `sealed` to `$Multipoint` and `$Constant`
         - The generic `C` is removed, while the generic `I` is no longer bounded to a `BoundedFloatFunction`
         - `mapAll` -> `mapCoordinates`, not one-to-one
         - `builder(I, BoundedFloatFunction<Float>)`, `$Builder` now takes in a `Float2FloatFunction` instead of a `BoundedFloatFunction`
+        - `$Builder` constructors are now `private` from `protected`
         - `$CoordinateVisitor` is removed
             - Use a standard `UnaryOperator` instead
+    - `FileUtil#isEmptyPath` is now `public` from package-private
     - `Mth`
         - `*_AXIS` are now `Vector3fc`s instead of `Vector3f`s
         - `rotationAroundAxis` now takes in a `Vector3fc` instead of a `Vector3f`
@@ -1627,57 +1837,130 @@ public void exampleTest(GameTestHelper helper) {
         - `tryGetVersion` -> `tryGetModuleVersion`, now `public` from `private`
         - `$NativeModuleInfo`, `$NativeModuleVersion` are now `record`s
 - `net.minecraft.util.filefix.access.ChunkNbt#updateChunk` now returns a `CompletableFuture`
+- `net.minecraft.util.filefix.virtualfilesystem.DirectoryNode` constructor is now `public` from package-private
+- `net.minecraft.util.profiling.TracyZoneFiller$PlotAndValue#set`, `add` are now `public` from package-private
+- `net.minecraft.util.profiling.jfr.event.PacketEvent` is now `public` from package-private
+- `net.minecraft.util.profiling.jfr.stats`
+    - `GcHeapStat$Timing` is now `public` from package-private
+    - `IoSummary$CountAndSize#add` is now `public` from package-private
 - `net.minecraft.util.profiling.metrics.MetricSampler` now takes in a `$SamplingPhase`
     - `create(String, MetricCategory, T, ToDoubleFunction<T>)` -> `createExtractSampler(String, MetricCategory, DoubleSupplier)`
+    - `getSampler` is now `public` from package-private
+- `net.minecraft.util.profiling.metrics.profiling.ServerMetricsSamplersProvider$CpuStats` is now `public` from package-private
+- `net.minecraft.util.random.WeightedList#of` now has an overload that takes in a vararg of elements
+- `net.minecraft.util.valueproviders.FloatProviders#codec` now has an overload that only specifies a minimum `float` value
 - `net.minecraft.world`
     - `InstantenousMobEffect` -> `InstantaneousMobEffect`
+    - `InteractionResult$ItemContext#NONE`, `DEFAULT` are now `public` from package-private
     - `MobEffect`
         - `applyInstantenousEffect` -> `applyInstantaneousEffect`
         - `isInstantenous` -> `isInstantaneous`
 - `net.minecraft.world.entity`
     - `AgeableMob#isBaby`, `setBaby` are now `final`
         - Override `canBeABaby` instead
+    - `ConversionType#convert` is now `public` from package-private
     - `EntityType`, `$Builder#immuneTo` now takes in a `TagKey` instead of a `ImmutableSet` for the blocks the entity is immune to damage from
+    - `Leashable$Wrench`
+        - `ZERO` is now `public` from package-private
+        - `torqueFromForce`, `accumulate` are now `public` from package-private
     - `LivingEntity`
         - `WATER_FLOAT_IMPULSE` -> `LIQUID_FLOAT_IMPULSE`, now `protected` from `private`
         - `travelInFluid` is now `protected` from `private`
         - `collectEquipmentChanges` is now `protected` from `private`, taking in the map of slots to last equipment stacks
+        - `blockUsingItem`, `blockedByItem` now take in the `DamageSource` and `float` damage
+        - `knockback` now takes in the `DamageSource` and `float` damage
+        - `causeExtraKnockback` now takes in the `DamageSource` and `float` damage
+        - `getEquipmentSlotForItem`, `isEquippableInSlot` are no longer `final`
     - `MobCategory` now takes in a `String` for the debug abbreviation
+- `net.minecraft.world.entity.ai.behavior.AcquirePoi$JitteredLinearRetry` constructor is now `public` from package-private
 - `net.minecraft.world.entity.ai.control`
     - `FlyingMoveControl` now takes in a generic for the `Mob`
     - `MoveControl` now takes in a generic for the `Mob`
     - `SmoothSwimmingMoveControl` now takes in a generic for the `Mob`
+- `net.minecraft.world.entity.ai.sensing.Sensor#rememberPositives` is now `public` from package-private
+- `net.minecraft.world.entity.ai.village.poi`
+    - `PoiManager$DistanceTracker` constructor is now package-private from `protected`
+    - `PoiSection#isValid` is now `public` from package-private
 - `net.minecraft.world.entity.animal`
     - `Bucketable` -> `.entity.Bucketable`
     - `FlyingAnimal` replaced by `Entity#omnidirectionalAirMover`
         - `isFlying` still exists on classes that used to implement the interface
 - `net.minecraft.world.entity.animal.bee.Bee` no longer implements `FlyingAnimal`
     - `getGoalSelector` -> `Mob#getGoalSelector`
+    - `$BeeAttackGoal` constructor is now `public` from package-private
+    - `$BeeBecomeAngryTargetGoal` constructor is now `public` from package-private
+    - `$BeeGoToHiveGoal` constructor is now `public` from package-private
+    - `$BeeGoToKnownFlowerGoal` constructor is now `public` from package-private
+    - `$BeeHurtByOtherGoal` constructor is now `public` from package-private
+    - `$BeeLookControl` constructor is now `public` from package-private
+    - `$BeePollinateGoal` constructor is now `public` from package-private
+    - `$BeeWanderGoal` constructor is now `public` from package-private
+- `net.minecraft.world.entity.animal.dolphin.Dolphin`
+    - `$DolphinSwimToTreasureGoal` constructor is now `public` from package-private
+    - `$DolphinSwimWithPlayerGoal` constructor is now `public` from package-private
+    - `$PlayWithItemsGoal` constructor is now `public` from package-private
+- `net.minecraft.world.entity.animal.equine.AbstractHorse#createOffspringAttribute` is now `public` from package-private
+- `net.minecraft.world.entity.animal.fish.AbstractFish$FishMoveControl` constructor is now `public` from package-private
 - `net.minecraft.world.entity.animal.fox.Fox#canMove` is now `public` from `private`
+- `net.minecraft.world.entity.animal.frog.Frog`
+    - `$FrogLookControl` constructor is now `public` from package-private
+    - `$FrogPathNavigation` constructor is now `public` from package-private
 - `net.minecraft.world.entity.animal.goat.Goat#LONG_JUMPING_DIMENSIONS` replaced by `LONG_JUMPING_DIMENSION_SCALE_FACTOR`, `BABY_DIMENSIONS` (private), not one-to-one
 - `net.minecraft.world.entity.animal.happyghast.HappyGhast$HappyGhastLookControl#wrapDegrees90` -> `Mth#wrapDegrees90`
 - `net.minecraft.world.entity.animal.parrot.Parrot` no longer implements `FlyingAnimal`
-- `net.minecraft.world.entity.item.PrimedTnt#DEFAULT_FUSE_TIME` is now `public` from `private`
+- `net.minecraft.world.entity.animal.sniffer.SnifferAi#updateActivity` is now `public` from package-private
+- `net.minecraft.world.entity.animal.turtle.Turtle`
+    - `$TurtleBreedGoal` constructor is now `public` from package-private
+    - `$TurtleGoHomeGoal` constructor is now `public` from package-private
+    - `$TurtleLayEggGoal` constructor is now `public` from package-private
+    - `$TurtleMoveControl` constructor is now `public` from package-private
+    - `$TurtlePanicGoal` constructor is now `public` from package-private
+    - `$TurtlePathNavigation` constructor is now `public` from package-private
+    - `$TurtleTravelGoal` constructor is now `public` from package-private
+- `net.minecraft.world.entity.item.PrimedTnt`
+    - `DEFAULT_FUSE_TIME` is now `public` from `private`
+    - `USED_PORTAL_DAMAGE_CALCULATOR` is now `public` from `private`
 - `net.minecraft.world.entity.monster`
     - `Guardian#setMoving` is now `public` from `private`
     - `MagmaCube` -> `.monster.cubemob.MagmaCube`
         - The class now extends `AbstractCubeMob` and implements `Enemy`
     - `Slime` -> `.monster.cubemob.Slime`
         - The class now extends `AbstractCubeMob` and implements `Enemy`
-- `net.minecraft.world.entity.monster.zombie.Drowned#wantsToSwim` is now `public` from `private`
-- `net.minecraft.world.inventory.AbstractFuranceMenu` no longer takes in the `RecipeType`
+    - `Strider$StriderPathNavigation` constructor is now `public` from package-private
+- `net.minecraft.world.entity.monster.breeze.BreezeAi#updateActivity` is now `public` from package-private
+- `net.minecraft.world.entity.monster.creaking.Creaking$CreakingPathNavigation` constructor is now `public` from package-private
+- `net.minecraft.world.entity.monster.skeleton.AbstractSkeleton#getStepSound` is now `protected` from package-private
+- `net.minecraft.world.entity.monster.zombie`
+    - `Drowned#wantsToSwim` is now `public` from `private`
+    - `Zombie$ZombieAttackTurtleEggGoal` is now `public` from package-private
+- `net.minecraft.world.entity.npc.wanderingtrader.WanderingTrader$WanderToPositionGoal` constructor is now `public` from package-private
+- `net.minecraft.world.entity.projectile.hurtingprojectile.windcharge.AbstractWindCharge(EntityType, double, double, double, Vec3, Level)` is now `protected` from package-private
+- `net.minecraft.world.entity.raid.Radier$RaiderCelebtration` constructor is now `public` from package-private
+- `net.minecraft.world.entity.vehicle.minecart.NewMinecartBehavior$TrackIteration` fields are now `public` from package-private
+- `net.minecraft.world.inventory`
+    - `AbstractFuranceMenu` no longer takes in the `RecipeType`
+    - `ArmSlot` class is now `public` from package-private
 - `net.minecraft.world.item`
-    - `BucketItem`
-        - `content` is now `protected` from `private`
-        - `getFluidContext` - Gets the fluid clip context based on its contents.
-    - `DyeColor` now takes in the `MapColor` for the terracotta variant.
+    - `BucketItem#content` is now `protected` from `private`
+    - `DyeColor` now takes in the `MapColor` for the terracotta variant
+    - `ItemStack#getDamageSource` no longer takes in the supplied default `DamageSource`
+- `net.minecraft.world.item.crafting.RecipePropertySet#create` is now `public` from package-private
 - `net.minecraft.world.item.trading`
     - `TradeRebalanceVillagerTrades` now extends `VillagerTrades`
     - `VillagerTrade` one constructor now takes in the raw `HolderSet` of `Enchantment`s instead of being optionally-wrapped
-- `net.minecraft.world.level.NaturalSpawner#getFilteredSpawningCategories` no longer takes in the `boolean` for whether to spawn friendlies
+- `net.minecraft.world.level`
+    - `ChunkPos#MAX_COORDINATE_VALUE` -> `ChunkPyramid#MAX_CHUNK_COORDINATE_VALUE`
+    - `NaturalSpawner#getFilteredSpawningCategories` no longer takes in the `boolean` for whether to spawn friendlies
+- `net.minecraft.world.level.biome`
+    - `Climate`
+        - `$ParameterPoint#parameterSpace` is now package-private from `protected`
+        - `$SubTree` constructors are now `public` from `protected`
+        - `$TargetPoint#toParameterArray` is now package-private from `protected`
+    - `OverworldBiomeBuilder#addBiomes` is now package-private from `protected`
 - `net.minecraft.world.level.block`
     - `BedBlock` no longer implements `EntityBlock`
     - `Block#updateEntityMovementAfterFallOn` replaced by `getBounceRestitution`
+    - `CopperGolemStatueBlock#updatePose` is now `protected` from package-private
     - `PointedDripstoneBlock` now extends `SpeleothemBlock`
         - The constructor now takes in the `BlockState` it can grow on
         - `TIP_DIRECTION` -> `SpeleothemBlock#TIP_DIRECTION`
@@ -1685,8 +1968,18 @@ public void exampleTest(GameTestHelper helper) {
         - `WATERLOGGED` -> `SpeleothemBlock#WATERLOGGED`
         - `growStalactiteOrStalagmiteIfPossible` -> `SpeleothemBlock#growStalactiteOrStalagmiteIfPossible`, now an instance method
         - `canDrip` -> `isFreeHangingStalactite`, now `protected` from `public`
+- `net.minecraft.world.level.block.entity.trialspawner.TrialSpawnerStateData#getDispensingItems` is now `public` from package-private
+- `net.minecraft.world.level.block.entity.vault`
+    - `VaultClientData` constructor is now `public` from package-private
+        - `updateDisplayItemSpin` is now `public` from package-private
+    - `VaultConfig` constant fields are now `public` from package-private
+    - `VaultServerData` constructors are now `public` from package-private
+        - Constant fields are now `public` from package-private
+    - `VaultSharedData` constructors are now `public` from package-private
+        - Constant fields are now `public` from package-private
 - `net.minecraft.world.level.block.state.BlockBehaviour`
     - `$BlockStateBase#emissiveRendering` no longer takes in the `BlockGetter` and `BlockPos`
+    - `$Cache#collisionShape`, `largeCollisionShape`, `isCollisionShapeFullBlock` are now `public` from `protected`
     - `$Properties#emissiveRendering` now takes in a `BlockState` predicate instead of a `$StatePredicate`
 - `net.minecraft.world.level.block.state.properties`
     - `BlockStateProperties#DRIPSTONE_THICKNESS` -> `SPELEOTHEM_THICKNESS`
@@ -1696,29 +1989,69 @@ public void exampleTest(GameTestHelper helper) {
     - `LevelChunkSection`
         - `SECTION_WIDTH`, `SECTION_HEIGHT` replaced by `SectionPos#SECTION_SIZE`
         - `SECTION_SIZE` -> `SectionPos#SECTION_BLOCK_COUNT`
+- `net.minecraft.world.level.chunk.status.ChunkStatusTasks`
+    - `passThrough` is now `public` from package-private
+    - `generateStructureStarts`, `loadStructureStarts` are now `public` from package-private
+    - `generateStructureReferences` is now `public` from package-private
+    - `generateBiomes` is now `public` from package-private
+    - `generateNoise` is now `public` from package-private
+    - `generateSurface` is now `public` from package-private
+    - `generateCarvers` is now `public` from package-private
+    - `generateFeatures` is now `public` from package-private
+    - `initializeLight` is now `public` from package-private
+    - `light` is now `public` from package-private
+    - `generateSpawn` is now `public` from package-private
+    - `full` is now `public` from package-private
+- `net.minecraft.world.level.chunk.RegionFileStorage` constructor is now `public` from package-private
+    - `write` is now `public` from `protected`
 - `net.minecraft.world.level.dimension.DimensionType#infiniburn` now takes in a `HolderSet` of `Block`s instead of the referenced `TagKey`
 - `net.minecraft.world.level.levelgen`
+    - `Column$Range` constructor is now `public` from `protected`
     - `DensityFunction#mapAll` is now default, visiting all functions and their wrapped children.
     - `DensityFunctions`
+        - `MAX_REASONABLE_NOISE_VALUE` is now package-private from `protected`
         - `weirdScaledSampler`, `$WeirdScaledSampler` replaced by `NoiseRouterData$QuantizedSpaghettiRarity#wrapRarity*d` methods, not one-to-one
             - `$RarityValueMapper`
                 - `TYPE1` -> `NoiseRouterData$QuantizedSpaghettiRarity#wrapRarity3d`
                 - `TYPE2` -> `NoiseRouterData$QuantizedSpaghettiRarity#wrapRarity2d`
+        - `$BeardifierMarker` is now package-private from `protected`
+        - `$BlendAlpha` is now package-private from `protected`
         - `$BlendDensity` replaced by `$Marker` with `$Marker$Type#BlendDensity`
+        - `$BlendOffset` is now package-private from `protected`
         - `$Spline` is now a static final `class` instead of a `record`
         - `$Coordinate` now holds the raw `DensityFunction` instead of being `Holder`-wrapped
+        - `$Mapped$Type` enum is now `public` from package-private
+        - `$Marker` is now package-private from `protected`
+            - `$Type` enum is now `public` from package-private
+        - `$MulOrAdd$Type` enum is now `public` from package-private
+        - `$ShiftNoise` interface is now `protected` from package-private
+        - `$TwoArgumentSimpleFunction` interface is now `public` from package-private
     - `GeodeBlockSettings` is now a `record`
         - `cannotReplace`, `invalidBlocks` now take in a `HolderSet` of `Block`s instead of the referenced `TagKey`
     - `NoiseBasedChunkGenerator#buildSurface` now takes in a set of `Holder<Biome>`s instead of the `Registry<Biome>`
     - `NoiseRouterData$QuantizedSpaghettiRarity`
         - `getSphaghettiRarity2D` -> `wrapRarity2d`, not one-to-one
         - `getSpaghettiRarity3D` -> `wrapRarity3d`, not one-to-one
+    - `NoiseSettings#*_SETTINGS` constants are now package-private from `protected`
+    - `OreVeinifier#create` is now package-private from `protected`
     - `SurfaceRules`
         - `isBiome(ResourceKey<Biome>...)` now takes in a `HolderGetter<Biome>`
+        - `noiseCondition` split into `noiseCondition2d`, `noiseCondition3d`
         - `$ConditionSource#codec` is now a `MapCodec` instead of a `KeyDispatchDataCodec`
         - `$Context` now takes in now takes in a set of `Holder<Biome>`s instead of the `Registry<Biome>`
             - `updateY` no longer takes in the block XZ `int`s
     - `SurfaceSystem#buildSurface` now takes in a set of `Holder<Biome>`s instead of the `Registry<Biome>`
+- `net.minecraft.world.level.levelgen.blockpredicates`
+    - `AllOfPredicate` class is now `public` from package-private
+    - `AnyOfPredicate` class is now `public` from package-private
+    - `CombiningPredicate` class is now `public` from package-private
+    - `MatchingBlocksPredicate` class is now `public` from package-private
+    - `MatchingFluidsPredicate` class is now `public` from package-private
+    - `NotPredicate` class is now `public` from package-private
+    - `ReplaceablePredicate` class is now `public` from package-private
+    - `TrueBlockPredicate` class is now `public` from package-private
+    - `UnobstructedPredicate` class is now `public` from package-private
+- `net.minecraft.world.level.levelgen.carver.CaveCarverConfiguration#floorLevel` is now `public` from package-private
 - `net.minecraft.world.level.levelgen.feature`
     - `DripstoneClusterFeature` -> `SpeleothemClusterFeature`
     - `DripstoneUtils` -> `SpeleothemUtils`
@@ -1728,13 +2061,18 @@ public void exampleTest(GameTestHelper helper) {
     - `LakeFeature$Configuration` now takes in `BlockPredicate`s for where the feature can be placed, what blocks can be replaced with air or fluid, and what blocks can be replaced with the border/barrier blocks
     - `MultifaceGrowthFeature` now takes in the `MultifaceSpreadeableBlock`
     - `PointedDripstoneFeature` -> `SpeleothemFeature`
+    - `ScatteredOreFeature` constructor is now `public` from package-private
+    - `WeightedPlacedFeature` is now a record and deprecated
+        - Use `WeightedRandomSelectorFeature` instead
 - `net.minecraft.world.level.levelgen.feature.configurations`
     - `DripstoneClusterConfiguration` -> `SpeleothemClusterConfiguration`
     - `GeodeConfiguration` is now a record
     - `LargeDripstoneFeature` now takes in a `HolderSet` of `Block`s that can be replaced
     - `MultifaceGrowthConfiguration` can now take in a `Block` instead of a `MultifaceSpreadeableBlock` for the placing block
     - `PointedDripstoneConfiguration` -> `SpeleothemConfiguration`
-    - `RootSystemConfiguration` is now a `record`
+    - `RandomFeatureConfiguration` is now a record and deprecated
+        - Use `WeightedRandomFeatureConfiguration` instead
+    - `RootSystemConfiguration` is now a `record`, now taking in `int`s for the test distance and Y deviation for whether there is space for the root
         - `rootReplaceable` now takes in a `HolderSet` of `Block`s instead of the referenced `TagKey`
     - `SimpleRandomFeatureConfiguration` -> `CompositeFeatureConfiguration`
     - `TreeConfiguration`
@@ -1747,10 +2085,42 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.world.level.levelgen.structure.structures.RuinedPortalPiece` now takes in the `HolderLookup$Provider` of registries
     - The other constructor now takes in a `StructurePieceSerializationContext` instead of the `StructureTemplateManager`
     - `$Properties` is now a `record`
-- `net.minecraft.world.level.lighting.LightEngine#getLightBlockInto` -> `getLightDampeningInto`
+- `net.minecraft.world.level.levelgen.structure.pools.alias`
+    - `DirectPoolAlias#CODEC` is now `public` from package-private
+    - `RandomGroupPoolAlias#CODEC` is now `public` from package-private
+    - `RandomPoolAlias#CODEC` is now `public` from package-private
+- `net.minecraft.world.level.levelgen.structure.templatesystem`
+    - `ProcessorRule#test` now takes in the `LevelReader` and now the `BlockState` for the location state
+    - `StructureProcessor#processBlock` now takes in a `BlockPos` instead of the `StructureTemplate$StructureBlockInfo` for the relative template position
+- `net.minecraft.world.level.lighting`
+    - `LightEngine#getLightBlockInto` -> `getLightDampeningInto`
+    - `SkyLightEngine` constructor is now package-private from `protected`
+    - `SpatialLongSet$InternalMap` is now package-private from `protected`
+- `net.minecraft.world.level.redstone.CollectingNeighborUpdater$MultiNeighborUpdate` constructor is now `public` from package-private
+- `net.minecraft.world.level.storage.loot.entries`
+    - `AlternativesEntry` constructor is now `public` from package-private
+    - `ComposableEntryContainer` interface is now `public` from package-private
+    - `EntryGroup` constructor is now `public` from package-private
+    - `SequentialEntry` constructor is now `public` from package-private
 - `net.minecraft.world.level.storage.loot.functions`
     - `EnchantRandomlyFunction$Builder#withOptions` now takes in the raw `HolderSet` of `Enchantment`s instead of being optionally-wrapped
+    - `SetOminousBottleAmplifierFunction#MAP_CODEC` is now `public` from package-private
     - `SetRandomPotionFunction#fromTagKey` now takes in the raw `HolderSet` of `Potion`s instead of being optionally-wrapped
+- `net.minecraft.world.level.storage.loot.predicates.EntityHasScoredCondition#hasScore` is now `private` from `protected`
+- `net.minecraft.world.level.validation.PathAllowList$ConfigEntry#parse` is now `public` from package-private
+- `net.minecraft.world.phys.shapes`
+    - `ArrayVoxelShape` constructor is now package-private from `protected`
+    - `BitSetDiscreteVoxelShape`
+        - `getIndex` is now `private` from `protected`
+        - `join` is now `public` from package-private
+        - `join` is now package-private from `protected`
+    - `CubeVoxelShape` constructor is now `public` from `protected`
+    - `IndexMerger` interface is now `public` from package-private
+    - `Shapes`
+        - `findBits` is now package-private from `protected`
+        - `lcm` is now package-private from `protected`
+        - `createIndexMerger` is now package-private from `protected`
+    - `SubShape` constructor is now package-private from `protected`
 - `net.minecraft.world.scores`
     - `DisplaySlot#teamColorToSlot` replaced by `TeamColor`, not one-to-one
     - `PlayerTeam`
@@ -1759,6 +2129,7 @@ public void exampleTest(GameTestHelper helper) {
         - `$Packed` now takes in an optional `TeamColor` instead of a `ChatFormatting`
     - `Team#getColor` now returns an optional `TeamColor` instead of a `ChatFormatting`
 - `net.minecraft.world.scores.criteria.ObjectiveCriteria#TEAM_KILL`, `KILLED_BY_TEAM` are now `TeamColor` to `ObjectiveCriteria` maps instead of arrays of `ObjectiveCriteria`
+- `net.minecraft.world.timeline.Timelines#NIGHT_FOG_COLOR_MULTIPLIER` split into `NIGHT_FOG_COLOR_MULTIPLIER_START`, `NIGHT_FOG_COLOR_MULTIPLIER_END`
 
 ### List of Removals
 
@@ -1772,9 +2143,14 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.client.gui.screens.inventory.AbstractContainerScreen`
     - `extractSnapbackItem` is removed
     - `clearDraggingState` is removed
+- `net.minecraft.core.BlockPos#getCenter`, `getBottomCenter`
+    - Use `Vec3` methods that it delegated from
 - `net.minecraft.util.Tuple`
 - `net.minecraft.util.thread.BlockableEventLoop#hasDelayedCrash`
-- `net.minecraft.world.entity.Mob#setBodyArmorItem`
+- `net.minecraft.world.entity`
+    - `LivingEntity#TAG_HURT_BY_TIMESTAMP`
+    - `Mob#setBodyArmorItem`
+- `net.minecraft.world.entity.ai.navigation.GroundPathNavigation#hasValidPathType`
 - `net.minecraft.world.level.block.entity`
     - `BedBlockEntity`
     - `DecoratedPotPatterns#getPatternFromItem`
@@ -1785,5 +2161,3 @@ public void exampleTest(GameTestHelper helper) {
     - `SurfaceRules#isBiome(List<ResourceKey<Biome>>)`
 - `net.minecraft.world.scores.ReadOnlyScoreInfo#safeFormatValue`
 - `net.minecraft.world.waypoints.Waypoint#MAX_RANGE`
-
-
