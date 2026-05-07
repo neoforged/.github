@@ -6,6 +6,10 @@ This primer is licensed under the [Creative Commons Attribution 4.0 Internationa
 
 If there's any incorrect or missing information, please file an issue on this repository or ping @ChampionAsh5357 in the Neoforged Discord server.
 
+Thank you to:
+
+- @RogueLogix for their comments on buffer mapping
+
 ## Pack Changes
 
 There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=26.2&tab=changelog).
@@ -323,17 +327,17 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
 - `com.mojang.blaze3d.audio.OpenAlUtil#checkALError`, `checkALCError`, `audioFormatToOpenAl` are now `public` from package-private
 - `com.mojang.blaze3d.buffers.GpuBuffer$MappedView` -> `GpuBufferSlice$MappedView`, not one-to-one
 - `com.mojang.blaze3d.opengl`
-    - `BufferStorage#mapBuffer` replaced by `GpuBuffer#map`, `GpuBufferSlice#map`
+    - `BufferStorage#mapBuffer` replaced by `GpuBuffer#map`, `GpuBufferSlice#map`; not one-to-one
     - `DirectStateAccess` methods are now `public` from package-private
         - `bindFrameBufferTextures` now has an overload that takes in arrays for the color and mip levels, along with an `int` for the mip level depth
     - `FrameBufferAttachment` - An object that is bound to a framebuffer, like a texture.
     - `FrameBufferCache` - A cache that creates framebuffers given its attachments.
     - `GlBuffer` now takes in a `boolean` for whether a persistent buffer can be mapped rather than the persistent `ByteBuffer`
         - `persistentBuffer` replaced by `mappedBuffer`, not one-to-one
-        - `canPersistentMap` - Whether the persistent buffer can be mapped to another buffer.
+        - `canPersistentMap` - Whether the persistent buffer can be used while mapped.
         - `mappingFlags` - The flags that define how the persistent buffer should be mapped.
-        - `mappingRefCount` - The number of buffers currently mapped to the persistent buffer.
-        - `checkCanBeUsed` - Checks whether the persistent buffer can be mapped.
+        - `mappingRefCount` - The number of buffers currently mapped.
+        - `checkCanBeUsed` - Checks whether a non-persistent buffer isn't mapped when used in a command.
         - `$GlMappedView` replaced by `GpuBufferSlice$MappedView`, not one-to-one
     - `GlCommandEncoder#finishRenderPass` -> `CommandEncoder#submitRenderPass`
     - `GlConst`
