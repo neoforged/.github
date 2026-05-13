@@ -10,6 +10,7 @@ Thank you to:
 
 - @RogueLogix for their comments on buffer mapping
 - @cassiancc for confirmation on P2P friends being Xbox friends
+- @gigahertz for wording
 
 ## Pack Changes
 
@@ -328,7 +329,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `GpuFormat` - An object representing the format and color components of a pixel.
 - `com.mojang.blaze3d.audio.OpenAlUtil#checkALError`, `checkALCError`, `audioFormatToOpenAl` are now `public` from package-private
 - `com.mojang.blaze3d.buffers.GpuBuffer`
-    - `USAGE_INDIRECT_PARAMETERS` - A flag that indicates the buffer can be indirectly drawn to.
+    - `USAGE_INDIRECT_PARAMETERS` - A flag that indicates the buffer can be used in indirect draw and compute dispatch calls.
     - `$MappedView` -> `GpuBufferSlice$MappedView`, not one-to-one
     - `$Usage` can now only target `ElementType#TYPE_USE`
 - `com.mojang.blaze3d.opengl`
