@@ -9,6 +9,7 @@ If there's any incorrect or missing information, please file an issue on this re
 Thank you to:
 
 - @RogueLogix for their comments on buffer mapping
+- @cassiancc for confirmation on P2P friends being Xbox friends
 
 ## Pack Changes
 
@@ -323,9 +324,13 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
 - `com.mojang.blaze3d`
     - `GraphicsWorkarounds` -> `GlHeuristics`, `HintsAndWorkarounds`; not one-to-one
         - `alwaysCreateFreshImmediateBuffer` is removed
+    - `GpuDeviceLossException` - An exception thrown if the backing GPU device crashes or becomes unresponsive.
     - `GpuFormat` - An object representing the format and color components of a pixel.
 - `com.mojang.blaze3d.audio.OpenAlUtil#checkALError`, `checkALCError`, `audioFormatToOpenAl` are now `public` from package-private
-- `com.mojang.blaze3d.buffers.GpuBuffer$MappedView` -> `GpuBufferSlice$MappedView`, not one-to-one
+- `com.mojang.blaze3d.buffers.GpuBuffer`
+    - `USAGE_INDIRECT_PARAMETERS` - A flag that indicates the buffer can be indirectly drawn to.
+    - `$MappedView` -> `GpuBufferSlice$MappedView`, not one-to-one
+    - `$Usage` can now only target `ElementType#TYPE_USE`
 - `com.mojang.blaze3d.opengl`
     - `BufferStorage#mapBuffer` replaced by `GpuBuffer#map`, `GpuBufferSlice#map`; not one-to-one
     - `DirectStateAccess` methods are now `public` from package-private
@@ -339,15 +344,24 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `mappingRefCount` - The number of buffers currently mapped.
         - `checkCanBeUsed` - Checks whether a non-persistent buffer isn't mapped when used in a command.
         - `$GlMappedView` replaced by `GpuBufferSlice$MappedView`, not one-to-one
-    - `GlCommandEncoder#finishRenderPass` -> `CommandEncoder#submitRenderPass`
+    - `GlCommandEncoder`
+        - `finishRenderPass` -> `CommandEncoder#submitRenderPass`
+        - `executeDraw` now takes takes in an `int` for the first instance used for fetching vertex attributes
+        - `executeDrawIndirect` - Executes the draw call using the indirect API.
     - `GlConst`
+        - `GL_DEPTH_TEXTURE_MODE`, `GL_ALPHA_BIAS` are removed
         - `toGl(DestFactor)`, `toGl(SourceFactor)` -> `toGl(BlendFactor)`
         - `toGl` now has an overload taking the in the `BlendOp` to map
         - `glFormatChannelCount` - Returns the number of channels the format has.
         - `isGlFormatInteger` - Returns whether the format is backed by an integer-like data type.
         - `isFormatNormalized` - Returns whether the format uses normalized data.
         - `toGlInternalId`, `toGlExternalId`, `toGlType` now take in a `GpuFormat` instead of the `TextureFormat`
-    - `GlDevice#frameBufferCache` - Returns the framebuffer cache.
+    - `GlDevice`
+        - `USE_GL_ARB_base_instance` - Whether to enable the `ARB_base_instance` extension, allowing for the the offset used for instance rendering to be specified.
+        - `USE_GL_ARB_draw_indirect` - Whether to enable the `ARB_draw_indirect` extension, allowing for the consumption of arguments from buffer object memory.
+        - `USE_GL_ARB_multi_draw_indirect` - Whether to enable the `ARB_multi_draw_indirect` extension, allowing multiple draws to be invoked from a single procedural call.
+        - `USE_GL_ARB_shader_draw_parameters` - Whether to enable the `ARB_shader_draw_parameters` extension, providing access to the values passed into the draw commands.
+        - `frameBufferCache` - Returns the framebuffer cache.
     - `GlHeuristics` class is now `public` from package-private
     - `GlProgram`
         - `setupUniforms` -> `setupBindGroupLayouts`, now taking a list of `BindGroupLayout`s instead of uniforms and samplers directly
@@ -381,6 +395,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `BlendFunction` now takes in `BlendEquation`s, `BlendFactor`s, or `BlendOp`s instead of `SourceFactor`s and `DestFactor`s
     - `ColorTargetState` now takes in the `GpuFormat`
         - `MAX_COLOR_TARGETS` - The maximum number of color states a buffer can use.
+        - `$WriteMask` can now only target `ElementType#TYPE_USE`
     - `RenderPipeline` now takes in a list of `BindGroupLayout`s instead of uniforms and samplers directly, and an array of `ColorTargetState`s and `VertexFormat`s instead of just one
         - `getSamplers`, `getUniforms` -> `getBindGroupLayouts`
             - Can get the samplers and uniforms via `BindGroupLayout#flattenSamplers`, `flattenUniforms`
@@ -414,6 +429,8 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `GLX`
         - `_initGlfw` no longer takes in the `BackendOptions`
         - `getGlfwPlatform` - Returns the currently selected platform.
+    - `InputConstants$Value` can now only target `ElementType#TYPE_USE`
+    - `MacosUtil#setWindowColorSpaceForOpenGLBecauseGLFWDoesnt` - Sets the window color space.
     - `NativeLibrariesBootstrap` - A bootstrap for validating and loading the required native libraries.
     - `TextureUtil#writeAsPNG` now only allows `RGBA8_UNORM` formatted textures to be written to disk.
     - `Window#updateVsync` is removed
@@ -453,8 +470,8 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `DeviceInfo` - A record containing information about the GPU device.
     - `DeviceLimits` - A record containing information about the limits of GPU features.
     - `DeviceType` - The type of the device performing the rendering (e.g., cpu, discrete graphics, integrated graphics).
-    - `GpuBackend#createDevice` can now throw a `BackendCreationException`
-    - `GpuDevice`
+    - `GpuBackend#createDevice` now takes in a `Runnable` for the shaders that must be loaded for the client to start up, and can throw a `BackendCreationException`
+    - `GpuDevice` now takes in a `Runnable` for the shaders that must be loaded for the client to start up
         - `createSurface` - Creates the surface for a window to write data to.
         - `getImplementationInformation` -> `getDeviceInfo`, not one-to-one
         - `getVendor` -> `DeviceInfo#vendorName`
@@ -470,6 +487,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `isZZeroToOne` -> `DeviceInfo#isZZeroToOne`
         - `createTimestampQueryPool` - Creates the query pool for getting data from the GPU.
         - `getTimestampNow` - Returns the current epoch timestamp.
+        - `loadCriticalShaders` - Loads the shaders required for the client to start up.
     - `GpuDeviceBackend`
         - `createSurface` - Creates the surface for a window to write data to.
         - `getImplementationInformation` -> `getDeviceInfo`, not one-to-one
@@ -493,11 +511,19 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `RenderPass` now takes in a `Runnable` for what to do on close, typically from a try-with-resources; a list of `RenderPassDescriptor$Attachment` color textures; and a `$RenderArea` of where to draw to
         - `writeTimestamp` - Writes the timestamp to the pool at the given index.
         - `setVertexBuffer` now takes in a `GpuBufferSlice` instead of a `GpuBuffer`
+        - `drawIndexed` parameter order for the five `int`s are as follows: the index count, instance count, first index, vertex offset / base vertex, and the first instance for fetching vertex attributes
+        - `drawIndexedIndirect` - Draws the indexed data to the buffer using the indirect API.
+        - `draw` parameter order for the four `int`s are as follows: the vertex count, instance count, first vertex, and the first instance for fetching vertex attributes
+        - `drawIndirect` - Draws the vertex data to the buffer using the indirect API.
         - `$RenderArea` - A rectangle defining where the pass can write data to.
     - `RenderPassBackend` is no longer `AutoCloseable`
         - `isClosed` is removed
         - `writeTimestamp` - Writes the timestamp to the pool at the given index.
         - `setVertexBuffer` now takes in a `GpuBufferSlice` instead of a `GpuBuffer`
+        - `drawIndexed` parameter order for the five `int`s are as follows: the index count, instance count, first index, vertex offset / base vertex, and the first instance for fetching vertex attributes
+        - `drawIndexedIndirect` - Draws the indexed data to the buffer using the indirect API.
+        - `draw` parameter order for the four `int`s are as follows: the vertex count, instance count, first vertex, and the first instance for fetching vertex attributes
+        - `drawIndirect` - Draws the vertex data to the buffer using the indirect API.
     - `RenderPassDescriptor` - A class containing the configuration of the `RenderPass` to use during drawing.
     - `RenderSystem`
         - `DEFAULT_DEPTH_CLEAR_VALUE` - The default clear value for the depth buffer.
@@ -517,14 +543,16 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `$FrameProfile` class is removed
         - `$Status` - The current status of the timer query.
     - `TracyGpuProfiler` - An implementation of the Tracy profiler (hybrid frame and sampling profiler) for the GPU.
-- `com.mojang.blaze3d.textures.TextureFormat` replaced with `GpuFormat`
-    - `RGBA8` -> `RGBA8_UNORM`, not one-to-one
-    - `RED8` -> `R8_UNORM`, not one-to-one
-        - This should be taken with a grain of salt as it does not exactly map to the previous version's GL type
-    - `RED8I` -> `R8_SINT`, not one-to-one
-        - This should be taken with a grain of salt as it does not exactly map to the previous version's GL type
-    - `DEPTH32` -> `D32_FLOAT`, not one-to-one
-        - This should be taken with a grain of salt as it does not exactly map to the previous version's GL type
+- `com.mojang.blaze3d.textures`
+    - `GpuTexture$Usage` now only targets `ElementType#TYPE_USE`
+    - `TextureFormat` replaced with `GpuFormat`
+        - `RGBA8` -> `RGBA8_UNORM`, not one-to-one
+        - `RED8` -> `R8_UNORM`, not one-to-one
+            - This should be taken with a grain of salt as it does not exactly map to the previous version's GL type
+        - `RED8I` -> `R8_SINT`, not one-to-one
+            - This should be taken with a grain of salt as it does not exactly map to the previous version's GL type
+        - `DEPTH32` -> `D32_FLOAT`, not one-to-one
+            - This should be taken with a grain of salt as it does not exactly map to the previous version's GL type
 - `com.mojang.blaze3d.vertex`
     - `ByteBufferBuilder$Result#size` - The size of the resulting buffer.
     - `DefaultVertexFormat`
@@ -577,6 +605,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `VulkanBackend` - The Vulkan implementation of the `GpuBackend`.
     - `VulkanBindGroupLayout` - A list of layout bindings for the handle.
     - `VulkanCommandEncoder` - The Vulkan implementation of the `CommandEncoderBackend`.
+    - `VulkanCommandPool` - A pool for allocating memory for the command buffer.
     - `VulkanConst` - The constant mappings for Blaze3d to Vulkan.
     - `VulkanDebug` - A utility for debugging Vulkan objects.
     - `VulkanDevice` - The Vulkan implementation of the `GpuDeviceBackend`.
@@ -592,6 +621,12 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `VulkanRenderPass` - The Vulkan implementation of the `RenderPassBackend`.
     - `VulkanRenderPipeline` - The Vulkan implementation of a `CompiledRenderPipeline`.
     - `VulkanUtils` - A utility for common operations within the Vulkan implementation.
+- `com.mojang.blaze3d.vulkan.checkpoints`
+    - `AbstractCheckpointStorage` - An abstract implementation of the storage that handles the markers.
+    - `AmdCheckpointExtension` - A `CheckpointExtension` for AMD GPUs.
+    - `CheckpointExtension` - An extension that inserts markers into a command stream to help determine what caused a device lost failure.
+    - `NoopCheckpointExtension` - A `CheckpointExtension` that does nothing.
+    - `NvidiaCheckpointExtension` - A `CheckpointExtension` for Nvidia GPUs.
 - `com.mojang.blaze3d.vulkan.glsl`
     - `GlslCompiler` - Compiles the GLSL shaders into SPIR-V bytecode.
     - `IntermediaryShaderModule` - An intermediary module representing the shader after initial compilation but before binding.
@@ -639,7 +674,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `Options`
         - `hideGui` is replaced by `Hud#isHidden`, `GuiRenderState#isHudHidden`
         - `preferredGraphicsBackend` - Gets the preferred graphics library to use when rendering the game.
-        - `hasPreferredGraphicsBackendChanged` - Whether the preferred graphics library selected has changed from when the game initially started up.
+        - `isRestartRequiredToApplyVideoSettings` - Whether a restart is required to apply the desired graphics settings.
     - `PreferredGraphicsApi` - The graphics libraries vanilla supports to render the game.
     - `RotatingSectionStorage` - A class for managing the order of sections in relation to a center position.
     - `SectionUpdateTracker` - A class for tracking whether a section needs to be updated.
@@ -693,10 +728,45 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `$ScissorStack#push`, `pop` now return nothing instead of the `ScreenRectangle`
     - `Hud` - The heads-up display that's rendered atop the GUI when in-game.
 - `net.minecraft.client.gui.components`
+    - `AbstractContainerWidget` now has an overload that defaults the `AbstractScrollArea$ScrollbarSettings` to no scrolling
+    - `AbstractScrollArea$ScrollbarSettings#NO_SCROLL` - Disables scrollbar scrolling for the scroll area.
+    - `AbstractStringWidget#handleStyleClick` - Handles if the `Style` has a click event, returning `true` if handled.
     - `AbstractWidget#extractTooltipForNextRenderPass` - Extracts the tooltip to render during the next pass.
     - `DebugScreenOverlay#render3dCrosshair` is replaced by `DebugCrosshairRenderer`
+    - `EditBox` now as an overload that defaults the width and height to 150x20
     - `PlayerTabOverlay` now takes in the `Hud` instead of the `Gui`
+    - `ScrollableLayout` now hsa an overload that allows setting the `ScrollableLayout$ReserveStrategy`
+        - `$Container#refreshChildren` - Refreshes the current list of entries in the container.
+    - `SpriteIconButton` now takes in the `int` XY offsets along with a `boolean` whether to switch to the loading state after pressing the button
+        - `spriteOffsetX`, `spriteOffsetY` - The offsets of the sprite.
+        - `setLoading` - Sets whether the sprite icon is loading.
+        - `extractLoadingStateIfLoading` - Extracts the state of the button if loading.
+        - `$Builder` constructor is now `private` from `public`
+            - `spriteOffset` - Sets the XY offset of the sprite.
+            - `tooltip` - Sets the tooltip to display when hovering.
+            - `switchToLoadingAfterPress` - Whether to switch to the loading state after pressing the button.
+        - `$CenteredIcon` now takes in the `int` XY offsets along with a `boolean` whether to switch to the loading state after pressing the button
+        - `$TextAndIcon` now takes in the `int` XY offsets along with a `boolean` whether to switch to the loading state after pressing the button
+    - `TabButton#extractMenuBackground` -> `MenuTabBar#renderMenuBackground`
 - `net.minecraft.client.gui.components.debug.DebugEntryVersion` class is now `public` from package-private
+- `net.minecraft.client.gui.components.tabs`
+    - `MenuTabBar` - A panel with navigation tabs for some menu.
+    - `Tab#getLayout` - Returns the `Layout` of the tab.
+    - `TabManager#setCurrentTab` now has an overload of whether to add the children widgets when set
+    - `TabNavigationBar` now extends `AbstractContainerWidget` instead of `AbstractContainerEventHandler`
+        - The constructor is now `protected` from `private`, taking in the XY, height, `TabButton`s and `Tab`s
+        - `layout` is now `protected` from `private`, a `FrameLayout` instead of a `LinearLayout`
+        - `tabs`, `tabButtons` are now `protected` from `private`
+        - `builder` now takes in the XY and height
+        - `updateWidth` -> `arrangeElements`, not one-to-one
+        - `arrangeElements()` is removed
+        - `$Builder` is now `protected` from `private`, taking in the XY and height
+            - All fields are now `protected` from `private`
+            - `x`, `y` - The offsets of the navigation bar.
+            - `height` - The height of the bar.
+            - `tabButtons` - The buttons the user can click on to navigate.
+            - `addTabs` now takes in a `TabButton` along with its `Tab` instead of only a varargs of `Tab`s
+- `net.minecraft.client.gui.layouts.Layout#removeChildren` - Removes any children in the layout.
 - `net.minecraft.client.gui.font.FontTexture$Node#insert` is now `public` from package-private
 - `net.minecraft.client.gui.components.toasts.SystemToast`
     - `multiline` is replaced by the default constructor calling `update`
@@ -854,6 +924,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `MATRICES_PROJECTION_SNIPPET` -> `BindGroupLayouts#MATRICES_PROJECTION`, not one-to-one
         - `FOG_SNIPPET` -> `BindGroupLayouts#FOG`, not one-to-one
         - `GLOBALS_SNIPPET` -> `BindGroupLayouts#GLOBALS`, not one-to-one
+        - `TEXT_GRAYSCALE_POLYGON_OFFSET` - A pipeline for displaying grayscale text with some polygon offset.
     - `SectionBufferBuilderPool` is now `AutoCloseable`
     - `SectionOcclusionGraph`
         - `invalidateIfNeeded` - Invalidates the current graph based on the camera.
@@ -1061,11 +1132,23 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `layers` - The set of quad layers to render.
         - `$PreparedBuffers`, `$PreparedLayer` are removed
     - `SectionUpdateRenderState` - The render state of a section to update.
-- `net.minecraft.client.renderer.texture.TextureAtlasSprite#isAnimated` is now `public` from package-private
+- `net.minecraft.client.renderer.texture`
+    - `AbstractTexture#releaseTextures` - Closes the texture and its view if open.
+    - `TextureAtlasSprite#isAnimated` is now `public` from package-private
 - `net.minecraft.client.resources.model`
     - `BlockStateDefinitions#definitionLocationToBlockStateMapper` is now `public` from package-private
-    - `ModelManager$MaterialBakerImpl` - An implemented `MaterialBaker`.
-- `net.minecraft.client.resources.model.sprite.SpriteId#buffer` are removed
+    - `ModelManager`
+        - `$BlockOnlyMaterialBaker` - An implemented `MaterialBaker` for a block.
+        - `$CombinedBlockItemMaterialBaker` - An implemented `MaterialBaker` for a block item.
+    - `SimpleModelWrapper#findNonBlockSprites` - Returns a map of sprites that are not in the block texture atlas.
+- `net.minecraft.client.resources.model.geometry.BakedQuad$MaterialFlags` can now only target `ElementType#TYPE_USE`
+- `net.minecraft.client.resources.model.sprite`
+    - `MaterialBaker` is now an abstract `class` instead of an `interface`
+        - `replacementForMissingMaterial` - Gets the baked material that represents the missing sprite.
+        - `bake` - Bakes the `Material`.
+        - `bakeForAtlas` - Bakes the `Material` within the given atlas.
+        - `logMissingTextures` - Logs any missing textures or references in the model.
+    - `SpriteId#buffer` are removed
 - `net.minecraft.client.telemetry`
     - `TelemetryEventType#GRAPHICS_CAPABILITIES` - The capabilities of the graphics card.
     - `TelemetryProperty`
@@ -1073,8 +1156,8 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `BACKEND_FAILURE_MESSAGE` - The message provided by the backend when failing during construction.
         - `BACKEND_FAILURE_REASON` - The reason the backend failed during construction.
         - `BACKEND_FAILURE_MISSING_CAPABILITIES` - The backend failed during construction due to missing capabilities.
-- `net.minecraft.data.AtlasIds#BEDS` is removed
 - `net.minecraft.network.chat`
+    - `CommonComponents#GUI_REMOVE` - A component for a remove option.
     - `MutableComponent#withColor` - Sets the color style of the component.
     - `TextColor` now has constants representing the color `ChatFormatting`
         - `named` - Creates a new text color with the given name and RGB value.
@@ -1542,6 +1625,104 @@ public void exampleTest(GameTestHelper helper) {
         - `spawnMob` - Creates a builder for spawning some mob at the given position.
     - `GameTestMobBuilder` - A builder that creates a mock mob for a test.
 
+### Peer to Peer
+
+Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open singleplayer worlds to online multiplayer. Players can only join other singleplayer worlds if they are "friends" with that player, where a friend is someone on your Xbox friends list.
+
+- `net.minecraft.SharedConstants`
+    - `DEBUG_CHAT_FRIENDS_ONLY` - Sets that chat messages can only be exchanged with friends.
+    - `DEBUG_NATIVE_WEBRTC_LOGS` - Sets that web real time communication logs should be written to a logger output.
+- `net.minecraft.client`
+    - `Minecraft`
+        - `p2pManager` - Returns the peer-to-peer manager.
+        - `setPendingConnection` - Sets the connection to the server currently pending.
+        - `friendsEnabled` - If the friends feature is enabled.
+        - `allowFriendRequests` - Can the user accept friend invites.
+        - `allowChatOnlyWithFriend` - Is the user only allowed to chat with friends.
+        - `isFriendOnlyRestricted` - If the user cannot send or receive messages from the player is not on the friends list.
+    - `Options`
+        - `skipFriendsListPromo` - Whether the friends list should not be promoted.
+        - `keyFriends` - The key that opens the friends list.
+        - `inGameNotification` - Whether the user can receive notifications from their friends in-game.
+        - `sharePresence` - What information is broadcast to friends who are also online.
+    - `PresenceSharing` - An enum that denotes what information is shared with friends.
+- `net.minecraft.client.gui.components`
+    - `CommonButtons#friends` - Creates the friend list button.
+    - `FriendsButton` - The button for showing the friends list.
+    - `PlayerFaceWidget` - A widget for the player face.
+- `net.minecraft.client.gui.components.toasts`
+    - `FriendToast` - A toast for showing activity of a user on the friends list.
+    - `SystemToast$SystemToastId#FRIEND_SYSTEM_NOTIFICATION` - A notification from the friend system.
+- `net.minecraft.client.gui.screens`
+    - `P2PConnectScreen` - A screen for displaying when a peer-to-peer connection is occuring.
+    - `PrivacyConfirmLinkScreen` - A screen for confirming the privacy settings for peer-to-peer communication.
+    - `ShareToLanScreen` -> `MultiplayerOptionsScreen`, not one-to-one
+- `net.minecraft.client.gui.screens.friends`
+    - `AbstractFriendsEntryContainerWidget` - An abstract container for representing a friend within the friends list. 
+    - `AbstractFriendsTab` - An abstract tab that represents a group of users in the friends list.
+    - `FriendEntry` - An entry representing a friend.
+    - `FriendsOverlayScreen` - An overlay showing the user's friends and friend requests.
+    - `FriendsOverlayTabButton` - A button to switch between friend tabs.
+    - `FriendsTab` - A tab containing the user's friends.
+    - `IncomingEntry` - An entry representing an incoming friend request.
+    - `OutgoingEntry` - An entry representing an outgoing friend request.
+    - `PendingTab` - A tab containing the user's pending friend requests.
+- `net.minecraft.client.gui.screens.options.OnlineOptionsScreen#confirmFriendsListEnabled` - Sets the current screen to confirm whether the friends list should be enabled, if not enabled.
+- `net.minecraft.client.gui.screens.social`
+    - `PlayerSocialManager` now takes in the `FriendsService` and the `RemoteFriendListUpdateHandler`
+        - `addFriendListUpdateListener`, `removeFriendListUpdateListener` - Handles listeners when the friend list is updated.
+        - `getFriends` - Gets the current friends of the user.
+        - `isFriendsPmid`, `isFriend` - Whether the given user id is a friend of this user.
+        - `getIncomingRequests`, `getOutgoingRequests` - The friends requests of the user.
+        - `getFriendListState` - The current state of the friends list.
+        - `sendFriendRequest`, `removeFriend`, `acceptIncomingFriendRequest`, `declineIncomingFriendRequest`, `revokeOutgoingFriendRequest`, `updateFriendSettings` - Requests for updating the user's friends list.
+        - `isFriendListEnabled`, `setFriendListEnabled` - Handles the enabling of the friends list.
+        - `isAllowFriendRequests`, `setAllowFriendRequests` - Handles whether friend requests are allowed.
+        - `getPresenceHandler` - Returns the presence handler of the user and friends current state.
+        - `$PlayerData` - Common data associated with a given user.
+    - `PresenceHandler` - A handler for broadcasting the current state of the user in-game to other friends.
+    - `RemoteFriendListUpdateHandler` - A handler for capturing the current state of the user's friends in-game.
+- `net.minecraft.client.multiplayer`
+    - `ClientPacketListener#onlineMode` - Whether the user is currently in online mode.
+    - `ServerData#isOnline`, `$Type#ONLINE` - Whether the server is communicating through webrtc.
+- `net.minecraft.client.multiplayer.p2p`
+    - `FriendJoinHandler` - The handler for joining a friend's world.
+    - `P2PManager` - The manager for handling the peer-to-peer connection.
+    - `RtcHandshakeHandler` - The handler for the webrtc handshake between two peers.
+    - `SignalingErrorMapper` - A helper for mapping the error received during a signal request between the user and their friend.
+    - `SignalingException` - An exception thrown when trying to signal between the user and their friend.
+    - `SignalingMessage` - A message indicating the action sent or received between the user and their friend when attempting to join. 
+- `net.minecraft.client.multiplayer.p2p.client`
+    - `JsonRpcClient` - A client for receiving JSON-RPC websocket requests.
+    - `JsonRpcException` - An exception thrown when an error ocrrus during dispatch.
+    - `SignalingServiceClient` - A client that handles the signaling between a user and their friend.
+- `net.minecraft.client.network.webrtc`
+    - `RtcChannel` - A netty channel communicated via webrtc.
+    - `RtcHandshake` - A webrtc handshake between two peers.
+- `net.minecraft.client.server.IntegratedServer`
+    - `applyDefaultGameMode` - Sets the default game mode and applies it to all players.
+    - `setCommandsAllowedForAllPlayers` - Sets whether all players can run commands.
+    - `unpublishServer` - Unpublishes the server from peer-to-peer connections.
+    - `onPlayerListChanged` - If the player list changes, typically because of a new peer.
+    - `setMultiplayerScope`, `getMultiplayerScope`, `$MultiplayerScope` - Handles the current scope of the integrated server and who it's available for.
+    - `isPublishedOnline` - Whether the integrated server is available online for peer-to-peer communication.
+- `net.minecraft.client.telemetry`
+    - `TelemetryEventType`
+        - `P2P_CONNECTION` - Telementry event for a peer-to-peer connection.
+        - `selfTest` - Returns whether there are missing translations for the telementry event and properties.
+    - `TelemetryProperty#P2P_CONNECTION_*` - Properties indicating the peer-to-peer connection state.
+- `net.minecraft.client.telemetry.events.P2PTelemetryEvent` - The telemetry event for peer-to-peer connections.
+- `net.minecraft.network.Connection`
+    - `SECURE_TRANSPORT`, `isSecureTransport` - Whether the network requests should be transported securely.
+    - `isEncrypted` -> `isSecureTransport`, not one-to-one
+    - `fromChannel` - Creates a new connection from a channel.
+    - `setIntendedProfileId`, `getIntendedProfileId` - Handles the profile UUID.
+- `net.minecraft.network.protocol.game.ClientboundLoginPacket#onlineMode` - If the user is trying to login to a peer-to-peer connection.
+- `net.minecraft.server.network.ServerConnectionListener`
+    - `acceptChannel` - Accepts the channel to broadcast packets as the server.
+    - `stopTcpServerListener` - Closes the channel, if this server is not broadcasting locally.
+- `net.minecraft.util.CommonLinks#PRIVACY_AND_ONLINE_SETTINGS` - A link to the privacy and safety settings.
+
 ### Data Component Additions
 
 - `sulfur_cube_content` - The absorbed block stored in the sulfur cube.
@@ -1573,6 +1754,8 @@ public void exampleTest(GameTestHelper helper) {
     - `wither_immune_to`
     - `wither_skeleton_immune_to`
     - `default_immune_to`
+    - `causes_periodic_geyser_eruptions`
+    - `causes_continuous_geyser_eruptions`
 - `minecraft:damage_type`
     - `sulfur_cube_with_block_immune_to`
 - `minecraft:item`
@@ -1604,11 +1787,23 @@ public void exampleTest(GameTestHelper helper) {
     - `OptionInstance`
         - `NO_ACTION` - A listener that ignores the changed value.
         - `$ValueUpdateListener` - A listener that handles what to do when an option value is changed.
-- `net.minecraft.client.data.models.BlockModelGenerators#createBed` - Creates a bed with variants for the head and foot.
+- `net.minecraft.client.data.models.BlockModelGenerators`
+    - `createBed` - Creates a bed with variants for the head and foot.
+    - `createSign` - Creates a sign with variants depending on rotation.
+    - `$BlockFamilyProvider`
+        - `customHangingSign` - Sets the hanging sign block using a custom wall variant.
+        - `hangingSign` - Sets the hanging sign block.
 - `net.minecraft.client.data.models.model`
-    - `ModelTemplates#BED_HEAD`, `BED_FOOT` - Model templates for the bed parts.
+    - `ModelTemplates`
+        - `BED_HEAD`, `BED_FOOT` - Model templates for the bed parts.
+        - `SIGN_ROT_*` - Model templates for sign rotations.
+        - `WALL_SIGN`, `WALL_HANGING_SIGN` - Model templates for wall signs.
+        - `HANGING_SIGN_ROT_*` - Model templates for hanging sign rotations.
+        - `ATTACHED_HANGING_SIGN_ROT_*` - Model templates for attached hanging sign rotations.
     - `TextureMapping#bed` - Creates a texture map for a bed-like model.
-- `net.minecraft.client.multiplayer.ClientChunkCache#flipEmptySectionUpdates` - Updates the section arrays to their next index, clearing them for use. 
+- `net.minecraft.client.multiplayer`
+    - `ClientChunkCache#flipEmptySectionUpdates` - Updates the section arrays to their next index, clearing them for use. 
+    - `MultiPlayerGameMode#spectatorNoAction` - Sends a message saying that the client spectator is not spectating an entity.
 - `net.minecraft.client.particle`
     - `GeyserBaseParticle` - The base particle for a geyser.
     - `GeyserEruptionParticle` - The particle for when a geyser is erupting.
@@ -1623,9 +1818,24 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.core.particles`
     - `GeyserBaseParticleOptions` - The base particle options for a geyser.
     - `GeyserParticleOptions` - The particle options for a geyser.
-- `net.minecraft.data.BlockFamilies`
-    - `SULFUR`, `POLISHED_SULFUR`, `SULFUR_BRICKS` - Sulfur block variants.
-    - `CINNABAR`, `POLISHED_CINNABAR`, `CINNABAR_BRICKS` - Cinnabar block variants.
+- `net.minecraft.data`
+    - `BlockFamilies`
+        - `SULFUR`, `POLISHED_SULFUR`, `SULFUR_BRICKS` - Sulfur block variants.
+        - `CINNABAR`, `POLISHED_CINNABAR`, `CINNABAR_BRICKS` - Cinnabar block variants.
+    - `BlockFamily`
+        - `$Builder`
+            - `customHangingSign` - Sets the hanging sign block using a custom wall variant.
+            - `hangingSign` - Sets the hanging sign block.
+            - `log` - Sets the log block.
+            - `strippedLog` - Sets the stripped log block.
+        - `$Variant`
+            - `CUSTOM_HANGING_SIGN` - A custom hanging sign variant.
+            - `HANGING_SIGN` - A hanging sign variant.
+            - `LOG` - A log variant.
+            - `STRIPPED_LOG` - A stripped log variant.
+            - `CUSTOM_WALL_HANGING_SIGN` - A custom hanging wall sign variant.
+            - `WALL_HANGING_SIGN` - A hanging wall sign variant.
+            - `getBaseVariantForCrafting` - Gets the base variant used for crafting this variant.
 - `net.minecraft.data.worldgen`
     - `BiomeDefaultFeatures`
         - `addSulfurCavesVegetationFeatures` - Vegetation features for the sulfur caves biome.
@@ -1635,6 +1845,7 @@ public void exampleTest(GameTestHelper helper) {
 - `net.minecraft.gametest.framework`
     - `GameTestHelper#assertValueInBetween` - Assert the `Comparable` value is between some bounds.
     - `TestEnvironmentDefinition$Difficulty` - A test environment that sets the world difficulty.
+- `net.minecraft.locale.Language#DEFAULT_INSTANCE` - The default language instance.
 - `net.minecraft.nbt.NbtOps#getBooleanValue` - Gets the `boolean` result from the given `Tag`.
 - `net.minecraft.server.MinecraftServer#SERVER_THREAD_NAME` - The name of the server thread.
 - `net.minecraft.server.jsonrpc`
@@ -1642,6 +1853,7 @@ public void exampleTest(GameTestHelper helper) {
     - `ManagementServer#scheduleHeartbeat` - Sets the number of seconds between each heartbeat check.
 - `net.minecraft.server.level.WorldGenRegion#isWithinWriteZone` - If the given position is within the write radius of the region.
 - `net.minecraft.server.notifications.NotificationManager#setServer`, `server` - Handles the `DedicatedServer` consuming the `NotificationManager`
+- `net.minecraft.server.players.PlayerList#getPlayersByUUID` - Gets a map of UUID to their players.
 - `net.minecraft.util`
     - `ARGB#setVector4fFromARGB32` - Directly sets the vector data with the color.
     - `CubicSpline`
@@ -1732,6 +1944,9 @@ public void exampleTest(GameTestHelper helper) {
     - `StructureProcessor#evaluatesEntirePieceState` - Whether the structure can process outside of the current chunk.
 - `net.minecraft.world.level.storage.loot.LootPool#addAll` - Adds all pool entries.
 - `net.minecraft.world.phys.Vec2#rotate` - Rotates the vector the given angle in radians.
+- `net.minecraft.world.phys.shapes`
+    - `CollisionContext#positionContext` - Creates a context with a given Y position.
+    - `PositionCollisionContext` - A collision context for a given Y position.
 - `net.minecraft.world.scores`
     - `PlayerTeam$OptionFlags` - An annotation that marks whether a given byte defines the usage flags of the team options.
     - `TeamColor` - The color representing a player team.
@@ -1767,7 +1982,15 @@ public void exampleTest(GameTestHelper helper) {
     - `createPointedDripstoneVariant` -> `createSpeleothemVariant`, now taking in a `Block`
     - `createBanner` no longer takes in the `Block`s for the standalone and wall variant
     - `createPointedDripstone` -> `createSpeleothem`, now taking in a `Block`
+    - `createHangingSign` now takes in a block and the `MultiVariant`s for rotation and attachment instead of the blocks for the hanging and wall hanging sign
 - `net.minecraft.client.data.models.model.ItemModelUtils#plainModel` now has an overload that takes in a `Transformation`
+- `net.minecraft.client.gui.screens.inventory.SignEditScreen#MAGIC_SCALE_NUMBER` replaced by `MAGIC_BACKGROUND_SCALE`, not one-to-one
+- `net.minecraft.client.input`
+    - `InputWithModifiers$Modifiers` can now only target `ElementType#TYPE_USE`
+    - `KeyEvent$Action` can now only target `ElementType#TYPE_USE`
+    - `MouseButtonInfo`
+        - `$Action` can now only target `ElementType#TYPE_USE`
+        - `$MouseButton` can now only target `ElementType#TYPE_USE`
 - `net.minecraft.client.multiplayer.ClientChunkCache#getLoadedEmptySections` split into `addedEmptySections`, `removedEmptySections`
 - `net.minecraft.client.multiplayer.resolver.ServerAddress#parsePort` is now `public` from package-private
 - `net.minecraft.commands.arguments.ColorArgument` -> `TeamColorArgument`
@@ -1786,6 +2009,8 @@ public void exampleTest(GameTestHelper helper) {
     - `addDefaultInteractions` is now `public` from package-private
     - `fillBucket`, `emptyBucket` are now `public` from package-private
 - `net.minecraft.data.HashCache$ProviderCacheBuilder(String)` is now `public` from package-private
+- `net.minecraft.data.recipes.RecipeProvider`
+    - `hangingSign` -> `hangingSignBuilder`, now taking in an `Ingredient` instead of an `ItemLike` for the ingredient, and returning the `RecipeBuilder`
 - `net.minecraft.data.worldgen`
     - `SurfaceRuleData` methods now take in the `HolderGetter<Biome>`
     - `TerrainProvider` methods no longer bind the `BoundedFloatFunction` generic
@@ -1802,12 +2027,19 @@ public void exampleTest(GameTestHelper helper) {
     - `ReportGameListener` class is now `public` from package-private
     - `TestEnvironmentDefinition$Type#apply` is now `public` from package-private
 - `net.minecraft.nbt.CompoundTag#shallowCopy` is now package-private from `protected`
-- `net.minecraft.network.protocol.game.ClientboundSetPlayerTeamPacket$Parameters` is now a record
-- `net.minecraft.server.MinecraftServer` now takes in the `NotificationManager`
+- `net.minecraft.network.protocol.game`
+    - `ClientboundSetPlayerTeamPacket$Parameters` is now a record
+    - `GamePacketTypes#SERVERBOUND_SPECTATE_ENTITY` -> `SERVERBOUND_SPECTATOR_ACTION`
+    - `ServerboundSpectateEntityPacket` -> `ServerboundSpectatorActionPacket`, not one-to-one
+    - `ServerGamePacketListener#handleSpectateEntity` -> `handleSpectatorAction`
+- `net.minecraft.server`
+    - `Bootstrap#getMissingTranslations` now takes in a `Language`
+    - `MinecraftServer` now takes in the `NotificationManager`
 - `net.minecraft.server.commands.SpreadPlayersCommand$Position#dist`, `normalize`, `getLength` are now `public` from package-private
 - `net.minecraft.server.dedicated.DedicatedServer` now takes in the json rpc `ManagementServer` and `NotificationManager`
     - `setStatusHeartbeatInterval` now returns whether the heartbeat was scheduled successfully
 - `net.minecraft.server.jsonrpc`
+    - `JsonRPCUtils#createRequest` now has an overload that takes in a `String` for the method instead of an `Identifier`
     - `IncomingRpcMethod$Attributes`, `$IncomingRpcMethodBuilder#allowPreServerInit` now handles whether the method can be dispatched prior to server initialization
     - `OutgoingRpcMethod$Attributes`, `$OutgoingRpcMethodBuilder#allowPreServerInit` now handles whether the method can be dispatched prior to server initialization
 - `net.minecraft.server.jsonrpc.internalapi.MinecraftApi#of`, `Minecraft*Impl` classes now take in the `NotificationManager` instead of the `DedicatedServer`
@@ -1819,6 +2051,7 @@ public void exampleTest(GameTestHelper helper) {
     - `ChunkTrackingView#squareIntersects` is now package-private from `protected`
     - `LoadingChunkTracker` class is now `public` from package-private
     - `ServerEntityGetter#getNearestEntity` now has an overload that takes in the list of `Entity`s to loop through along with the center position as three `double`s
+    - `TicketType$Usage` can now only target `ElementType#TYPE_USE`
 - `net.minecraft.server.packs.resources.FallbackResourceManager$EntryStack` constructor is now `public` from package-private
 - `net.minecraft.server.players.StoredUserEntry#hasExpired` is now `public` from package-private
 - `net.minecraft.server.rcon.thread.RconClient` is now `public` from package-private
@@ -1863,6 +2096,9 @@ public void exampleTest(GameTestHelper helper) {
     - `AgeableMob#isBaby`, `setBaby` are now `final`
         - Override `canBeABaby` instead
     - `ConversionType#convert` is now `public` from package-private
+    - `Entity`
+        - `collideBoundingBox` now has an overload that takes in a `CollisionContext` instead of an `Entity`
+        - `$Flags` can now only target `ElementType#TYPE_USE`
     - `EntityType`, `$Builder#immuneTo` now takes in a `TagKey` instead of a `ImmutableSet` for the blocks the entity is immune to damage from
     - `Leashable$Wrench`
         - `ZERO` is now `public` from package-private
@@ -1954,6 +2190,7 @@ public void exampleTest(GameTestHelper helper) {
     - `VillagerTrade` one constructor now takes in the raw `HolderSet` of `Enchantment`s instead of being optionally-wrapped
 - `net.minecraft.world.level`
     - `ChunkPos#MAX_COORDINATE_VALUE` -> `ChunkPyramid#MAX_CHUNK_COORDINATE_VALUE`
+    - `CollisionGetter#getBlockCollisionsFromContext` is now `public` from `private`
     - `NaturalSpawner#getFilteredSpawningCategories` no longer takes in the `boolean` for whether to spawn friendlies
 - `net.minecraft.world.level.biome`
     - `Climate`
@@ -1962,6 +2199,7 @@ public void exampleTest(GameTestHelper helper) {
         - `$TargetPoint#toParameterArray` is now package-private from `protected`
     - `OverworldBiomeBuilder#addBiomes` is now package-private from `protected`
 - `net.minecraft.world.level.block`
+    - `Block$UpdateFlags` can now only target `ElementType#TYPE_USE`
     - `BedBlock` no longer implements `EntityBlock`
     - `Block#updateEntityMovementAfterFallOn` replaced by `getBounceRestitution`
     - `CopperGolemStatueBlock#updatePose` is now `protected` from package-private
@@ -2137,22 +2375,70 @@ public void exampleTest(GameTestHelper helper) {
 
 ### List of Removals
 
+- `net.minecraft.CrashReportCategory`
+    - `formatLocation(double, double, double)`
+    - `trimStacktrace`
 - `net.minecraft.client`
     - `Minecraft`
         - `getVersionType`
         - `isSingleplayer`
-    - `Options#touchscreen` is removed
+    - `Options#touchscreen`
 - `net.minecraft.client.data.models.model.ModelTemplates#BED_INVENTORY`
 - `net.minecraft.client.geom.ModelLayers#BED_FOOT`, `BED_HEAD`
+- `net.minecraft.client.gui.GuiGraphicsExtractor#sign`
+- `net.minecraft.client.gui.render.pip.GuiSignRenderer`
 - `net.minecraft.client.gui.screens.inventory.AbstractContainerScreen`
-    - `extractSnapbackItem` is removed
-    - `clearDraggingState` is removed
+    - `extractSnapbackItem`
+    - `clearDraggingState`
+- `net.minecraft.client.model.geom.ModelLayers`
+    - `createStandingSignModelName`
+    - `createWallSignModelName`
+    - `createHangingSignModelName`
+- `net.minecraft.client.renderer.Sheets`
+    - `SIGN_SHEET`
+    - `SIGN_MAPPER`, `HANGING_SIGN_MAPPER`
+    - `SIGN_SPRITES`, `HANGING_SIGN_SPRITES`
+    - `getSignSprite`, `getHangingSignSprite`
+- `net.minecraft.client.renderer.block.BuiltInBlockModels`
+    - `createStandingSign`
+    - `createWallSign`
+    - `createCeilingHangingSign`
+    - `createWallHangingSign`
+    - `createSigns`
+- `net.minecraft.client.renderer.blockentity`
+    - `AbstractSignRenderer`
+        - `getSignModel`
+        - `getSignSprite`
+        - `submitSign`
+    - `HangingSignRenderer`
+        - `createSignModel`
+        - `submitSpecial`
+        - `createHangingSignLayer`
+    - `StandingSignRenderer`
+        - `createSignModel`
+        - `submitSpecial`
+        - `createSignLayer`
+    - `SignRenderState`
+        - `woodType`
+        - `$SignTransformations#body`
+- `net.minecraft.client.renderer.special`
+    - `HangingSignSpecialRenderer`
+    - `StandingSignSpecialRenderer`
+- `net.minecraft.client.renderer.state.gui.pip.GuiSignRenderState`
+- `net.minecraft.client.resources.language.I18n`
+    - `setLanguage`
+    - `exists`
 - `net.minecraft.core.BlockPos#getCenter`, `getBottomCenter`
     - Use `Vec3` methods that it delegated from
+- `net.minecraft.data.AtlasIds`
+    - `BEDS`
+    - `SIGNS`
 - `net.minecraft.util.Tuple`
 - `net.minecraft.util.thread.BlockableEventLoop#hasDelayedCrash`
 - `net.minecraft.world.entity`
-    - `LivingEntity#TAG_HURT_BY_TIMESTAMP`
+    - `LivingEntity`
+        - `TAG_HURT_BY_TIMESTAMP`
+        - `currentExplosionCause`
     - `Mob#setBodyArmorItem`
 - `net.minecraft.world.entity.ai.navigation.GroundPathNavigation#hasValidPathType`
 - `net.minecraft.world.level.block.entity`
