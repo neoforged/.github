@@ -333,22 +333,30 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `$MappedView` -> `GpuBufferSlice$MappedView`, not one-to-one
     - `$Usage` can now only target `ElementType#TYPE_USE`
 - `com.mojang.blaze3d.opengl`
-    - `BufferStorage#mapBuffer` replaced by `GpuBuffer#map`, `GpuBufferSlice#map`; not one-to-one
+    - `BufferStorage`
+        - `mapBuffer` replaced by `GpuBuffer#map`, `GpuBufferSlice#map`; not one-to-one
+        - `createBuffer` no longer takes in the supplied `String` label
     - `DirectStateAccess` methods are now `public` from package-private
         - `bindFrameBufferTextures` now has an overload that takes in arrays for the color and mip levels, along with an `int` for the mip level depth
     - `FrameBufferAttachment` - An object that is bound to a framebuffer, like a texture.
     - `FrameBufferCache` - A cache that creates framebuffers given its attachments.
-    - `GlBuffer` now takes in a `boolean` for whether a persistent buffer can be mapped rather than the persistent `ByteBuffer`
+    - `GlBuffer` is now abstract, taking in a `boolean` for whether a persistent buffer can be mapped rather than the persistent `ByteBuffer`, and no longer taking in the supplied `String` label
+        - `MEMORY_POOl` -> `MEMORY_POOL`
+        - `closed` -> `$Direct#closed`, now `private` from `protected`
+        - `handle` field is now `private` from `protected`
+            - Accessible through the `public` `handle` method
         - `persistentBuffer` replaced by `mappedBuffer`, not one-to-one
-        - `canPersistentMap` - Whether the persistent buffer can be used while mapped.
         - `mappingFlags` - The flags that define how the persistent buffer should be mapped.
         - `mappingRefCount` - The number of buffers currently mapped.
         - `checkCanBeUsed` - Checks whether a non-persistent buffer isn't mapped when used in a command.
+        - `$Direct` - A buffer which can be used across multiple render passes.
+            - `canPersistentMap` - Whether the persistent buffer can be used while mapped.
         - `$GlMappedView` replaced by `GpuBufferSlice$MappedView`, not one-to-one
-    - `GlCommandEncoder`
+    - `GlCommandEncoder` is now `AutoCloseable`
         - `finishRenderPass` -> `CommandEncoder#submitRenderPass`
         - `executeDraw` now takes takes in an `int` for the first instance used for fetching vertex attributes
         - `executeDrawIndirect` - Executes the draw call using the indirect API.
+        - `executeDraws` - Executes a multi-draw call. 
     - `GlConst`
         - `GL_DEPTH_TEXTURE_MODE`, `GL_ALPHA_BIAS` are removed
         - `toGl(DestFactor)`, `toGl(SourceFactor)` -> `toGl(BlendFactor)`
@@ -357,6 +365,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `isGlFormatInteger` - Returns whether the format is backed by an integer-like data type.
         - `isFormatNormalized` - Returns whether the format uses normalized data.
         - `toGlInternalId`, `toGlExternalId`, `toGlType` now take in a `GpuFormat` instead of the `TextureFormat`
+    - `GlDebugLabel#applyLabel` now takes in the supplied `String` label
     - `GlDevice`
         - `USE_GL_ARB_base_instance` - Whether to enable the `ARB_base_instance` extension, allowing for the the offset used for instance rendering to be specified.
         - `USE_GL_ARB_draw_indirect` - Whether to enable the `ARB_draw_indirect` extension, allowing for the consumption of arguments from buffer object memory.
@@ -388,6 +397,8 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - The constructor now takes in the `FrameBufferCache`
         - `getFbo` replaced by `FrameBufferCache#getFbo`
     - `GlTimerQuery` replaced by `GlQueryPool`
+    - `GlTransientMemory` - The OpenGL implementation of the `TransientMemory`.
+    - `GlUtil` - A utility for helping with OpenGL call determinations.
     - `Uniform$Utb` now takes in the `GpuFormat` instead of the `TextureFormat`
     - `VertexArrayCache#bindVertexArray` now takes in arrays for the `VertexFormat` bindings and `GpuBufferSlice` buffers along with the last bound `$VertexArray`, returning the newly bound `$VertexArray`
 - `com.mojang.blaze3d.pipeline`
@@ -426,6 +437,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
 - `com.mojang.blaze3d.platform`
     - `BackendOptions` record is removed
     - `BlendOp` - The operation performed when blending the source and destination outputs.
+    - `ClientShutdownWatchdog#startShutdownWatchdog` now takes in a `boolean` of whether to force shutdown with a `-8` exit call
     - `DestFactor`, `SourceFactor` -> `BlendFactor`
     - `GLX`
         - `_initGlfw` no longer takes in the `BackendOptions`
@@ -459,6 +471,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
             - Now has an overload that only takes in a `RenderPassDescriptor`
         - `clearColorTexture`, `clearColorAndDepthTextures` now take in an optional `Vector4fc` instead of an `int` for the clear color
         - `mapBuffer` replaced by `GpuBuffer#map`, `GpuBufferSlice#map`
+        - `transientMemory` - Gets the transient memory of the encoder.
     - `CommandEncoderBackend`
         - `isInRenderPass` -> `CommandEncoder#isInRenderPass`, now `protected` from `public`
         - `submitRenderPass` - Submits the current render pass, handled as part of the try-with-resources.
@@ -467,6 +480,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `createRenderPass` now only takes in the `RenderPassDescriptor`
         - `clearColorTexture`, `clearColorAndDepthTextures` now take in an optional `Vector4fc` instead of an `int` for the clear color
         - `mapBuffer` replaced by `GpuBuffer#map`, `GpuBufferSlice#map`
+        - `transientMemory` - Gets the transient memory of the encoder.
     - `DeviceFeatures` - A record containing the features that the GPU device supports.
     - `DeviceInfo` - A record containing information about the GPU device.
     - `DeviceLimits` - A record containing information about the limits of GPU features.
@@ -516,6 +530,8 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `drawIndexedIndirect` - Draws the indexed data to the buffer using the indirect API.
         - `draw` parameter order for the four `int`s are as follows: the vertex count, instance count, first vertex, and the first instance for fetching vertex attributes
         - `drawIndirect` - Draws the vertex data to the buffer using the indirect API.
+        - `multiDrawIndexed` - Draws the indexed data using an interleaved multi-draw call.
+        - `multiDraw` - Draws the vertex data using an interleaved multi-draw call.
         - `$RenderArea` - A rectangle defining where the pass can write data to.
     - `RenderPassBackend` is no longer `AutoCloseable`
         - `isClosed` is removed
@@ -525,6 +541,8 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `drawIndexedIndirect` - Draws the indexed data to the buffer using the indirect API.
         - `draw` parameter order for the four `int`s are as follows: the vertex count, instance count, first vertex, and the first instance for fetching vertex attributes
         - `drawIndirect` - Draws the vertex data to the buffer using the indirect API.
+        - `multiDrawIndexed` - Draws the indexed data using an interleaved multi-draw call.
+        - `multiDraw` - Draws the vertex data using an interleaved multi-draw call.
     - `RenderPassDescriptor` - A class containing the configuration of the `RenderPass` to use during drawing.
     - `RenderSystem`
         - `DEFAULT_DEPTH_CLEAR_VALUE` - The default clear value for the depth buffer.
@@ -544,6 +562,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `$FrameProfile` class is removed
         - `$Status` - The current status of the timer query.
     - `TracyGpuProfiler` - An implementation of the Tracy profiler (hybrid frame and sampling profiler) for the GPU.
+    - `TransientMemory` - A memory system for handling allocation, releasing the memory after use.
 - `com.mojang.blaze3d.textures`
     - `GpuTexture$Usage` now only targets `ElementType#TYPE_USE`
     - `TextureFormat` replaced with `GpuFormat`
@@ -554,6 +573,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
             - This should be taken with a grain of salt as it does not exactly map to the previous version's GL type
         - `DEPTH32` -> `D32_FLOAT`, not one-to-one
             - This should be taken with a grain of salt as it does not exactly map to the previous version's GL type
+- `com.mojang.blaze3d.util.TransientBlockAllocator` - An allocator for data broken into blocks, typically releasing the memory after use.
 - `com.mojang.blaze3d.vertex`
     - `ByteBufferBuilder$Result#size` - The size of the resulting buffer.
     - `DefaultVertexFormat`
@@ -621,6 +641,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `VulkanQueue` - A wrapped queue on a device to submit elements.
     - `VulkanRenderPass` - The Vulkan implementation of the `RenderPassBackend`.
     - `VulkanRenderPipeline` - The Vulkan implementation of a `CompiledRenderPipeline`.
+    - `VulkanTransientMemory` - The Vulkan implementation of the `TransientMemory`.
     - `VulkanUtils` - A utility for common operations within the Vulkan implementation.
 - `com.mojang.blaze3d.vulkan.checkpoints`
     - `AbstractCheckpointStorage` - An abstract implementation of the storage that handles the markers.
@@ -735,6 +756,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `AbstractWidget#extractTooltipForNextRenderPass` - Extracts the tooltip to render during the next pass.
     - `DebugScreenOverlay#render3dCrosshair` is replaced by `DebugCrosshairRenderer`
     - `EditBox` now as an overload that defaults the width and height to 150x20
+    - `FocusableTextWidget#setNarrateMessage`, `setUsageNarration` - Handles the display of the narration text.
     - `PlayerTabOverlay` now takes in the `Hud` instead of the `Gui`
     - `ScrollableLayout` now hsa an overload that allows setting the `ScrollableLayout$ReserveStrategy`
         - `$Container#refreshChildren` - Refreshes the current list of entries in the container.
@@ -788,7 +810,11 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `bufferSource` is removed
         - `prepare` now takes in the `FeatureRenderDispatcher`
         - `renderToTexture` now takes in the `SubmitNodeCollector`
-- `net.minecraft.client.gui.screens.Overlay#isPauseScreen` -> `isPausing`
+- `net.minecraft.client.gui.screens`
+    - `ConfirmScreen`
+        - `message` is now `protected` from `private`
+        - `addMessage` - Creates a new `MultiLineTextWidget` with the screen fields.
+    - `Overlay#isPauseScreen` -> `isPausing`
 - `net.minecraft.client.gui.screens.advancements.AdvancementTabType` enum is now `public` from package-private
 - `net.minecraft.client.gui.screens.inventory`
     - `AbstractCommandBlockEditScreen`
@@ -897,6 +923,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `nearbyVisibleSections` - Gets the visible sections that are nearby to the camera.
         - `collectPerFrameGizmos` -> `collectPerFrameRenderThreadGizmos`
         - `addMainThreadGizmos` - Adds gizmos from the main thread.
+        - `expectedChunks` - The chunks that are expected to be rendered.
         - `$BrightnessGetter` -> `LightCoordsUtil$BrightnessGetter`
     - `MultiBufferSource` interface is removed
         - Closest replacement is `PreparedRenderType` in the feature system
@@ -930,8 +957,11 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `SectionOcclusionGraph`
         - `invalidateIfNeeded` - Invalidates the current graph based on the camera.
         - `onChunkReadyToRender` is removed
-        - `update` now takes in the `CameraRenderState` and fov instead of the `Camera` params, and the `LongOpenHashSet` has been replaced by two for added and removed empty sections
+        - `update` now takes in the `CameraRenderState` and fov instead of the `Camera` params, and the `ChunkLoadingRenderState`
         - `updateEmptySections` - Updates the newly empty and non-empty sections.
+        - `expectedChunks` - The chunks that are expected to be rendered.
+        - `updateLoadedChunks` - Updates the newly added and removed loaded chunks.
+        - `$GraphStorage#sectionsWaitingForChunkLoads` - The list of sections currently waiting to be chunk-loaded.
     - `ScreenEffectRenderer` no longer takes in the `MultiBufferSource$BufferSource`
         - `renderScreenEffect` -> `submit`
     - `ShapeRenderer` -> `ShapeOutlineFeatureRenderer`, not one-to-one
@@ -1116,12 +1146,13 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `CameraRenderState`
         - `isFrustumCaptured` - Whether the frustum has been captured.
         - `smartCull` - Whether to use smart culling.
+    - `ChunkLoadingRenderState` - The render state of the current chunks and sections being added and removed.
     - `LevelRenderState`
         - `render3dCrosshair` - Whether to render the 3d crosshair reticle.
         - `chunkSectionsToRender` is removed
         - `sectionUpdateRenderStates` - The render states of the sections to update.
         - `playerCompiledSectionCallback` - Gets the callback for when the section the player is on the client has finished loading.
-        - `addedEmptySections`, `removedEmptySections` - The changes between empty sections.
+        - `chunkLoadingRenderState` - The changes between sections and chunks.
         - `shouldResetChunkLayerSampler` - Whether the chunk layer sampler should be reset.
         - `shouldShowEntityOutlines` - Whether to show the outlines of entities.
         - `shouldResetSkyRenderer` - Whether the sky renderer should be reinitialized.
@@ -1662,6 +1693,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `AbstractFriendsEntryContainerWidget` - An abstract container for representing a friend within the friends list. 
     - `AbstractFriendsTab` - An abstract tab that represents a group of users in the friends list.
     - `FriendEntry` - An entry representing a friend.
+    - `FriendsListConfirmScreen` - A confirmation screen that the user has read and understood the Xbox friends privacy information.
     - `FriendsOverlayScreen` - An overlay showing the user's friends and friend requests.
     - `FriendsOverlayTabButton` - A button to switch between friend tabs.
     - `FriendsTab` - A tab containing the user's friends.
@@ -1703,9 +1735,8 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
 - `net.minecraft.client.server.IntegratedServer`
     - `applyDefaultGameMode` - Sets the default game mode and applies it to all players.
     - `setCommandsAllowedForAllPlayers` - Sets whether all players can run commands.
-    - `unpublishServer` - Unpublishes the server from peer-to-peer connections.
     - `onPlayerListChanged` - If the player list changes, typically because of a new peer.
-    - `setMultiplayerScope`, `getMultiplayerScope`, `$MultiplayerScope` - Handles the current scope of the integrated server and who it's available for.
+    - `getMultiplayerScope` - Gets the current scope of the server and who it's available for.
     - `isPublishedOnline` - Whether the integrated server is available online for peer-to-peer communication.
 - `net.minecraft.client.telemetry`
     - `TelemetryEventType`
@@ -1719,6 +1750,11 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `fromChannel` - Creates a new connection from a channel.
     - `setIntendedProfileId`, `getIntendedProfileId` - Handles the profile UUID.
 - `net.minecraft.network.protocol.game.ClientboundLoginPacket#onlineMode` - If the user is trying to login to a peer-to-peer connection.
+- `net.minecraft.server.MinecraftServer`
+    - `publishServer` now takes in the `$MultiplayerScope`
+    - `unpublishServer` - Unpublishes the server from peer-to-peer connections.
+    - `$MultiplayerScope` - The current scope of the server and who it's available for.
+- `net.minecraft.server.commands.UnpublishCommand` - Unpublishes a server, stopping discovery and others from connecting.
 - `net.minecraft.server.network.ServerConnectionListener`
     - `acceptChannel` - Accepts the channel to broadcast packets as the server.
     - `stopTcpServerListener` - Closes the channel, if this server is not broadcasting locally.
@@ -1785,6 +1821,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `Minecraft`
         - `getProfileResult` - Gets the loaded profile of the user, or `null`.
         - `getMetricsRecorder` - Gets the recorder for the game metrics.
+        - `showDebugChat` - Displays a client system message.
     - `OptionInstance`
         - `NO_ACTION` - A listener that ignores the changed value.
         - `$ValueUpdateListener` - A listener that handles what to do when an option value is changed.
@@ -1803,7 +1840,9 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
         - `ATTACHED_HANGING_SIGN_ROT_*` - Model templates for attached hanging sign rotations.
     - `TextureMapping#bed` - Creates a texture map for a bed-like model.
 - `net.minecraft.client.multiplayer`
-    - `ClientChunkCache#flipEmptySectionUpdates` - Updates the section arrays to their next index, clearing them for use. 
+    - `ClientChunkCache`
+        - `addedLoadedChunks`, `removedLoadedChunks` - Gets the loaded chunk changes.
+        - `flipUpdateTrackingSets` - Updates the section arrays to their next index, clearing them for use. 
     - `MultiPlayerGameMode#spectatorNoAction` - Sends a message saying that the client spectator is not spectating an entity.
 - `net.minecraft.client.particle`
     - `GeyserBaseParticle` - The base particle for a geyser.
@@ -1838,9 +1877,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
             - `WALL_HANGING_SIGN` - A hanging wall sign variant.
             - `getBaseVariantForCrafting` - Gets the base variant used for crafting this variant.
 - `net.minecraft.data.worldgen`
-    - `BiomeDefaultFeatures`
-        - `addSulfurCavesVegetationFeatures` - Vegetation features for the sulfur caves biome.
-        - `addSulfurSpikeFeatures` - Sulfur spike features.
+    - `BiomeDefaultFeatures#addSulfurCavesFeatures` - Features for the sulfur caves biome.
     - `TerrainProvider#peaksAndValleys` - Calculates the peaks and valleys scalar given the weirdness.
 - `net.minecraft.data.worldgen.biome.OverworldBiomes#sulfurCaves` - The sulfur caves biome.
 - `net.minecraft.gametest.framework`
@@ -1880,14 +1917,29 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
         - `getEffectiveGravity` - Gets the gravity currently being applied to the entity.
         - `omnidirectionalAirMover` - Whether the entity can omnidirectionally move in the air.
         - `getAirDrag` - The drag applied to an entity when traveling through the air.
+        - `syncPosition` - When true, tells the server entity to sync this entity's position.
     - `EntityEvent#TNT_PRIME` - An event id for when a TNT is primed.
     - `EntityType#canSpawn` - Checks whether the entity can spawn in the given level.
     - `LivingEntity`
-        - `BASE_AIR_DRAG` - The base drag when within the air.
-        - `BASE_VERTICAL_DRAG_FOR_NON_FLYERS` - The base air drag when a non-flyable entity is moving vertically.
+        - `BASE_HORIZONTAL_AIR_DRAG` - The base drag when within the air.
+        - `BASE_VERTICAL_AIR_DRAG` - The base air drag when a non-flyable entity is moving vertically.
+        - `HURT_DURATION_TICKS` - The number of ticks a living entity has invulnerability for after being hurt.
+        - `WATER_DRAG` - The drag when swimming in water.
+        - `SPRINTING_WATER_DRAG` - The drag when sprint swimming in water.
+        - `LAVA_DRAG` - The drag when swimming in lava.
+        - `LAVA_SHALLOW_VERTICAL_DRAG` - The drag when swimming vertically near the top of lava.
+        - `DOLPHINS_GRACE_WATER_DRAG` - The drag when swimming with dolphin's grace in water.
+        - `FLYING_AIR_DRAG` - The drag when flying through the air.
+        - `FLYING_VERTICAL_AIR_DRAG` - The drag when flying through the air vertically.
+        - `FLYING_LAVA_DRAG` - The drag when flying through lava.
+        - `FLYING_WATER_DRAG` - The drag when flying through water.
+        - `ELYTRA_HORIZONTAL_AIR_DRAG` - The drag when flying horizontally with an elytra.
+        - `ELYTRA_VERTICAL_AIR_DRAG` - The drag when flying vertically with an elytra.
+        - `BASE_SWIM_SPEED` - The base swim speed.
         - `handleKillingBlow` - Handles when the killing blow has been made to this entity.
         - `dealDefaultKnockback` - Applies the default knockback to this entity.
         - `createDamageSource` - Creates the default mob attack damage source from this entity.
+        - `isInShallowFluid` - Whether the fluid covering the entity is less than the jump threshold.
     - `Mob#TAG_PERSISTENCE_REQUIRED` - A tag that marks whether the entity should be persisted.
     - `MobCategory#getDebugAbbreviation` - An abbreviation of the category when looking through one of the debug menus.
 - `net.minecraft.world.entity.ai.navigation.PathNavigation#getMaxVerticalDistanceToWaypoint` - Gets the maximum vertical distance from the current node the entity pathfinding through.
@@ -1906,6 +1958,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `BucketItem#getFluidContext` - Gets the fluid clip context based on its contents
     - `DyeColor#getTerracottaColor` - The `MapColor` of a terracotta block dyed this color.
 - `net.minecraft.world.level`
+    - `ChunkPos#fromSectionNode` - Packs a packed section position into a chunk position.
     - `Level#ACROSS_THE_WHOLE_WORLD` - The maximum diameter of a level.
     - `SignalGetter#getBestOwnOrNeighbourSignal` - Returns the best redstone signal from the current block position or its surrounding neighbors.
 - `net.minecraft.world.level.block`
@@ -1978,6 +2031,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
         - `$SliderableValueSet` is now `public` from package-private
         - `$ValueSet` is now `public` from package-private
             - `createButton` now takes in a `$ValueUpdateListener` instead of a consumer
+    - `Screenshot#grab` now has an overload that takes in the `Minecraft` instance and a `boolean` of whether a debug panorama is requested
 - `net.minecraft.client.data.models.BlockModelGenerators`
     - `createColoredBlockWithRandomRotations`, `createColoredBlockWithStateRotations` now take in a list of `Block`s instead of a varargs
     - `createPointedDripstoneVariant` -> `createSpeleothemVariant`, now taking in a `Block`
@@ -2042,6 +2096,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
 - `net.minecraft.server.jsonrpc`
     - `JsonRPCUtils#createRequest` now has an overload that takes in a `String` for the method instead of an `Identifier`
     - `IncomingRpcMethod$Attributes`, `$IncomingRpcMethodBuilder#allowPreServerInit` now handles whether the method can be dispatched prior to server initialization
+    - `ManagementServer` now takes in an `EventGroupLoop` instead of a `NioEventLoopGroup`
     - `OutgoingRpcMethod$Attributes`, `$OutgoingRpcMethodBuilder#allowPreServerInit` now handles whether the method can be dispatched prior to server initialization
 - `net.minecraft.server.jsonrpc.internalapi.MinecraftApi#of`, `Minecraft*Impl` classes now take in the `NotificationManager` instead of the `DedicatedServer`
 - `net.minecraft.server.level`
@@ -2071,6 +2126,9 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `Mth`
         - `*_AXIS` are now `Vector3fc`s instead of `Vector3f`s
         - `rotationAroundAxis` now takes in a `Vector3fc` instead of a `Vector3f`
+        - `isPowerOfTwo` now has an overload that takes in a `long` input
+        - `roundToward` now has an overload that takes in `long`s
+        - `positiveCeilDiv` now has an overload that takes in `long`s
     - `NativeModuleLister`
         - `tryGetVersion` -> `tryGetModuleVersion`, now `public` from `private`
         - `$NativeModuleInfo`, `$NativeModuleVersion` are now `record`s
@@ -2105,7 +2163,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
         - `ZERO` is now `public` from package-private
         - `torqueFromForce`, `accumulate` are now `public` from package-private
     - `LivingEntity`
-        - `WATER_FLOAT_IMPULSE` -> `LIQUID_FLOAT_IMPULSE`, now `protected` from `private`
+        - `WATER_FLOAT_IMPULSE` -> `SWIMMING_VERTICAL_SPEED`, now `protected` from `private`
         - `travelInFluid` is now `protected` from `private`
         - `collectEquipmentChanges` is now `protected` from `private`, taking in the map of slots to last equipment stacks
         - `blockUsingItem`, `blockedByItem` now take in the `DamageSource` and `float` damage
