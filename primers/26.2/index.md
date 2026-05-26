@@ -353,6 +353,10 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
             - `canPersistentMap` - Whether the persistent buffer can be used while mapped.
         - `$GlMappedView` replaced by `GpuBufferSlice$MappedView`, not one-to-one
     - `GlCommandEncoder` is now `AutoCloseable`
+        - `MAX_SUBMITS_IN_FLIGHT` - The maximum number of submissions that can be sent to the buffer at any given time.
+        - `currentSubmitIndex` - The current index of the next submission.
+        - `currentSubmitSlot` - The current slot of the next submission to make.
+        - `awaitSubmit` - Attempts to clear the previous submit fence in the current slot, returning `true` if successful.
         - `finishRenderPass` -> `CommandEncoder#submitRenderPass`
         - `executeDraw` now takes takes in an `int` for the first instance used for fetching vertex attributes
         - `executeDrawIndirect` - Executes the draw call using the indirect API.
@@ -759,6 +763,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `FocusableTextWidget#setNarrateMessage`, `setUsageNarration` - Handles the display of the narration text.
     - `PlayerTabOverlay` now takes in the `Hud` instead of the `Gui`
     - `ScrollableLayout` now hsa an overload that allows setting the `ScrollableLayout$ReserveStrategy`
+        - `setScrollbarSpacing` - Sets the spacing of the scrollbar.
         - `$Container#refreshChildren` - Refreshes the current list of entries in the container.
     - `SpriteIconButton` now takes in the `int` XY offsets along with a `boolean` whether to switch to the loading state after pressing the button
         - `spriteOffsetX`, `spriteOffsetY` - The offsets of the sprite.
@@ -815,6 +820,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `message` is now `protected` from `private`
         - `addMessage` - Creates a new `MultiLineTextWidget` with the screen fields.
     - `Overlay#isPauseScreen` -> `isPausing`
+    - `Screen#panoramaShouldSpin` replaced by `Panorama#startSpin`, `holdSpin`; not one-to-one
 - `net.minecraft.client.gui.screens.advancements.AdvancementTabType` enum is now `public` from package-private
 - `net.minecraft.client.gui.screens.inventory`
     - `AbstractCommandBlockEditScreen`
@@ -833,7 +839,9 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
 - `net.minecraft.client.model.animal.cow.CowModel#createBaseCowModel` is now `public` from package-private
 - `net.minecraft.client.model.geom.builders.CubeDefinition` is now `public` from `protected`
 - `net.minecraft.client.model.monster.piglin.AbstractPiglinModel#getDefaultEarAngleInDegrees` is now `protected` from package-private
-- `net.minecraft.client.model.monster.slime.SulfurCubeModel` - The entity model for the sulfur cube.
+- `net.minecraft.client.model.monster.slime`
+    - `SulfurCubeModel` - The entity model for the sulfur cube.
+    - `SmallSulfurCubeModel` - The entity model for a small sulfur cube.
 - `net.minecraft.client.multiplayer`
     - `ClientChunkCache#getChunk` is now `public` from `protected`
     - `ClientLevel` now takes in a `LevelExtractor` instead of the `LevelRenderer`
@@ -936,6 +944,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `submitGizmoPrimitives` - Submits the gizmo primitive to render.
         - `submitMovingBlock` now takes in the `int` outline color
     - `OutlineBufferSource` class is removed
+    - `Panorama#extractRenderState` no longer takes in a `boolean` of whether the panorama should spin
     - `RenderBuffers` is now `AutoCloseable`
         - `endFrame` - When everything that should be uploaded is done for the frame.
         - `crumblingBufferSource` is removed
@@ -1548,12 +1557,23 @@ Sulfur cubes behave differently depending on the item it absorbed. What behavior
         // When `true`, the damage is attributed to the sulfur cube.
         "attribute_to_source": false
     },
-    // When present, specifies the knockback the sulfur cube receives when hit.
+    // Specifies the knockback the sulfur cube receives when hit.
     "knockback_modifiers": {
         // The base delta movement to apply along the XZ axis.
         "horizontal_power": 0.33,
         // The base delta movement to apply along the Y axis.
         "vertical_power": 0.06
+    },
+    // Specifies the sounds made by the sulfur cube.
+    "sound_settings": {
+        // The sound made when the sulfur cube receives knockback (on hit).
+        "hit_sound": "minecraft:entity.sulfur_cube.regular.hit",
+        // The sound made whent the sulfur cube collides with the player's pickup area.
+        "push_sound": "minecraft:entity.sulfur_cube.regular.push",
+        // The number of seconds to wait before playing the push sound again.
+        "push_sound_cooldown": 0.5,
+        // The square root of the velocity threshold for the push sound to be played.
+        "push_sound_impulse_threshold": 0.2
     }
 }
 ```
@@ -1657,23 +1677,18 @@ public void exampleTest(GameTestHelper helper) {
         - `spawnMob` - Creates a builder for spawning some mob at the given position.
     - `GameTestMobBuilder` - A builder that creates a mock mob for a test.
 
-### Peer to Peer
+### Xbox Friend List
 
-Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open singleplayer worlds to online multiplayer. Players can only join other singleplayer worlds if they are "friends" with that player, where a friend is someone on your Xbox friends list.
+Vanilla has now integrated the Xbox friend list into the game, allowing users to send requests and view other's status while in-game.
 
-- `net.minecraft.SharedConstants`
-    - `DEBUG_CHAT_FRIENDS_ONLY` - Sets that chat messages can only be exchanged with friends.
-    - `DEBUG_NATIVE_WEBRTC_LOGS` - Sets that web real time communication logs should be written to a logger output.
+- `net.minecraft.SharedConstants#DEBUG_CHAT_FRIENDS_ONLY` - Sets that chat messages can only be exchanged with friends.
 - `net.minecraft.client`
     - `Minecraft`
-        - `p2pManager` - Returns the peer-to-peer manager.
-        - `setPendingConnection` - Sets the connection to the server currently pending.
         - `friendsEnabled` - If the friends feature is enabled.
         - `allowFriendRequests` - Can the user accept friend invites.
         - `allowChatOnlyWithFriend` - Is the user only allowed to chat with friends.
         - `isFriendOnlyRestricted` - If the user cannot send or receive messages from the player is not on the friends list.
     - `Options`
-        - `skipFriendsListPromo` - Whether the friends list should not be promoted.
         - `keyFriends` - The key that opens the friends list.
         - `inGameNotification` - Whether the user can receive notifications from their friends in-game.
         - `sharePresence` - What information is broadcast to friends who are also online.
@@ -1681,17 +1696,18 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
 - `net.minecraft.client.gui.components`
     - `CommonButtons#friends` - Creates the friend list button.
     - `FriendsButton` - The button for showing the friends list.
+    - `PlayerFaceExtractor#extractRenderState` now has an overload that takes in a `ResolvableProfile` for the skin texture
     - `PlayerFaceWidget` - A widget for the player face.
 - `net.minecraft.client.gui.components.toasts`
     - `FriendToast` - A toast for showing activity of a user on the friends list.
     - `SystemToast$SystemToastId#FRIEND_SYSTEM_NOTIFICATION` - A notification from the friend system.
 - `net.minecraft.client.gui.screens`
-    - `P2PConnectScreen` - A screen for displaying when a peer-to-peer connection is occuring.
     - `PrivacyConfirmLinkScreen` - A screen for confirming the privacy settings for peer-to-peer communication.
     - `ShareToLanScreen` -> `MultiplayerOptionsScreen`, not one-to-one
 - `net.minecraft.client.gui.screens.friends`
     - `AbstractFriendsEntryContainerWidget` - An abstract container for representing a friend within the friends list. 
     - `AbstractFriendsTab` - An abstract tab that represents a group of users in the friends list.
+    - `AddFriendWidget` - A widget that handles sending a friend request to some user.
     - `FriendEntry` - An entry representing a friend.
     - `FriendsListConfirmScreen` - A confirmation screen that the user has read and understood the Xbox friends privacy information.
     - `FriendsOverlayScreen` - An overlay showing the user's friends and friend requests.
@@ -1705,7 +1721,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `PlayerSocialManager` now takes in the `FriendsService` and the `RemoteFriendListUpdateHandler`
         - `addFriendListUpdateListener`, `removeFriendListUpdateListener` - Handles listeners when the friend list is updated.
         - `getFriends` - Gets the current friends of the user.
-        - `isFriendsPmid`, `isFriend` - Whether the given user id is a friend of this user.
+        - `isFriend` - Whether the given user id is a friend of this user.
         - `getIncomingRequests`, `getOutgoingRequests` - The friends requests of the user.
         - `getFriendListState` - The current state of the friends list.
         - `sendFriendRequest`, `removeFriend`, `acceptIncomingFriendRequest`, `declineIncomingFriendRequest`, `revokeOutgoingFriendRequest`, `updateFriendSettings` - Requests for updating the user's friends list.
@@ -1715,38 +1731,13 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
         - `$PlayerData` - Common data associated with a given user.
     - `PresenceHandler` - A handler for broadcasting the current state of the user in-game to other friends.
     - `RemoteFriendListUpdateHandler` - A handler for capturing the current state of the user's friends in-game.
-- `net.minecraft.client.multiplayer`
-    - `ClientPacketListener#onlineMode` - Whether the user is currently in online mode.
-    - `ServerData#isOnline`, `$Type#ONLINE` - Whether the server is communicating through webrtc.
-- `net.minecraft.client.multiplayer.p2p`
-    - `FriendJoinHandler` - The handler for joining a friend's world.
-    - `P2PManager` - The manager for handling the peer-to-peer connection.
-    - `RtcHandshakeHandler` - The handler for the webrtc handshake between two peers.
-    - `SignalingErrorMapper` - A helper for mapping the error received during a signal request between the user and their friend.
-    - `SignalingException` - An exception thrown when trying to signal between the user and their friend.
-    - `SignalingMessage` - A message indicating the action sent or received between the user and their friend when attempting to join. 
-- `net.minecraft.client.multiplayer.p2p.client`
-    - `JsonRpcClient` - A client for receiving JSON-RPC websocket requests.
-    - `JsonRpcException` - An exception thrown when an error ocrrus during dispatch.
-    - `SignalingServiceClient` - A client that handles the signaling between a user and their friend.
-- `net.minecraft.client.network.webrtc`
-    - `RtcChannel` - A netty channel communicated via webrtc.
-    - `RtcHandshake` - A webrtc handshake between two peers.
+- `net.minecraft.client.multiplayer.ClientPacketListener#onlineMode` - Whether the user is currently in online mode.
 - `net.minecraft.client.server.IntegratedServer`
     - `applyDefaultGameMode` - Sets the default game mode and applies it to all players.
     - `setCommandsAllowedForAllPlayers` - Sets whether all players can run commands.
-    - `onPlayerListChanged` - If the player list changes, typically because of a new peer.
     - `getMultiplayerScope` - Gets the current scope of the server and who it's available for.
-    - `isPublishedOnline` - Whether the integrated server is available online for peer-to-peer communication.
-- `net.minecraft.client.telemetry`
-    - `TelemetryEventType`
-        - `P2P_CONNECTION` - Telementry event for a peer-to-peer connection.
-        - `selfTest` - Returns whether there are missing translations for the telementry event and properties.
-    - `TelemetryProperty#P2P_CONNECTION_*` - Properties indicating the peer-to-peer connection state.
-- `net.minecraft.client.telemetry.events.P2PTelemetryEvent` - The telemetry event for peer-to-peer connections.
 - `net.minecraft.network.Connection`
-    - `SECURE_TRANSPORT`, `isSecureTransport` - Whether the network requests should be transported securely.
-    - `isEncrypted` -> `isSecureTransport`, not one-to-one
+    - `isEncrypted` is removed
     - `fromChannel` - Creates a new connection from a channel.
     - `setIntendedProfileId`, `getIntendedProfileId` - Handles the profile UUID.
 - `net.minecraft.network.protocol.game.ClientboundLoginPacket#onlineMode` - If the user is trying to login to a peer-to-peer connection.
@@ -1829,8 +1820,9 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `createBed` - Creates a bed with variants for the head and foot.
     - `createSign` - Creates a sign with variants depending on rotation.
     - `$BlockFamilyProvider`
-        - `customHangingSign` - Sets the hanging sign block using a custom wall variant.
-        - `hangingSign` - Sets the hanging sign block.
+        - `customHangingSign` - Creates the hanging sign model using a custom wall variant.
+        - `hangingSign` - Creates the hanging sign model.
+        - `pillar` - Creates a rotated pillar with a horizontal variant model.
 - `net.minecraft.client.data.models.model`
     - `ModelTemplates`
         - `BED_HEAD`, `BED_FOOT` - Model templates for the bed parts.
@@ -1848,6 +1840,9 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `GeyserBaseParticle` - The base particle for a geyser.
     - `GeyserEruptionParticle` - The particle for when a geyser is erupting.
     - `GeyserPlumeParticle` - The particle for when a plume emanates from a geyser.
+- `net.minecraft.client.telemetry`
+    - `TelemetryEventType#selfTest` - Returns whether there are missing translations for the telementry event and properties.
+    - `TelemetryProperty#SERVER_SESSION_ID` - A property containing the server session UUID.
 - `net.minecraft.commands.arguments.selector.options`
     - `InvertableSetOptionState` - A parsed option state that represents a value that can include or exclude.
     - `SetOnceOptionState` - A parsed option state that can only be set once.
@@ -1863,11 +1858,14 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
         - `SULFUR`, `POLISHED_SULFUR`, `SULFUR_BRICKS` - Sulfur block variants.
         - `CINNABAR`, `POLISHED_CINNABAR`, `CINNABAR_BRICKS` - Cinnabar block variants.
     - `BlockFamily`
+        - `shouldGenerateSmeltingRecipe` - Whether smelting recipes should be generated for this family.
         - `$Builder`
             - `customHangingSign` - Sets the hanging sign block using a custom wall variant.
             - `hangingSign` - Sets the hanging sign block.
             - `log` - Sets the log block.
             - `strippedLog` - Sets the stripped log block.
+            - `pillar` - Sets the pillar block.
+            - `dontGenerateSmeltingRecipe` - Prevents any smelting recipes from generating for this family.
         - `$Variant`
             - `CUSTOM_HANGING_SIGN` - A custom hanging sign variant.
             - `HANGING_SIGN` - A hanging sign variant.
@@ -1875,7 +1873,13 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
             - `STRIPPED_LOG` - A stripped log variant.
             - `CUSTOM_WALL_HANGING_SIGN` - A custom hanging wall sign variant.
             - `WALL_HANGING_SIGN` - A hanging wall sign variant.
+            - `PILLAR` - A pillar variant.
             - `getBaseVariantForCrafting` - Gets the base variant used for crafting this variant.
+            - `getPrefixedRecipeGroup` - Returns the recipe group with the given prefix.
+- `net.minecraft.data.recipes.RecipeProvider`
+    - `pillarBuilder` - Creates the basic recipe builder for a pillar variant.
+    - `generateSmeltingRecipe` - Generates the smelting recipe for the cracked and cobbled variants.
+    - `getCraftingCriterionName` - Returns the crafting criterion name the given family variant.
 - `net.minecraft.data.worldgen`
     - `BiomeDefaultFeatures#addSulfurCavesFeatures` - Features for the sulfur caves biome.
     - `TerrainProvider#peaksAndValleys` - Calculates the peaks and valleys scalar given the weirdness.
@@ -1885,11 +1889,21 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `TestEnvironmentDefinition$Difficulty` - A test environment that sets the world difficulty.
 - `net.minecraft.locale.Language#DEFAULT_INSTANCE` - The default language instance.
 - `net.minecraft.nbt.NbtOps#getBooleanValue` - Gets the `boolean` result from the given `Tag`.
-- `net.minecraft.server.MinecraftServer#SERVER_THREAD_NAME` - The name of the server thread.
+- `net.minecraft.server.MinecraftServer`
+    - `SERVER_THREAD_NAME` - The name of the server thread.
+    - `getCommandSpamThresholdSeconds` - The number of commands the user must send to be flagged as spam, decreasing once per second.
+    - `getChatSpamThresholdSeconds` - The number of messages the user must send to be flagged as spam, decreasing once per second.
+- `net.minecraft.server.dedicated.DedicatedServerProperties`
+    - `commandSpamThresholdSeconds` - The number of commands the user must send to be flagged as spam, decreasing once per second.
+    - `chatSpamThresholdSeconds` - The number of messages the user must send to be flagged as spam, decreasing once per second.
 - `net.minecraft.server.jsonrpc`
     - `JsonRpc` - A utility for constructing the `ManagementServer`.
     - `ManagementServer#scheduleHeartbeat` - Sets the number of seconds between each heartbeat check.
-- `net.minecraft.server.level.WorldGenRegion#isWithinWriteZone` - If the given position is within the write radius of the region.
+- `net.minecraft.server.level`
+    - `ChunkMap#hasEntityWithId` - Whether the chunk contains an entity with the given network identifier.
+    - `ServerChunkCache#hasEntityWithId` - Whether the chunk contains an entity with the given network identifier.
+    - `WorldGenRegion#isWithinWriteZone` - If the given position is within the write radius of the region.
+- `net.minecraft.server.network.ServerConnectionListener#getSessionId` - Returns the session UUID of the server.
 - `net.minecraft.server.notifications.NotificationManager#setServer`, `server` - Handles the `DedicatedServer` consuming the `NotificationManager`
 - `net.minecraft.server.players.PlayerList#getPlayersByUUID` - Gets a map of UUID to their players.
 - `net.minecraft.util`
@@ -1907,12 +1921,14 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
 - `net.minecraft.util.profiling.jfr.stats.ThreadAllocationStat#LOGGER` - The stat logger.
 - `net.minecraft.util.profiling.metrics.MetricSampler#samplingPhase`, `$MetricSamplerBuilder#withSamplingPhase`, `$SamplingPhase` - The phase when the metric sampling should occur.
 - `net.minecraft.util.profiling.metrics.profiling.MetricsRecorder#sampleDuringExtract` - Samples the metrics, marking the phase as during render state extraction.
+- `net.minecraft.world.attribute.LerpFunction#CONSTANT` - A function that returns the original value, only returning the next value once the alpha is `1`.
 - `net.minecraft.world.entity`
     - `AgeableMob#canBeABaby` - Whether the mob can have a baby variant.
     - `Entity`
         - `DEFAULT_NAME_TAG_DISTANCE` - The default maximum distance an entity name tag can be seen from.
         - `DEFAULT_BELOW_NAME_DISTANCE` - The default maximum distance that additional name tag information on an entity can be seen from.
         - `MAX_NAME_TAG_DISTANCE` - The true maximum distance a name tag can be seen from.
+        - `INVALID_ENTITY_ID` - A network identifier that is invalid for an entity.
         - `getEntityBounciness` - How bouncy the entity is after a collision.
         - `getEffectiveGravity` - Gets the gravity currently being applied to the entity.
         - `omnidirectionalAirMover` - Whether the entity can omnidirectionally move in the air.
@@ -1954,12 +1970,16 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `Drowned#isSearchingForLand` - If the drowned is searching for land.
     - `ZombieVillager#getVillagerDataFinalized`, `setVillagerDataFinalized` - Handles whether the villager data has been finalized, typically after conversion.
 - `net.minecraft.world.entity.monster.npc.Villager#getVillagerDataFinalized`, `setVillagerDataFinalized` - Handles whether the villager data has been finalized, typically after conversion.
+- `net.minecraft.world.inventory.Slot#safeClone` - Safely clones the item in the slot, typically with the max stack size for the associated container input.
 - `net.minecraft.world.item`
     - `BucketItem#getFluidContext` - Gets the fluid clip context based on its contents
     - `DyeColor#getTerracottaColor` - The `MapColor` of a terracotta block dyed this color.
 - `net.minecraft.world.level`
+    - `BaseSpawner#SET_DISPLAY_ENTITY_ID` - Sets the entity id to `-1`.
     - `ChunkPos#fromSectionNode` - Packs a packed section position into a chunk position.
-    - `Level#ACROSS_THE_WHOLE_WORLD` - The maximum diameter of a level.
+    - `Level`
+        - `ACROSS_THE_WHOLE_WORLD` - The maximum diameter of a level.
+        - `getNextEntityId` - Returns the next free entity network identifier.
     - `SignalGetter#getBestOwnOrNeighbourSignal` - Returns the best redstone signal from the current block position or its surrounding neighbors.
 - `net.minecraft.world.level.block`
     - `CopperChestBlock#getHingeSound` - Gets the hinge sound to play based on the current state of the chest.
@@ -1969,6 +1989,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `SulfurSpikeBlock` - A sulfur spike speleothem.
     - `WeatheringCopper$WeatherState#forEach` - Loops through the available weather states.
 - `net.minecraft.world.level.block.entity`
+    - `BeaconBlockEntity#validateEffects` - Validates that the primary and secondary mob effects can be set for the given beacon level.
     - `BlockEntityTicker#andThen` - Chains two tickers together.
     - `DecoratedPotPatterns#itemToPatternMappings` - Operates on the keys for an item and its associated pot pattern.
     - `PotentSulfurBlockEntity` - A sulfur block entity that can apply noxious gas effects.
@@ -1993,6 +2014,9 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
 - `net.minecraft.world.level.levelgen.feature.configurations`
     - `TemplateFeatureConfiguration` - A configuration for the `TemplateFeature`.
     - `WeightedRandomFeatureConfiguration` - A configuration for the `WeightedRandomSelectorFeature`.
+- `net.minecraft.world.level.levelgen.presets.WorldPresets$Bootstrap`
+    - `makeNether` - Sets the `ChunkGenerator` for the nether dimension.
+    - `makeEnd` - Sets the `ChunkGenerator` for the end dimension.
 - `net.minecraft.world.level.levelgen.structure.templatesystem`
     - `RuleTest#testAgainstWorldState` - Tests the `BlockState` at the given `BlockPos` in the world.
     - `StructureProcessor#evaluatesEntirePieceState` - Whether the structure can process outside of the current chunk.
@@ -2048,6 +2072,9 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
         - `$MouseButton` can now only target `ElementType#TYPE_USE`
 - `net.minecraft.client.multiplayer.ClientChunkCache#getLoadedEmptySections` split into `addedEmptySections`, `removedEmptySections`
 - `net.minecraft.client.multiplayer.resolver.ServerAddress#parsePort` is now `public` from package-private
+- `net.minecraft.client.telemetry`
+    - `ClientTelemetryManager#createWorldSessionManager` now takes in the session UUID
+    - `WorldSessionTelemetryManager` now takes in the session UUID
 - `net.minecraft.commands.arguments.ColorArgument` -> `TeamColorArgument`
 - `net.minecraft.commands.arguments.selector.EntitySelectorParser`
     - `hasNameEquals`, `setHasNameEquals`, `hasNameNotEquals`, `setHasNameNotEquals` -> `nameOption`, not one-to-one
@@ -2087,6 +2114,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `GamePacketTypes#SERVERBOUND_SPECTATE_ENTITY` -> `SERVERBOUND_SPECTATOR_ACTION`
     - `ServerboundSpectateEntityPacket` -> `ServerboundSpectatorActionPacket`, not one-to-one
     - `ServerGamePacketListener#handleSpectateEntity` -> `handleSpectatorAction`
+- `net.minecraft.network.protocol.login.ClientboundLoginFinishedPacket` now takes in the session UUID
 - `net.minecraft.server`
     - `Bootstrap#getMissingTranslations` now takes in a `Language`
     - `MinecraftServer` now takes in the `NotificationManager`
@@ -2106,6 +2134,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
         - `anyPlayerCloseEnoughForSpawning`, `anyPlayerCloseEnoughTo` are now `public` from package-private
     - `ChunkTrackingView#squareIntersects` is now package-private from `protected`
     - `LoadingChunkTracker` class is now `public` from package-private
+    - `PlayerSpawnFinder#getOverworldRespawnPos` -> `getLevelRespawnPos`
     - `ServerEntityGetter#getNearestEntity` now has an overload that takes in the list of `Entity`s to loop through along with the center position as three `double`s
     - `TicketType$Usage` can now only target `ElementType#TYPE_USE`
 - `net.minecraft.server.packs.resources.FallbackResourceManager$EntryStack` constructor is now `public` from package-private
@@ -2226,6 +2255,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `Slime` -> `.monster.cubemob.Slime`
         - The class now extends `AbstractCubeMob` and implements `Enemy`
     - `Strider$StriderPathNavigation` constructor is now `public` from package-private
+    - `Vex` now implements `OwnableEntity`
 - `net.minecraft.world.entity.monster.breeze.BreezeAi#updateActivity` is now `public` from package-private
 - `net.minecraft.world.entity.monster.creaking.Creaking$CreakingPathNavigation` constructor is now `public` from package-private
 - `net.minecraft.world.entity.monster.skeleton.AbstractSkeleton#getStepSound` is now `protected` from package-private
@@ -2238,6 +2268,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
 - `net.minecraft.world.entity.vehicle.minecart.NewMinecartBehavior$TrackIteration` fields are now `public` from package-private
 - `net.minecraft.world.inventory`
     - `AbstractFuranceMenu` no longer takes in the `RecipeType`
+    - `BeaconMenu#updateEffects` now returns a `boolean` of whether the effects were successfully set.
     - `ArmSlot` class is now `public` from package-private
 - `net.minecraft.world.item`
     - `BucketItem#content` is now `protected` from `private`
@@ -2383,6 +2414,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `VegetationPatchConfiguration` is now a `record`
         - `replaceable` now takes in a `HolderSet` of `Block`s instead of the referenced `TagKey`
 - `net.minecraft.world.level.levelgen.flat.FlatLayerInfo` now has an overload that takes in a holder-wrapped `Block`
+- `net.minecraft.world.level.levelgen.presets.WorldPresets#createFlatWorldDimensions` -> `createTestWorldDimensions`
 - `net.minecraft.world.level.levelgen.structure.structures.RuinedPortalPiece` now takes in the `HolderLookup$Provider` of registries
     - The other constructor now takes in a `StructurePieceSerializationContext` instead of the `StructureTemplateManager`
     - `$Properties` is now a `record`
@@ -2398,6 +2430,7 @@ Vanilla has now introduced a Peer-to-Peer (P2P) system, allowing users to open s
     - `SkyLightEngine` constructor is now package-private from `protected`
     - `SpatialLongSet$InternalMap` is now package-private from `protected`
 - `net.minecraft.world.level.redstone.CollectingNeighborUpdater$MultiNeighborUpdate` constructor is now `public` from package-private
+- `net.minecraft.world.level.storage.LevelStorageException` now has an overload that takes in the `Exception` cause
 - `net.minecraft.world.level.storage.loot.entries`
     - `AlternativesEntry` constructor is now `public` from package-private
     - `ComposableEntryContainer` interface is now `public` from package-private
