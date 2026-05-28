@@ -1914,10 +1914,13 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
         - `asSampler` - Returns the sampler for the spine.
         - `$Multipoint#codec` - Gets the codec for the spline.
     - `ExtraCodecs#optionalAlwaysPresentFieldOf` - Constructs a optional `MapCodec` that, while should be present, can default to the specified value.
+    - `TimeSource#constant` - A source that always returns the given `long` value.
     - `Util`
         - `CONTROL_CHARACTER_ESCAPER` - An escaper for control characters.
         - `join` - Flattens lists of elements into a single list.
         - `dumpThreadInfo` - Dumps the info for all live platform threads.
+        - `timeSource`, `setTimeSource` - Handles the source keeping track of the time.
+        - `shutdownTimeSource` - Sets the source to return the time of shutdown.
 - `net.minecraft.util.profiling.jfr.stats.ThreadAllocationStat#LOGGER` - The stat logger.
 - `net.minecraft.util.profiling.metrics.MetricSampler#samplingPhase`, `$MetricSamplerBuilder#withSamplingPhase`, `$SamplingPhase` - The phase when the metric sampling should occur.
 - `net.minecraft.util.profiling.metrics.profiling.MetricsRecorder#sampleDuringExtract` - Samples the metrics, marking the phase as during render state extraction.
@@ -1958,6 +1961,7 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
         - `isInShallowFluid` - Whether the fluid covering the entity is less than the jump threshold.
     - `Mob#TAG_PERSISTENCE_REQUIRED` - A tag that marks whether the entity should be persisted.
     - `MobCategory#getDebugAbbreviation` - An abbreviation of the category when looking through one of the debug menus.
+    - `PostSpawnProcessor` - A consumer that modifies the entity data after spawning into the level.
 - `net.minecraft.world.entity.ai.navigation.PathNavigation#getMaxVerticalDistanceToWaypoint` - Gets the maximum vertical distance from the current node the entity pathfinding through.
 - `net.minecraft.world.entity.animal.turtle.Turtle#getHomePos` - Gets the home position of the turtle.
 - `net.minecraft.world.entity.item.PrimedTnt`
@@ -1969,7 +1973,14 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
 - `net.minecraft.world.entity.monster.zombie`
     - `Drowned#isSearchingForLand` - If the drowned is searching for land.
     - `ZombieVillager#getVillagerDataFinalized`, `setVillagerDataFinalized` - Handles whether the villager data has been finalized, typically after conversion.
-- `net.minecraft.world.entity.monster.npc.Villager#getVillagerDataFinalized`, `setVillagerDataFinalized` - Handles whether the villager data has been finalized, typically after conversion.
+- `net.minecraft.world.entity.monster.npc`
+    - `VillagerData#DEFAULT_TYPE` - The key of the default villager type.
+    - `VillagerDataHolder`
+        - `getVillagerDataFinalized`, `setVillagerDataFinalized` - Handles whether the villager data has been finalized, typically after conversion.
+        - `finalizeVillagerType` - Finalizes the villager type after spawning into the world.
+- `net.minecraft.world.entity.player.Inventory`
+    - `getSelectedSlotDeferred`, `setSelectedSlotDeferred` - Handles slot selection in a deferred manner, only truly selecting after `applySelectedSlot`.
+    - `applySelectedSlot` - Sets the deferred slot to the selected slot.
 - `net.minecraft.world.inventory.Slot#safeClone` - Safely clones the item in the slot, typically with the max stack size for the associated container input.
 - `net.minecraft.world.item`
     - `BucketItem#getFluidContext` - Gets the fluid clip context based on its contents
@@ -2161,6 +2172,7 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
     - `NativeModuleLister`
         - `tryGetVersion` -> `tryGetModuleVersion`, now `public` from `private`
         - `$NativeModuleInfo`, `$NativeModuleVersion` are now `record`s
+    - `Util#timeSource` is now `private` from `public`
 - `net.minecraft.util.filefix.access.ChunkNbt#updateChunk` now returns a `CompletableFuture`
 - `net.minecraft.util.filefix.virtualfilesystem.DirectoryNode` constructor is now `public` from package-private
 - `net.minecraft.util.profiling.TracyZoneFiller$PlotAndValue#set`, `add` are now `public` from package-private
@@ -2187,7 +2199,13 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
     - `Entity`
         - `collideBoundingBox` now has an overload that takes in a `CollisionContext` instead of an `Entity`
         - `$Flags` can now only target `ElementType#TYPE_USE`
-    - `EntityType`, `$Builder#immuneTo` now takes in a `TagKey` instead of a `ImmutableSet` for the blocks the entity is immune to damage from
+    - `EntityType`
+        - `immuneTo`, `$Builder#immuneTo` now take in a `TagKey` instead of a `ImmutableSet` for the blocks the entity is immune to damage from
+        - `createDefaultStackConfig` now returns a `PostSpawnProcessor` instead of a `Consumer`
+        - `appendDefaultStackConfig` now deals with `PostSpawnProcessor`s instead of `Consumer`s
+        - `appendComponentsConfig` now deals with `PostSpawnProcessor`s instead of `Consumer`s
+        - `appendCustomEntityStackConfig` now deals with `PostSpawnProcessor`s instead of `Consumer`s
+        - `spawn`, `create` now take in a `PostSpawnProcessor` instead of a `Consumer`
     - `Leashable$Wrench`
         - `ZERO` is now `public` from package-private
         - `torqueFromForce`, `accumulate` are now `public` from package-private
@@ -2533,6 +2551,9 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
         - `currentExplosionCause`
     - `Mob#setBodyArmorItem`
 - `net.minecraft.world.entity.ai.navigation.GroundPathNavigation#hasValidPathType`
+- `net.minecraft.world.entity.npc.villager.Villager`
+    - `Villager(EntityType, Level, ResourceKey)`
+    - `Villager(EntityType, Level, Holder)`
 - `net.minecraft.world.level.block.entity`
     - `BedBlockEntity`
     - `DecoratedPotPatterns#getPatternFromItem`
