@@ -327,11 +327,14 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `alwaysCreateFreshImmediateBuffer` is removed
     - `GpuDeviceLossException` - An exception thrown if the backing GPU device crashes or becomes unresponsive.
     - `GpuFormat` - An object representing the format and color components of a pixel.
+        - `$ComponentType` - An enum representing the pixel format and its associated byte size.
 - `com.mojang.blaze3d.audio.OpenAlUtil#checkALError`, `checkALCError`, `audioFormatToOpenAl` are now `public` from package-private
-- `com.mojang.blaze3d.buffers.GpuBuffer`
-    - `USAGE_INDIRECT_PARAMETERS` - A flag that indicates the buffer can be used in indirect draw and compute dispatch calls.
-    - `$MappedView` -> `GpuBufferSlice$MappedView`, not one-to-one
-    - `$Usage` can now only target `ElementType#TYPE_USE`
+- `com.mojang.blaze3d.buffers`
+    - `GpuBuffer`
+        - `USAGE_INDIRECT_PARAMETERS` - A flag that indicates the buffer can be used in indirect draw and compute dispatch calls.
+        - `$MappedView` -> `GpuBufferSlice$MappedView`, not one-to-one
+        - `$Usage` can now only target `ElementType#TYPE_USE`
+    - `GpuFence#awaitCompletion` now takes in a nanosecond timeout instead of a millisecond timeout
 - `com.mojang.blaze3d.opengl`
     - `BufferStorage`
         - `mapBuffer` replaced by `GpuBuffer#map`, `GpuBufferSlice#map`; not one-to-one
@@ -365,6 +368,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `GL_DEPTH_TEXTURE_MODE`, `GL_ALPHA_BIAS` are removed
         - `toGl(DestFactor)`, `toGl(SourceFactor)` -> `toGl(BlendFactor)`
         - `toGl` now has an overload taking the in the `BlendOp` to map
+        - `toGl(NativeImage$Format)` is removed
         - `glFormatChannelCount` - Returns the number of channels the format has.
         - `isGlFormatInteger` - Returns whether the format is backed by an integer-like data type.
         - `isFormatNormalized` - Returns whether the format uses normalized data.
@@ -448,6 +452,8 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `getGlfwPlatform` - Returns the currently selected platform.
     - `InputConstants$Value` can now only target `ElementType#TYPE_USE`
     - `MacosUtil#setWindowColorSpaceForOpenGLBecauseGLFWDoesnt` - Sets the window color space.
+    - `Monitor#refreshVideoModes` is removed
+    - `NativeImage#getPixelBytes` - Gets a buffer of the pixels in the image.
     - `NativeLibrariesBootstrap` - A bootstrap for validating and loading the required native libraries.
     - `TextureUtil#writeAsPNG` now only allows `RGBA8_UNORM` formatted textures to be written to disk.
     - `Window#updateVsync` is removed
@@ -476,6 +482,10 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `clearColorTexture`, `clearColorAndDepthTextures` now take in an optional `Vector4fc` instead of an `int` for the clear color
         - `mapBuffer` replaced by `GpuBuffer#map`, `GpuBufferSlice#map`
         - `transientMemory` - Gets the transient memory of the encoder.
+        - `writeToTexture` overload
+            - No longer takes in the width, height, and source XY of the image
+            - No longer takes in the `NativeImage$Format`
+        - `copyBufferToTexture` - Copies the buffer slice with the given parameters to the destination texture.
     - `CommandEncoderBackend`
         - `isInRenderPass` -> `CommandEncoder#isInRenderPass`, now `protected` from `public`
         - `submitRenderPass` - Submits the current render pass, handled as part of the try-with-resources.
@@ -485,6 +495,9 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `clearColorTexture`, `clearColorAndDepthTextures` now take in an optional `Vector4fc` instead of an `int` for the clear color
         - `mapBuffer` replaced by `GpuBuffer#map`, `GpuBufferSlice#map`
         - `transientMemory` - Gets the transient memory of the encoder.
+        - `writeToTexture(GpuTexture, ByteBuffer, NativeImage.Format, int, int, int, int, int, int)` is removed
+            - Original method no longer takes in the source XY and swaps the `NativeImage` for a `ByteBuffer`
+        - `copyBufferToTexture` - Copies the buffer slice with the given parameters to the destination texture.
     - `DeviceFeatures` - A record containing the features that the GPU device supports.
     - `DeviceInfo` - A record containing information about the GPU device.
     - `DeviceLimits` - A record containing information about the limits of GPU features.
@@ -821,7 +834,12 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `addMessage` - Creates a new `MultiLineTextWidget` with the screen fields.
     - `Overlay#isPauseScreen` -> `isPausing`
     - `Screen#panoramaShouldSpin` replaced by `Panorama#startSpin`, `holdSpin`; not one-to-one
-- `net.minecraft.client.gui.screens.advancements.AdvancementTabType` enum is now `public` from package-private
+- `net.minecraft.client.gui.screens.advancements`
+    - `AdvancementsScreen#extractWindow` no longer takes in the XY position to place
+    - `AdvancementTab`
+        - `tick` - Ticks the tab display based on the mouse's relative position.
+        - `extractTooltips` no longer takes in the mouse XY
+    - `AdvancementTabType` enum is now `public` from package-private
 - `net.minecraft.client.gui.screens.inventory`
     - `AbstractCommandBlockEditScreen`
         - `getCommandBlock` is now `protected` from package-private
@@ -1813,6 +1831,7 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
         - `getProfileResult` - Gets the loaded profile of the user, or `null`.
         - `getMetricsRecorder` - Gets the recorder for the game metrics.
         - `showDebugChat` - Displays a client system message.
+    - `KeyMapping#hasBindingOutsideCategory` - Whether a given key is bound in outside the specified category.
     - `OptionInstance`
         - `NO_ACTION` - A listener that ignores the changed value.
         - `$ValueUpdateListener` - A listener that handles what to do when an option value is changed.
@@ -1843,6 +1862,7 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
 - `net.minecraft.client.telemetry`
     - `TelemetryEventType#selfTest` - Returns whether there are missing translations for the telementry event and properties.
     - `TelemetryProperty#SERVER_SESSION_ID` - A property containing the server session UUID.
+- `net.minecraft.client.telemetry.events.WorldLoadEvent#wasSent` - Whether the event was sent.
 - `net.minecraft.commands.arguments.selector.options`
     - `InvertableSetOptionState` - A parsed option state that represents a value that can include or exclude.
     - `SetOnceOptionState` - A parsed option state that can only be set once.
@@ -1937,7 +1957,9 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
         - `omnidirectionalAirMover` - Whether the entity can omnidirectionally move in the air.
         - `getAirDrag` - The drag applied to an entity when traveling through the air.
         - `syncPosition` - When true, tells the server entity to sync this entity's position.
+        - `isInvulnerableToPiercingWeapon` - If the entity is invulnerable to damage from a piercing weapon.
     - `EntityEvent#TNT_PRIME` - An event id for when a TNT is primed.
+    - `EntitySpawnRequest` - An object containing the spawn reason and whether to ignore any requirements for spawning.
     - `EntityType#canSpawn` - Checks whether the entity can spawn in the given level.
     - `LivingEntity`
         - `BASE_HORIZONTAL_AIR_DRAG` - The base drag when within the air.
@@ -1978,9 +2000,6 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
     - `VillagerDataHolder`
         - `getVillagerDataFinalized`, `setVillagerDataFinalized` - Handles whether the villager data has been finalized, typically after conversion.
         - `finalizeVillagerType` - Finalizes the villager type after spawning into the world.
-- `net.minecraft.world.entity.player.Inventory`
-    - `getSelectedSlotDeferred`, `setSelectedSlotDeferred` - Handles slot selection in a deferred manner, only truly selecting after `applySelectedSlot`.
-    - `applySelectedSlot` - Sets the deferred slot to the selected slot.
 - `net.minecraft.world.inventory.Slot#safeClone` - Safely clones the item in the slot, typically with the max stack size for the associated container input.
 - `net.minecraft.world.item`
     - `BucketItem#getFluidContext` - Gets the fluid clip context based on its contents
@@ -2086,6 +2105,7 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
 - `net.minecraft.client.telemetry`
     - `ClientTelemetryManager#createWorldSessionManager` now takes in the session UUID
     - `WorldSessionTelemetryManager` now takes in the session UUID
+- `net.minecraft.client.telemetry.events.WorldLoadEvent#send` now takes in a `boolean` for whether to attempt to send the event even if the server brand is null
 - `net.minecraft.commands.arguments.ColorArgument` -> `TeamColorArgument`
 - `net.minecraft.commands.arguments.selector.EntitySelectorParser`
     - `hasNameEquals`, `setHasNameEquals`, `hasNameNotEquals`, `setHasNameNotEquals` -> `nameOption`, not one-to-one
@@ -2206,6 +2226,10 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
         - `appendComponentsConfig` now deals with `PostSpawnProcessor`s instead of `Consumer`s
         - `appendCustomEntityStackConfig` now deals with `PostSpawnProcessor`s instead of `Consumer`s
         - `spawn`, `create` now take in a `PostSpawnProcessor` instead of a `Consumer`
+        - `create` now has an overload that takes in an `EntitySpawnRequest` instead of an `EntitySpawnReason`
+        - `create(ValueInput, Level, EntitySpawnReason)` -> `create(ValueInput, Level, EntitySpawnRequest)`
+        - `loadEntityRecursive` can now take in an `EntitySpawnRequest` instead of an `EntitySpawnReason`
+        - `loadPassengersRecursive` can now take in an `EntitySpawnRequest` instead of an `EntitySpawnReason`
     - `Leashable$Wrench`
         - `ZERO` is now `public` from package-private
         - `torqueFromForce`, `accumulate` are now `public` from package-private
