@@ -363,7 +363,8 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `finishRenderPass` -> `CommandEncoder#submitRenderPass`
         - `executeDraw` now takes takes in an `int` for the first instance used for fetching vertex attributes
         - `executeDrawIndirect` - Executes the draw call using the indirect API.
-        - `executeDraws` - Executes a multi-draw call. 
+        - `executeDraws` - Executes a multi-draw call.
+        - `presentTexture` now takes in the swapchain width and height `int`s 
     - `GlConst`
         - `GL_DEPTH_TEXTURE_MODE`, `GL_ALPHA_BIAS` are removed
         - `toGl(DestFactor)`, `toGl(SourceFactor)` -> `toGl(BlendFactor)`
@@ -452,12 +453,24 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `getGlfwPlatform` - Returns the currently selected platform.
     - `InputConstants$Value` can now only target `ElementType#TYPE_USE`
     - `MacosUtil#setWindowColorSpaceForOpenGLBecauseGLFWDoesnt` - Sets the window color space.
-    - `Monitor#refreshVideoModes` is removed
+    - `Monitor` is now a record, taking in the `String` monitor name
+        - Original constructor behavior is handled through `Monitor#tryCreate`
+        - `refreshVideoModes` is removed
+        - `getVideoModeIndex` -> `indexOfMode`
+        - `getCurrentMode` is removed
+        - `getX`, `getY` -> `x`, `y`
+        - `getMode` -> `mode`
+        - `getModeCount` -> `modeCount`
+        - `getMonitor` is removed
+    - `MonitorCreator` interface is removed
+        - Use `Monitor#tryCreate` instead
     - `NativeImage#getPixelBytes` - Gets a buffer of the pixels in the image.
     - `NativeLibrariesBootstrap` - A bootstrap for validating and loading the required native libraries.
+    - `ScreenManager` -> `MonitorManager`, not one-to-one
     - `TextureUtil#writeAsPNG` now only allows `RGBA8_UNORM` formatted textures to be written to disk.
-    - `Window#updateVsync` is removed
-        - Usage replaced by `Window#setMode` and `WindowEventHandler#framebufferSizeChanged`
+    - `Window` now takes in a `boolean` for whether to use exclusive fullscreen and the `MonitorManager`
+        - `updateVsync` is removed
+            - Usage replaced by `Window#setMode` and `WindowEventHandler#framebufferSizeChanged`
         - `isResized`, `resetIsResized` are removed
     - `WindowEventHandler#framebufferSizeChanged` - Handles when the window buffer size has changed.
 - `com.mojang.blaze3d.resource.RenderTargetDescriptor` now takes in a `Vector4fc` for the clear color instead of an `int`, and the `GpuFormat`
@@ -774,6 +787,9 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `DebugScreenOverlay#render3dCrosshair` is replaced by `DebugCrosshairRenderer`
     - `EditBox` now as an overload that defaults the width and height to 150x20
     - `FocusableTextWidget#setNarrateMessage`, `setUsageNarration` - Handles the display of the narration text.
+    - `OptionsList`
+        - `addBig` now has an overload that takes in an `AbstractWidget`
+        - `Entry$big` now has an overload that takes in an `AbstractWidget` and the current `Screen`
     - `PlayerTabOverlay` now takes in the `Hud` instead of the `Gui`
     - `ScrollableLayout` now hsa an overload that allows setting the `ScrollableLayout$ReserveStrategy`
         - `setScrollbarSpacing` - Sets the spacing of the scrollbar.
@@ -832,6 +848,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `ConfirmScreen`
         - `message` is now `protected` from `private`
         - `addMessage` - Creates a new `MultiLineTextWidget` with the screen fields.
+    - `OptionsScreen` no longer implements `HasDifficultyReaction`
     - `Overlay#isPauseScreen` -> `isPausing`
     - `Screen#panoramaShouldSpin` replaced by `Panorama#startSpin`, `holdSpin`; not one-to-one
 - `net.minecraft.client.gui.screens.advancements`
@@ -872,6 +889,11 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `BreakingItemParticle$SulfurCubeProvider` - A breaking item particle provider for the sulfur cube.
     - `NoxiousGasCloudParticle` - A particle for the noxious gas cloud.
     - `NoxiousGasParticle` - A particle for the noxious gas.
+    - `ParticleEngine#getRandom` - Returns the random source of the particle engine.
+    - `ParticleGroup`
+        - `add` now returns whether the particle was successfully added
+        - `getAll` is removed
+    - `ParticleRenderType` now takes in an additional shorthand `String`
     - `SulfurBubbleParticle` - A particle for the sulfur bubbles.
 - `net.minecraft.client.profiling.ClientMetricsSamplersProvider` now takes in a `LevelExtractor`
 - `net.minecraft.client.renderer`
@@ -1751,9 +1773,12 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
     - `RemoteFriendListUpdateHandler` - A handler for capturing the current state of the user's friends in-game.
 - `net.minecraft.client.multiplayer.ClientPacketListener#onlineMode` - Whether the user is currently in online mode.
 - `net.minecraft.client.server.IntegratedServer`
-    - `applyDefaultGameMode` - Sets the default game mode and applies it to all players.
-    - `setCommandsAllowedForAllPlayers` - Sets whether all players can run commands.
+    - `setWorldGameType` - Sets the default game mode and applies it to the players.
+    - `setGameTypeForOtherPlayers`, `getGameTypeForOtherPlayers` - Handles the game mode for the players that do not host the server.
+    - `setWorldAllowCommands` - Sets whether players can run commands.
+    - `commandsAllowedForOtherPlayers`, `setCommandsAllowedForOtherPlayers` - Handles whether players that do not host the server are allowed to run commands.
     - `getMultiplayerScope` - Gets the current scope of the server and who it's available for.
+    - `publishServer` - Publishes the singleplayer server for the given scope at the specified port.
 - `net.minecraft.network.Connection`
     - `isEncrypted` is removed
     - `fromChannel` - Creates a new connection from a channel.
@@ -1804,6 +1829,8 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
     - `causes_continuous_geyser_eruptions`
 - `minecraft:damage_type`
     - `sulfur_cube_with_block_immune_to`
+- `minecraft:entity_type`
+    - `not_affected_by_geysers`
 - `minecraft:item`
     - `glazed_terracotta`
     - `concrete`
@@ -1831,7 +1858,7 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
         - `getProfileResult` - Gets the loaded profile of the user, or `null`.
         - `getMetricsRecorder` - Gets the recorder for the game metrics.
         - `showDebugChat` - Displays a client system message.
-    - `KeyMapping#hasBindingOutsideCategory` - Whether a given key is bound in outside the specified category.
+        - `handleGlobalKeyPress` - Handles a global keymapping.
     - `OptionInstance`
         - `NO_ACTION` - A listener that ignores the changed value.
         - `$ValueUpdateListener` - A listener that handles what to do when an option value is changed.
@@ -2002,7 +2029,8 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
         - `finalizeVillagerType` - Finalizes the villager type after spawning into the world.
 - `net.minecraft.world.inventory.Slot#safeClone` - Safely clones the item in the slot, typically with the max stack size for the associated container input.
 - `net.minecraft.world.item`
-    - `BucketItem#getFluidContext` - Gets the fluid clip context based on its contents
+    - `BucketItem#getFluidContext` - Gets the fluid clip context based on its contents.
+    - `ItemStackTemplate#fromStack` - Creates the template directly from the stack.
     - `DyeColor#getTerracottaColor` - The `MapColor` of a terracotta block dyed this color.
 - `net.minecraft.world.level`
     - `BaseSpawner#SET_DISPLAY_ENTITY_ID` - Sets the entity id to `-1`.
@@ -2010,6 +2038,7 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
     - `Level`
         - `ACROSS_THE_WHOLE_WORLD` - The maximum diameter of a level.
         - `getNextEntityId` - Returns the next free entity network identifier.
+    - `LevelSettings#withAllowCommands` - Whether to allow commands in the level.
     - `SignalGetter#getBestOwnOrNeighbourSignal` - Returns the best redstone signal from the current block position or its surrounding neighbors.
 - `net.minecraft.world.level.block`
     - `CopperChestBlock#getHingeSound` - Gets the hinge sound to play based on the current state of the chest.
@@ -2050,6 +2079,9 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
 - `net.minecraft.world.level.levelgen.structure.templatesystem`
     - `RuleTest#testAgainstWorldState` - Tests the `BlockState` at the given `BlockPos` in the world.
     - `StructureProcessor#evaluatesEntirePieceState` - Whether the structure can process outside of the current chunk.
+- `net.minecraft.world.level.storage`
+    - `ServerLevelData#setAllowCommands` - Whether commands can be sent in the level.
+    - `WorldData#setAllowCommands` - Whether commands can be sent in the world.
 - `net.minecraft.world.level.storage.loot.LootPool#addAll` - Adds all pool entries.
 - `net.minecraft.world.phys.Vec2#rotate` - Rotates the vector the given angle in radians.
 - `net.minecraft.world.phys.shapes`
@@ -2078,6 +2110,7 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
         - `isMultiplayerServer` is now `public` from `private`
         - `getRunningThread` has been expanded to `public` from `protected`
         - `$GameLoadCookie` -> `GameLoadCookie`, now `public` from `private`
+    - `KeyMapping#matches` now has an overload that takes in an `InputConstants$Key`
     - `OptionInstance` constructor, `#createBoolean`, `createButton` now take in a `$ValueUpdateListener` instead of a consumer
         - `$CycleableValueSet` is now `public` from package-private
         - `$IntRangeBase` is now `public` from package-private
@@ -2238,8 +2271,8 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
         - `travelInFluid` is now `protected` from `private`
         - `collectEquipmentChanges` is now `protected` from `private`, taking in the map of slots to last equipment stacks
         - `blockUsingItem`, `blockedByItem` now take in the `DamageSource` and `float` damage
-        - `knockback` now takes in the `DamageSource` and `float` damage
-        - `causeExtraKnockback` now takes in the `DamageSource` and `float` damage
+        - `knockback` now takes in the `DamageSource` and `float` damage, and optionally whether the knockback was from some cause rather than a default application
+        - `causeExtraKnockback` now takes in the `DamageSource` and `float` damage, and optionally whether the knockback was from some cause rather than a default application
         - `getEquipmentSlotForItem`, `isEquippableInSlot` are no longer `final`
     - `MobCategory` now takes in a `String` for the debug abbreviation
 - `net.minecraft.world.entity.ai.behavior.AcquirePoi$JitteredLinearRetry` constructor is now `public` from package-private
