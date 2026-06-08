@@ -732,6 +732,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `SectionUpdateTracker` - A class for tracking whether a section needs to be updated.
 - `net.minecraft.client.color.block.BlockTintCache$LatestCacheInfo#x`, `z` are now `private` from `public`
 - `net.minecraft.client.gui`
+    - `ComponentPath#leafComponent` - The listener at the end of the component path branch.
     - `Font`
         - `drawInBatch` methods are removed
             - Replaced by `Font$PreparedText` and `Font$GlyphVisitor`
@@ -864,6 +865,9 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `AbstractContainerScreen#onMouseClickAction` is now `protected` from package-private
     - `AbstractSignEditScreen#getSignTextScale` now returns a `Vector3fc` instead of a `Vector3f`
 - `net.minecraft.client.gui.screens.multiplayer.ServerSelectionList$Entry#matches` is now `protected` from package-private
+- `net.minecraft.client.gui.screens.options.WorldOptionsScreen`
+    - `GAME_MODE_DISABLED_HARDCORE_TOOLTIP` - The component to display if the game mode cannot be changed.
+    - `ALLOW_COMMANDS_DISABLED_TOOLTIP` - The component to display if commands are disabled.
 - `net.minecraft.client.gui.screens.options.controls.KeyBindsList$Entry#refreshEntry` is now `public` from package-private
 - `net.minecraft.client.main.GameConfig$GameData` now takes in `boolean`s for whether to use the validation layers for Vulkan, and the graphics api forced by launch argument
     - `vulkanValidation` - Whether to use the validation layers for Vulkan.
