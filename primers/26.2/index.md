@@ -2177,6 +2177,7 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
     - `ReportGameListener` class is now `public` from package-private
     - `TestEnvironmentDefinition$Type#apply` is now `public` from package-private
 - `net.minecraft.nbt.CompoundTag#shallowCopy` is now package-private from `protected`
+- `net.minecraft.network.codec.ByteBufCodecs#collection` now has an overload that takes in the maximum size of the collection
 - `net.minecraft.network.protocol.game`
     - `ClientboundSetPlayerTeamPacket$Parameters` is now a record
     - `GamePacketTypes#SERVERBOUND_SPECTATE_ENTITY` -> `SERVERBOUND_SPECTATOR_ACTION`
