@@ -1989,6 +1989,7 @@ Vanilla has now integrated the Xbox friend list into the game, allowing users to
         - `getAirDrag` - The drag applied to an entity when traveling through the air.
         - `syncPosition` - When true, tells the server entity to sync this entity's position.
         - `isInvulnerableToPiercingWeapon` - If the entity is invulnerable to damage from a piercing weapon.
+        - `canBePickedFromInside` - Whether the entity can be picked when obstructing the player's eyes.
     - `EntityEvent#TNT_PRIME` - An event id for when a TNT is primed.
     - `EntitySpawnRequest` - An object containing the spawn reason and whether to ignore any requirements for spawning.
     - `EntityType#canSpawn` - Checks whether the entity can spawn in the given level.
