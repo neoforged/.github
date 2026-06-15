@@ -9,7 +9,7 @@ If there's any incorrect or missing information, please file an issue on this re
 Thank you to:
 
 - @RogueLogix for their comments on buffer mapping
-- @cassiancc for confirmation on P2P friends being Xbox friends
+- @cassiancc for confirmation on P2P friends being Xbox friends and more specific info on `TabNavigationBar` and `MenuTabBar`
 - @gigahertz for wording
 
 ## Pack Changes
@@ -813,6 +813,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `TabManager#setCurrentTab` now has an overload of whether to add the children widgets when set
     - `TabNavigationBar` now extends `AbstractContainerWidget` instead of `AbstractContainerEventHandler`
         - The constructor is now `protected` from `private`, taking in the XY, height, `TabButton`s and `Tab`s
+            - The original constructor is now the constructor for `MenuTabBar`
         - `layout` is now `protected` from `private`, a `FrameLayout` instead of a `LinearLayout`
         - `tabs`, `tabButtons` are now `protected` from `private`
         - `builder` now takes in the XY and height
@@ -824,6 +825,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
             - `height` - The height of the bar.
             - `tabButtons` - The buttons the user can click on to navigate.
             - `addTabs` now takes in a `TabButton` along with its `Tab` instead of only a varargs of `Tab`s
+                - The original method has been moved to `MenuTabBar$Builder#addTabs`, assuming the tab uses a `MenuTabBar$MenuTabButton`
 - `net.minecraft.client.gui.layouts.Layout#removeChildren` - Removes any children in the layout.
 - `net.minecraft.client.gui.font.FontTexture$Node#insert` is now `public` from package-private
 - `net.minecraft.client.gui.components.toasts.SystemToast`
