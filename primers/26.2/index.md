@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 Thank you to:
 
-- @RogueLogix for their reviews on the Blaze3d changes
+- @RogueLogix for reviews on the Blaze3d changes
 - @cassiancc for confirmation on P2P friends being Xbox friends and more specific info on `TabNavigationBar` and `MenuTabBar`
 - @gigahertz for wording
 
