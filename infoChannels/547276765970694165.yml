@@ -7,28 +7,31 @@
       Welcome to the official server of [The NeoForged Project](https://github.com/NeoForged)!
       Below you will find our general rules. We'd like if you'd first read the [Code of Conduct](https://github.com/neoforged/.github/blob/main/CODE_OF_CONDUCT.md) which Moderators will refer to when doing their duties.
     color: "#EC9A06"
-  - title: Rule 1. Do not DM anyone without asking for permission first
+  - title: Rule 1. Don't spam or send unwanted messages
     description: |-
-      Modding questions and/or requests will *not* be answered in DMs.
-      Make sure to ask people (preferably with a ping) before DMing them or sending them a friend request.
+      - Avoid repeated messages or messages with repeated content (eg. emoji spam).
+      - No advertising, including unprompted discord invites. Showcasing your mods is okay, though!
+      - Avoid sending unprompted private messages.
+      - Avoid unsolicited pings.
     color: "#BF69F8"
-  - title: Rule 2. No spamming
-    description: "This includes emojis, GIFs, many single word messages or advertisements."
-    color: "#E1ACFD"
-  - title: Rule 3. Please keep the channel topic in mind
-    description: "We understand that staying on topic is hard, but please at least\
-      \ try. There is lenience, but don't push it."
-    color: "#FBF1F6"
-  - title: Rule 4. Don't be a dick
+  - title: Rule 2. No NSFW
     description: |-
-      This includes pinging people that explicitly do not want to be pinged unnecessarily.
-      Do not insult people. Racism, transphobia or any form of bigotry will not be tolerated.
+      - No depictions of violence against people or animals.
+      - No sexually explicit or strongly sexually suggestive content.
+    color: "#E1ACFD"
+  - title: Rule 3. Stay legal, stay legit
+    description: |-
+      - Content that breaks the law, endorses breaking the law, or teaches others how to break the law, is strictly disallowed. Support for pirated versions of the game will not be provided.
+      - Do not share hacks or cheats, or information on how to use or develop hacks or cheats. We define hacks and cheats to mean anything intended and designed to provide unfair advantage in multiplayer scenarios.
+    color: "#FBF1F6"
+  - title: Rule 4. Treat others with respect. A.k.a. "Don't be a dick"
+    description: |-
+      - No hate speech, or content that is otherwise intended to harm, threatens harm or incites others to harm.
+      - No bigotry (racism, sexism, homophobia, or any other kind of discrimination based on people's appearance, identity, or beliefs).
+      - Do not attack other members, even people that you believe have caused you harm. The <@1129791987680288798> service is available to report things.
     color: "#C0DBE0"
-  - title: Rule 5. Do not promote or participate in illegal activities
-    description: Neither piracy nor scams are tolerated in this server.
-    color: "#DF7261"
-  - title: Rule 6.  Do not send content that is hateful or sexually explicit
-    description: This is not a NSFW server.
+  - title: Rule 5. Stay on topic
+    description: "- Be mindful of the topic of each channel. The <#313125603924639766> channel is available for general conversations about Minecraft and life, but <#540691915373412393> is a better fit for when the conversation is truly off-topic."
     color: "#F58F26"
 - content: _​_
   author:
