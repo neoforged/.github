@@ -8,7 +8,7 @@ If there's any incorrect or missing information, please file an issue on this re
 
 Thank you to:
 
-- @RogueLogix for their comments on buffer mapping
+- @RogueLogix for their reviews on the Blaze3d changes
 - @cassiancc for confirmation on P2P friends being Xbox friends and more specific info on `TabNavigationBar` and `MenuTabBar`
 - @gigahertz for wording
 
@@ -40,7 +40,11 @@ The previous data types of `RGBA8`, `RED8`, `RED8I`, `DEPTH32` can be represente
 
 `VertexFormat` along with `VertexFormatElement` has been partially rewritten into a more dynamic framework. There is no longer a set of existing `VertexFormatElement`s. Instead, the elements are constructed when building the `VertexFormat` by adding attributes via `$Builder#addAttribute`. A `VertexFormat` can define at most sixteen elements or attributes, each providing at least the name and `GpuFormat`.
 
-`VertexFormat$IndexType` and `VertexFormat$Mode` have also been moved into their own `IndexType` and `PrimitiveTopology` enums, respectively. This is because `RenderPipeline`s can now define up to sixteen vertex buffers with different `VertexFormat`s, but must be applied to the same `PrimitiveTopology`. This expansion also allows for up to eight `ColorTargetState`s; though, it must match the number of color attachments specified as part of a `RenderPass`.
+`VertexFormat$IndexType` and `VertexFormat$Mode` have also been moved into their own `IndexType` and `PrimitiveTopology` enums, respectively. This is because `RenderPipeline`s can now define up to sixteen vertex buffers with different `VertexFormat`s, but must be applied to the same `PrimitiveTopology`.
+
+### Multiple Color Target States
+
+With this expansion, `RenderPipeline`s can also specify up to eight `ColorTargetState`s. This must match the number of color attachments specified when creating a `RenderPass` (typically 1 in vanilla usecases).
 
 ### Bind Group Layouts
 
@@ -66,7 +70,7 @@ public static final RenderPipeline EXAMPLE_PIPELINE = RenderPipeline.builder()
     .build();
 ```
 
-Note that all `BindGroupLayout`s added to a `RenderPipeline` must not contain any duplicate entries (e.g. two shaders named `Sampler0`, two uniforms named `Globals`), or an error will be thrown during the shader compilation process.
+Note that all `BindGroupLayout`s added to a `RenderPipeline` must not contain any duplicate entries (e.g. two shaders named `Sampler0`, two uniforms named `Globals`) and by extension the same `BindGroupLayout` multiple times, or an error will be thrown during the shader compilation process.
 
 ### Render Areas
 
@@ -352,8 +356,9 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `mappingFlags` - The flags that define how the persistent buffer should be mapped.
         - `mappingRefCount` - The number of buffers currently mapped.
         - `checkCanBeUsed` - Checks whether a non-persistent buffer isn't mapped when used in a command.
-        - `$Direct` - A buffer which can be used across multiple render passes.
+        - `$Direct` - An implementation that owns the used buffer.
             - `canPersistentMap` - Whether the persistent buffer can be used while mapped.
+                - This is an internal flag. `DeviceFeatures#persistentMapping` should be used to check for the feature.
         - `$GlMappedView` replaced by `GpuBufferSlice$MappedView`, not one-to-one
     - `GlCommandEncoder` is now `AutoCloseable`
         - `MAX_SUBMITS_IN_FLIGHT` - The maximum number of submissions that can be sent to the buffer at any given time.
@@ -527,7 +532,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `getUniformOffsetAlignment` -> `DeviceLimits#minUniformOffsetAlignment`
         - `getEnabledExtensions` -> `DeviceInfo#underlyingExtensions`
         - `getMaxSupportedAnisotropy` -> `DeviceLimits#maxAnisotropy`
-        - `setVsync` -> `GpuSurface#configure`
+        - `setVsync` -> `GpuSurface#configure`, not one-to-one
         - `presentFrame` -> `GpuSurface#present`
         - `isZZeroToOne` -> `DeviceInfo#isZZeroToOne`
         - `createTimestampQueryPool` - Creates the query pool for getting data from the GPU.
@@ -550,15 +555,15 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `createTimestampQueryPool` - Creates the query pool for getting data from the GPU.
         - `getTimestampNow` - Returns the current epoch timestamp.
     - `GpuQueryPool` - A pool for getting query objects and their associated values from the GPU.
-    - `GpuSurface` - The surface wrapper and validator.
+    - `GpuSurface` - The surface wrapper, swapchain, and validator.
     - `GpuSurfaceBackend` - An API for modifying and writing data to linked window using its handle.
     - `HintsAndWorkarounds` - A record containing issues with the supported GPU device and what workarounds are required.
     - `RenderPass` now takes in a `Runnable` for what to do on close, typically from a try-with-resources; a list of `RenderPassDescriptor$Attachment` color textures; and a `$RenderArea` of where to draw to
         - `writeTimestamp` - Writes the timestamp to the pool at the given index.
         - `setVertexBuffer` now takes in a `GpuBufferSlice` instead of a `GpuBuffer`
-        - `drawIndexed` parameter order for the five `int`s are as follows: the index count, instance count, first index, vertex offset / base vertex, and the first instance for fetching vertex attributes
+        - `drawIndexed` parameter order for the five `int`s are as follows: the index count, instance count, first index, vertex offset / base vertex, and the first instance for fetching vertex attributes (new)
         - `drawIndexedIndirect` - Draws the indexed data to the buffer using the indirect API.
-        - `draw` parameter order for the four `int`s are as follows: the vertex count, instance count, first vertex, and the first instance for fetching vertex attributes
+        - `draw` parameter order for the four `int`s are as follows: the vertex count, instance count, first vertex, and the first instance for fetching vertex attributes (new)
         - `drawIndirect` - Draws the vertex data to the buffer using the indirect API.
         - `multiDrawIndexed` - Draws the indexed data using an interleaved multi-draw call.
         - `multiDraw` - Draws the vertex data using an interleaved multi-draw call.
@@ -567,9 +572,9 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `isClosed` is removed
         - `writeTimestamp` - Writes the timestamp to the pool at the given index.
         - `setVertexBuffer` now takes in a `GpuBufferSlice` instead of a `GpuBuffer`
-        - `drawIndexed` parameter order for the five `int`s are as follows: the index count, instance count, first index, vertex offset / base vertex, and the first instance for fetching vertex attributes
+        - `drawIndexed` parameter order for the five `int`s are as follows: the index count, instance count, first index, vertex offset / base vertex, and the first instance for fetching vertex attributes (new)
         - `drawIndexedIndirect` - Draws the indexed data to the buffer using the indirect API.
-        - `draw` parameter order for the four `int`s are as follows: the vertex count, instance count, first vertex, and the first instance for fetching vertex attributes
+        - `draw` parameter order for the four `int`s are as follows: the vertex count, instance count, first vertex, and the first instance for fetching vertex attributes (new)
         - `drawIndirect` - Draws the vertex data to the buffer using the indirect API.
         - `multiDrawIndexed` - Draws the indexed data using an interleaved multi-draw call.
         - `multiDraw` - Draws the vertex data using an interleaved multi-draw call.
@@ -592,7 +597,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `$FrameProfile` class is removed
         - `$Status` - The current status of the timer query.
     - `TracyGpuProfiler` - An implementation of the Tracy profiler (hybrid frame and sampling profiler) for the GPU.
-    - `TransientMemory` - A memory system for handling allocation, releasing the memory after use.
+    - `TransientMemory` - A memory system for handling short lived (e.g., single frame) allocations, typically freeing or re-using the memory as needed.
 - `com.mojang.blaze3d.textures`
     - `GpuTexture$Usage` now only targets `ElementType#TYPE_USE`
     - `TextureFormat` replaced with `GpuFormat`
@@ -615,6 +620,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `vertexBufferSlice` - The resulting vertex buffer containing the `MeshData`
         - `writeSortedIndexBuffer` - Writes the sorted vertices to an index buffer.
     - `StagingBuffer` - A buffer for staging changes to write at a later point in time.
+        - Many of the methods or logic were originally part of `UberGpuBuffer`.
     - `Tesselator` class is removed
     - `TlsfAllocator`
         - `$Block` instance fields are now `public` from package-private
@@ -628,6 +634,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `uploadImmediateVertexBuffer`, `uploadImmediateIndexBuffer` are removed
         - `builder` now takes in an `int` for how many instances pass between updates to the attribute
         - `getStepRate` - How many instances pass between updates to the attribute.
+            - OpenGL is 0 per vertex.
         - `getElementAttributeNames` is removed
         - `getOffsetsByElement` is removed
         - `getOffset` replaced by `getElement`
@@ -636,7 +643,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
         - `$Builder`
             - `add` -> `addAttribute`, not one-to-one
             - `padding` is removed
-        - `$IndexType` -> `.blaze3d.IndexType`
+        - `$IndexType` -> `com.mojang.blaze3d.IndexType`
         - `$Mode` -> `PrimitiveTopology`
     - `VertexFormatElement` now takes in the `GpuFormat` instead of the `$Type`, normalized `boolean`, and count `int`; the `String` attribute name instead of the `int` id, and the `int` offset` instead of the index
         -  Constant `VertexFormatElement` fields are now removed
@@ -656,7 +663,7 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `VulkanBackend` - The Vulkan implementation of the `GpuBackend`.
     - `VulkanBindGroupLayout` - A list of layout bindings for the handle.
     - `VulkanCommandEncoder` - The Vulkan implementation of the `CommandEncoderBackend`.
-    - `VulkanCommandPool` - A pool for allocating memory for the command buffer.
+    - `VulkanCommandPool` - A pool for allocating the command buffers.
     - `VulkanConst` - The constant mappings for Blaze3d to Vulkan.
     - `VulkanDebug` - A utility for debugging Vulkan objects.
     - `VulkanDevice` - The Vulkan implementation of the `GpuDeviceBackend`.
@@ -665,8 +672,8 @@ Shape outlines is a new render feature that replaces `ShapeRenderer`, allowing f
     - `VulkanGpuSurface` - The Vulkan implementation of the `GpuSurfaceBackend`.
     - `VulkanGpuTexture` - The Vulkan implementation of a `GpuTexture`.
     - `VulkanGpuTextureView` - The Vulkan implementation of a `GpuTextureView`.
-    - `VulkanInstance` - The connection between the application and the Vulkan library.
-    - `VulkanPhysicalDevice` - The installed device with Vulkan support available on the system.
+    - `VulkanInstance` - The connection between the application and the Vulkan library, maps almost directly to [VkInstance](https://docs.vulkan.org/refpages/latest/refpages/source/VkInstance.html).
+    - `VulkanPhysicalDevice` - The installed device with Vulkan support available on the system, maps almost directly to [VkPhysicalDevice](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDevice.html).
     - `VulkanQueryPool` - The Vulkan implementation of a `GpuQueryPool`.
     - `VulkanQueue` - A wrapped queue on a device to submit elements.
     - `VulkanRenderPass` - The Vulkan implementation of the `RenderPassBackend`.
