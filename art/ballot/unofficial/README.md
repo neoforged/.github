@@ -1,6 +1,8 @@
 # READ THIS BEFORE USING FILES!
 
-The files within this folder do not make any political statement by NeoForged, positive or negative, including and not limited to recognition of the existence of the depicted organizations or groups and their flags; these were simply created for fun.
+The files within this folder do not make any political statement by NeoForged, positive or negative,
+including and not limited to recognition of the existence of the depicted organizations or groups and their flags;
+these were simply created for fun.
 
 ## FAQ
 
