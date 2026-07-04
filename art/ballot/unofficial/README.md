@@ -17,7 +17,7 @@ Some country files use an older, smaller "Ballot" texture, and you'll need to co
 
 Because these were made for fun and those were the ones that happened to be made.
 
-> Why isn't `$MY_COUTNRY` pre-rendered?
+> Why isn't `$MY_COUNTRY` pre-rendered?
 
 I've only pre-rendered Pride flags and Israel-Palestine flags, for the simple reason that:
 1. The country flags are not official NeoForged files, so they should be harder to use.
