@@ -155,7 +155,7 @@ layout(location = 1) out float cylindricalVertexDistance;
 
 ### Order Independent Transparency (OIT)
 
-Minecraft now supports the use of Order-Independent Transparency (OIT) through its improved transparency option. As the name implies, OIT is a rendering technique that tries to resolve alpha compositing without the underlying geometry having to be manually sorted by depth. Vanilla specifically uses [Moment-based OIT](https://momentsingraphics.de/Media/I3D2018/Muenstermann2018-MBOIT.pdf), which is a topic too complicated for a Minecraft primer. If you're interested, I suggest reading up on the topic yourself.
+Minecraft now supports the use of Order-Independent Transparency (OIT) through its improved transparency option. As the name implies, OIT is a rendering technique that tries to resolve alpha compositing without the underlying geometry having to be manually sorted by depth. Vanilla specifically uses [Wavelet OIT](https://arxiv.org/pdf/2201.00094), which is a topic too complicated for a Minecraft primer. If you're interested, I suggest reading up on the topic yourself.
 
 For our understanding, OIT runs through three stages: depth bounds, transmittance, and accumulate. In both depth bounds and transmittance, only the alpha is updated. It is only during the accumulate phase that the pixel color is set. As such, OIT requires updating both the vertex and the fragment shader. For both depth bounds and transmittance, alpha only OIT is denoted by the shader define `OIT_ALPHA_ONLY`, which you will see scattered across the supported shaders.
 
