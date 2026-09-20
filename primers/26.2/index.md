@@ -11,6 +11,7 @@ Thank you to:
 - @RogueLogix for reviews on the Blaze3d changes
 - @cassiancc for confirmation on P2P friends being Xbox friends and more specific info on `TabNavigationBar` and `MenuTabBar`
 - @gigahertz for wording
+- @st0x0ef for pointing out the outdated `BindGroupLayout` example
 
 ## Pack Changes
 
@@ -62,7 +63,8 @@ public static final RenderPipeline EXAMPLE_PIPELINE = RenderPipeline.builder()
     .withLocation(Identifier.fromNamespaceAndPath("examplemod", "pipeline/example"))
     .withVertexShader(Identifier.fromNamespaceAndPath("examplemod", "example_shader"))
     .withFragmentShader(Identifier.fromNamespaceAndPath("examplemod", "example_shader"))
-    .withVertexFormat(DefaultVertexFormat.ENTITY, VertexFormat.Mode.QUADS)
+    .withVertexBinding(0, DefaultVertexFormat.ENTITY)
+    .withPrimitiveTopology(PrimitiveTopology.QUADS)
     // Specify the layouts to use
     .withBindGroupLayout(EXAMPLE_LAYOUT)
     // Can use multiple layouts
