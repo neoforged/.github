@@ -1,0 +1,392 @@
+# Changelog
+
+The following is a non-exhaustive changelog of the differences between 26.3 to 26.4
+
+## Tag Changes
+
+- `minecraft:biome`
+    - `is_cave`
+    - `generated_in_below_zero_retrogen`
+
+## Source Changes
+
+- `com.mojang.blaze3d.pipeline.PipelineCache` now takes in a `PipelineBuilder` instead of the `GpuDevice`
+- `com.mojang.renderpearl.api.commands.RenderPass#MAX_VERTEX_BUFFERS` -> `CompiledRenderPipeline$CreateInfo#MAX_VERTEX_BUFFERS`, now eight from sixteen
+- `com.mojang.renderpearl.api.device.GpuDevice`
+    - `createSpvModule` - Creates the `SpvModule` representing the compiled shader.
+    - `compilePipeline` now only takes in a `CompiledRenderPipeline$CreateInfo`, returning the raw `CompiledRenderPipeline$Pending` instead of a `CompletableFuture`
+- `com.mojang.renderpearl.api.pipeline`
+    - `RenderPipeline` -> `com.mojang.blaze3d.pipeline.RenderPipeline`
+        - The constructor now takes in the `GpuFormat` for the depth stencil
+        - `getDepthStencilFormat`, `$Snippet#depthStencilFormat` - The format of the depth stencil.
+        - `$Builder#withDepthStencilFormat` - Sets the format of the depth stencil, must be a `GpuFormat` where `hasDepthAspect` returns `true`.
+    - `ShaderSource` -> `com.mojang.blaze3d.pipeline.ShaderSource`
+- `com.mojang.blaze3d.systems.RenderSystem#getPipelineBuilder` - Returns the compiler for the `RenderPipeline`s.
+- `com.mojang.renderpearl.api.vertex`
+    - `VertexFormat` -> `com.mojang.blaze3d.vertex.VertexFormat`
+    - `VertexFormatElement` -> `com.mojang.blaze3d.vertex.VertexFormatElement`
+- `com.mojang.renderpearl.backend.api`
+    - `BackendRenderPipeline$CreateInfo` -> `CompiledRenderPipeline$CreateInfo`
+        - The constructor now takes in the list of `SpvModule` shaders used instead of `$Shader`s, a list of `$Uniform`s instead of `BindGroupLayout$UniformDescription`s, and the depth stencil `GpuFormat`
+        - `$Shader` is removed
+        - `$Uniform` - A intermediate uniform to compile.
+    - `SpvModule` -> `.renderpearl.api.pipeline.SpvModule`
+        - `name` - The name of the shader.
+        - `entryPoint` - The name of the starting method (`PipelineBuilder` hardcodes this to "main").
+- `com.mojang.renderpearl.backend.opengl`
+    - `BufferStorage` class is now package-private from `public`
+        - `createBuffer` now takes in the `GlDevice`
+    - `DirectStateAccess` now takes in the `GlStateManager`
+        - `stateManager` - The manager for OpenGL's current state.
+        - `create` now takes in the `GlStateManager`
+        - `$Core`, `$Emulated` now take in the `GlStateManager`
+    - `FrameBufferCache` now takes in the `GlStateManager`
+    - `GlBuffer` class is now package-private from `public`
+        - The constructor now takes in the `GlDevice`
+        - `$Direct` is now package-private from `public`
+            - The constructor now takes in the `GlDevice`
+    - `GlCommandEncoder#awaitSubmit` is now package-private from `public`
+    - `GlDevice#stateManager` - The manager for OpenGL's current state.
+    - `GlGlobalState` - A state for the current window and context to use.
+    - `GlPipelineRecompiler` now takes in the `GlStateManager`
+        - `decompileShaders` now returns a map of `SpvModule`s to `String`s instead of `BackendRenderPipeline$CreateInfo$Shader`s to `String`s
+        - `compileProgram` now takes in a map of `SpvModule`s to `String`s instead of `BackendRenderPipeline$CreateInfo$Shader`s to `String`s
+    - `GlProgram#setupBindGroupLayouts` now takes in a `GlStateManager` and a list of `CompiledRenderPipeline$CreateInfo$Uniform`s instead of `BindGroupLayout$UniformDescription`s
+        - `uniformCount` replaced by `maxUniformBinding`
+    - `GlQueryPool` now takes in the `GlDevice`
+    - `GlRenderPass#vertexBuffers` is now an array of size 8 instead of 16
+    - `GlSampler` now takes in the `GlDevice`
+    - `GlStateManager` is now an instance class instead of a static holder
+        - All `static` fields and most methods are now instance fields and methods
+        - `_scissorBox` is removed
+        - `glGetProgrami` is removed
+        - `glAttachShader`, `glDeleteShader`, `glCreateShader` are removed
+        - `glCompileShader`, `glGetShaderi` are removed
+        - `glCreateProgram`, `glDeleteProgram`, `glLinkProgram` are removed
+        - `_glGetUniformLocation`, `_glUniform1i`, `_glBindAttribLocation` are removed
+        - `_glGenVertexArrays`, `_glBindBuffer`, `_glBindVertexArray` are removed
+        - `_glBufferData`, `_glBufferSubData`, `_glMapBufferRange`, `_glUnmapBuffer` are removed
+        - `_glBlitFrameBuffer`, `glGenFramebuffers` are removed
+        - `_glFramebufferTexture2D`, `_glReadBuffer` are removed
+        - `glBlendFuncSeparate`, `glBlendEquationSeparate` are removed
+        - `glGetShaderInfoLog`, `glGetProgramInfoLog` are removed
+        - `_polygonMode` is removed
+        - `_enableColorLogicOp`, `_disableColorLogicOp`, `_logicOp` are removed
+        - `_texParameter`, `_getTexLevelParameter` are removed
+        - `_texImage2D`, `_texSubImage2D` are removed
+        - `_viewport` is removed
+        - `_vertexAttribPointer`, `_vertexAttribIPointer`, `_enableVertexAttribArray` are removed
+        - `_drawElements`, `_drawArrays` are removed
+        - `_pixelStore`, `_readPixels` are removed
+        - `_getError` is removed
+        - `_getString`, `_getInteger` are removed
+        - `_glFenceSync`, `_glClientWaitSync`, `_glDeleteSync` are removed
+    - `GlTexture` class is now package-private from `public`
+        - The constructor now takes in the `GlDevice`
+    - `GlTextureView` now takes in the `GlDevice`
+    - `GlTransientMemory` class is now package-private from `public`
+        - `device` - The OpenGL device.
+        - `encoder` is now `protected` from package-private
+        - `$TransientGpuBuffer` now takes in the `GlDevice`
+    - `Uniform$Utb` now takes in the `GlStateManager`
+- `com.mojang.renderpearl.backend.vulkan`
+    - `DescriptorPool` - Maintains a pool of descriptors, analogous to VkDescriptorPool.
+    - `RenderPassCache` - A cache for getting or creating render passes.
+    - `VulkanDevice#renderpassCache` - A cache for render passes
+    - `VulkanFeatureSets#DYNAMIC_RENDERING_FEATURES_STRUCT` is removed
+    - `VulkanRenderPipeline` now takes in a list of `CompiledRenderPipeline$CreateInfo$Uniform`s instead of `BindGroupLayout$UniformDescription`s
+        - `descriptorSetLayout` - The handle of the descriptor set layout.
+        - `uniforms` now returns a list of `CompiledRenderPipeline$CreateInfo$Uniform`s instead of `BindGroupLayout$UniformDescription`
+        - `maxUniformBinding` - The maximum number of uniform bindings used by the pipeline.
+- `com.mojang.renderpearl.frontend`
+    - `FrontendRenderPass` now takes in a nullable `GpuFormat` for the depth attachment instead of a `boolean`
+    - `FrontendRenderPipeline` now takes in an `IntList` for the used vertex buff slots instead of a list of `VertexFormat`s, a list of `CompiledRenderPipeline$CreateInfo$Uniform`s instead of `BindGroupLayout$UniformDescription`, and the depth stencil `GpuFormat`
+- `com.mojang.renderpearl.frontend.shaders`
+    - `GlslCompiler` -> `com.mojang.blaze3d.pipeline.GlslCompiler`
+        - The constructor no longer takes in any `boolean`s
+        - `compileToSpv` now takes in the `DeviceInfo`, returning a `ByteBuffer` instead of the `SpvModule`
+    - `PipelineBuilder` -> `com.mojang.blaze3d.pipeline.PipelineBuilder`
+        - The constructor now takes in a `GpuDevice` instead of the `GpuDeviceBackend`
+        - `compilePipeline` now has an overload that doesn't take in the `Executor`, instead directly returning the `CompiledRenderPipeline$Pending`
+    - `PipelineValidator` - A helper for validating the information used to compile a pipeline.
+    - `SPIRVModule` now takes in `String`s for the shader name and entrypoint method
+    - `SpvUtil#executionModel` - The execution model that the shader is used for (i.e., vertex, fragment).
+- `net.minecraft.SharedConstants`
+    - `DEBUG_ORE_VEINS`, `DEBUG_DISABLE_ORE_VEINS` are removed
+    - `DEBUG_AQUIFERS`
+- `net.minecraft.client.color.ColorLerper#MUSIC_NOTE_COLORS` -> `MUSIC_NOTE_DYES`
+- `net.minecraft.client.multiplayer.ClientLevel` no longer takes in the `long` biome zoom seed
+- `net.minecraft.client.multiplayer.resolver.ServerAddress` now takes in the `QueryProperties`
+    - `USER_SEPARATOR` - The separator between the user and the address.
+    - `withHostAndPort` - Creates a new address to the host and port, keeping the properties.
+    - `QueryProperties` - The query parameters of the request.
+    - `createConnectionDetails` - Creates the connection details for the socket address.
+- `net.minecraft.client.player.LocalPlayer#getRidingSoundId` - An identifier representing the riding sound that should be playing.
+- `net.minecraft.client.renderer`
+    - `LevelRenderer`
+        - `OIT_WAVELET_RANK` is removed
+        - `OIT_COEFFICIENT_COUNT` -> `OIT_NUMBER_OF_DEPTH_BINS`
+    - `ShaderManager#MAX_LOG_LENGTH` is removed
+- `net.minecraft.client.renderer.blockentity`
+    - `AbstractSignRenderer`
+        - `BRIGHT_TEXT_COLORS` - The colors to use if the sign has glowing text.
+        - `DARK_TEXT_COLORS` - The colors to use if the sign does not have glowing text.
+        - `getDarkColor` replaced by `DARK_TEXT_COLORS`
+    - `BannerRenderer#DYED_PATTERN_COLOR` - The diffuse color to apply for the pattern layer.
+- `net.minecraft.client.renderer.debug.PathfindingRenderer`
+    - `renderPath` now takes in an `int` for how many ticks remain until the next stuck detection check
+- `net.minecraft.client.renderer.entity.layers.EquipmentLayerRenderer#renderLayers` now returns an `int` for the last order used by the rendering equipment.
+- `net.minecraft.client.resources.sounds.RidingEntitySoundInstance`, `RidingMinecartSoundInstance` now take in the `LocalPlayer` instead of the `Player`, and an `int` for the identifier of the riding sound
+- `net.minecraft.core.Direction#BY_ID` is removed
+- `net.minecraft.network`
+    - `Connection`
+        - `initiateServerboundStatusConnection` now takes in the `ServerConnectionDetails` instead of the hostname `String` and `int` port
+        - `initiateServerboundPlayConnection` now takes in the `ServerConnectionDetails` instead of the hostname `String` and `int` port
+        - `$ClientboundDisconnectPacketType` - The type of disconnect packet to send.
+    - `QueryProperties` - The query parameters for an HTTP request.
+    - `ServerConnectionDetails` - The common details used to make a server connection.
+- `net.minecraft.network.codec`
+    - `ByteBufCodecs#idMapper` replaced by `enumCodec`, `sparseEnumCodec`
+    - `EnumStreamCodec` - A network codec that syncs an enum.
+- `net.minecraft.network.protocol.common.ClientboundTransferPacket` now takes in a map of query properties
+- `net.minecraft.network.protocol.common.custom`
+    - `ModListPayload` - A payload intended to inform servers about client mods.
+    - `PropertyMap` - A map of identifiers to strings, with a max size of 32 elements.
+- `net.minecraft.network.protocol.game`
+    - `ClientboundTrackedWaypointPacket$Operation#BY_ID` is removed
+    - `CommonPlayerSpawnInfo` no longer takes in the `long` seed
+- `net.minecraft.network.protocol.handshake.ClientIntent`
+    - `STREAM_CODEC` - The network codec.
+    - `byId`, `id` are now `private` from `public`
+- `net.minecraft.network.protocol.status.ServerStatus` now takes in an optional `String` for the contact details of the server
+- `net.minecraft.server`
+    - `MinecraftServer`
+        - `enableLegacyStatus` - When `false`, disables pre-1.7 server status and ping protocol handles.
+        - `statusContactDetails` - The contact details for the server.
+    - `ServerInfo#acceptsConnection` - Whether the server can accept the connection from the client.
+- `net.minecraft.server.dedicated.DedicatedServerProperties`
+    - `statusContactDetails` - The contact details for the server.
+    - `enableLegacyStatus` - When `false`, disables pre-1.7 server status and ping protocol handles.
+    - `allowedConnectionIds` - A list of identifiers that must match for the server to accept the connection from the client.
+    - `acceptsConnectionId` - Whether the given id matches one of the accepted identifiers.
+- `net.minecraft.server.dialog.DialogAction#BY_ID` is removed
+- `net.minecraft.server.level`
+    - `ParticleStatus#STREAM_CODEC` is now an `EnumStreamCodec`
+    - `ServerLevel` no longer takes in the `long` biome zoom seed
+        - `uncachedBiomeResolver` is removed
+- `net.minecraft.server.network`
+    - `ClientDebugInfo` - A holder for the debug information sent from the client.
+    - `CommonListenerCookie` now takes in the `ClientDebugInfo`
+    - `LegacyQueryHandler` now takes in the `Connection`
+    - `ServerCommonPacketListenerImpl#debugInfo` - The debug information sent from the client.
+- `net.minecraft.server.packs`
+    - `DownloadCacheCleaner` -> `net.minecraft.client.resources.server.DownloadCacheCleaner`
+    - `DownloadQueue` -> `net.minecraft.client.resources.server.DownloadQueue`
+- `net.minecraft.util`
+    - `CommonColors#TEXTURE_TINT_COLORS` - The texture tint colors.
+    - `CubicSpline$Multipoint#mapCoordinates` now returns a `$Multipoint`
+    - `ExtraCodecs#singleKeyDispatch` - A dispatch codec that uses the key codec as the key to the value codec.
+    - `StaticCache2d#get` now has an overload that takes in the `ChunkPos`
+    - `Util#writeAndReadTypedOrThrow`, `readTypedOrThrow` are removed
+- `net.minecraft.util.debug.DebugPathInfo` now takes in an `int` for how many ticks remain until the next stuck detection check
+- `net.minecraft.world.attribute.EnvironmentAttribute#isFullResolutionBiomes`, `$Builder#fullResolutionBiomes` are removed
+- `net.minecraft.world.entity`
+    - `Entity#addDeltaMovement` now has an overload that takes in `double`s for the XYZ velocities
+    - `EquipmentSlot#BY_ID` is removed
+    - `EquipmentSlotGroup#BY_ID` is removed
+    - `LivingEntity#jumpOutOfFluid` is now `protected` from `private`
+    - `Pose#BY_ID` is removed
+    - `PositionPath$Type`
+        - `BY_ID` is removed
+        - `getId` - The identifier of the type.
+- `net.minecraft.world.entity.ai.attributes.AttributeModifier$Operation#BY_ID` is removed
+- `net.minecraft.world.entity.ai.navigation.PathNavigation#getStuckCount` - How many ticks remain until the next stuck detection check.
+- `net.minecraft.world.entity.animal.axolotl.Axolotl$Variant#STREAM_CODEC` is now an `EnumStreamCodec`
+- `net.minecraft.world.entity.animal.cow.MushroomCow$Variant#STREAM_CODEC` is now an `EnumStreamCodec`
+- `net.minecraft.world.entity.animal.equine`
+    - `Llama$Variant#STREAM_CODEC` is now an `EnumStreamCodec`
+    - `Variant#STREAM_CODEC` is now an `EnumStreamCodec`
+- `net.minecraft.world.entity.animal.fish`
+    - `Salmon$Variant`
+        - `STREAM_CODEC` is now an `EnumStreamCodec`
+        - `byId` - Gets the salmon variant by its id.
+    - `TropicalFish$Variant#STREAM_CODEC` is now an `EnumStreamCodec`
+- `net.minecraft.world.entity.animal.fox.Fox$Variant#STREAM_CODEC` is now an `EnumStreamCodec`
+- `net.minecraft.world.entity.animal.parrot.Parrot$Variant#STREAM_CODEC` is now an `EnumStreamCodec`
+- `net.minecraft.world.entity.animal.rabbit.Rabbit$Variant#STREAM_CODEC` is now an `EnumStreamCodec`
+- `net.minecraft.world.entity.player`
+    - `ChatVisibility#STREAM_CODEC` is now an `EnumStreamCodec`
+    - `Plater`
+        - `debugInfo` now takes in a `boolean` for whether to include the level name
+        - `debugInfoBuilder` - Creates a string helper containing the debug information.
+- `net.minecraft.world.item`
+    - `DyeColor`
+        - `getTextureDiffuseColor` replaced by `CommonColors#TEXTURE_TINT_COLORS` and other references depending on the object
+        - `getMapColor` replaced by `MapColor#DYE_TO_DEFAULT_COLOR`
+        - `getTerracottaColor` replaced by `MapColor#DYE_TO_TERRACOTTA_COLOR`
+        - `getFireworkColor`, `byFireworkColor` replaced by `FireworkExplosion#DEFAULT_COLOR_TINTS`
+        - `getTextColor` replaced by `AbstractSignRenderer#BRIGHT_TEXT_COLORS` or `DARK_TEXT_COLORS`
+- `net.minecraft.world.item.component`
+    - `FireworkExplosion`
+        - `DEFAULT_COLOR_TINTS`, `defaultFireworkTint` - Handles the firework color collection for a dye.
+        - `$Shape#byId` is removed
+    - `MapPostProcessing#ID_MAP` is removed
+- `net.minecraft.world.level`
+    - `GameType#STREAM_CODEC` is now an `EnumStreamCodec`
+    - `Level` no longer takes in the `long` biome zoom seed
+    - `LevelReader`
+        - `getBiomeManager` is removed
+        - `getBiome(BlockPos)` is removed
+        - `getNoiseBiome` -> `getBiome`, not one-to-one
+        - `getUncachedNoiseBiome` -> `getUncachedBiome`, not one-to-one
+    - `NoiseColumn` -> `.levelgen.NoiseColumn`
+        - The class no longer implements `BlockColumn`
+        - The constructor now takes in a `int` y size instead of an array of `BlockState`s
+        - `SOLID` - Represents a non-air block.
+        - `AIR` - The air block.
+        - `minBlockY` - Returns the minimum Y.
+        - `sizeY` - Returns the height of the noise column.
+        - `blockY` - Returns the block Y given the offset.
+        - `scheduleFluidUpdateForIndex` - Whether a fluid update should be scheduled for the fluid at the Y position.
+        - `getCeilingBelowIndex` - Gets the Y position of the first solid before an air block below the given Y position.
+        - `topIndexY` - Returns the highest Y offset.
+        - `setBlock` split into `setSolid`, `setFluid`; not one-to-one
+        - `isSolid` - Whether the block at the Y position is solid.
+        - `isEmpty` - Whether the block at the Y position is air.
+        - `findTopSolidBlockY` - Gets the Y position of the highest solid block.
+        - `topBlockY` - Returns the highest Y position.
+        - `surfaceGradientX`, `surfaceGradientZ` - The calculated horizontal Y surface gradient.
+- `net.minecraft.world.level.biome`
+    - `Biome#validateRegistry` - Validates the configuration of every biome (i.e., generation settings).
+    - `BiomeManager` now implements `BiomeResolver`, `NoiseBiomeResolver`
+        - `CHUNK_CENTER_QUART` -> `HALF_QUART`
+        - The constructor now takes in the `NoiseBiomeResolver` instead of a `BiomeResolver`
+        - `withDifferentSource` is removed
+        - `getNoiseBiomeAtPosition`, `getNoiseBiomeAtPosition` are removed
+        - `getNoiseBiomeAtQuart` -> `NoiseBiomeResolver#getNoiseBiome`
+        - `prepareFiddleSeed`, `nextFiddleSeed` - Handles getting the seed fiddled using some random value.
+        - `getFiddle` is now `protected` from `private`
+    - `BiomeResolver` -> `NoiseBiomeResolver`
+        - `BiomeResolver` still exists, resolving the biome at some position which is non-specific to whether noise is involved
+            - `getBiome` - Gets the biome at the given position.
+            - `fillSection` - Fills the provided container with a 16x16x16 section offset by the given XYZ.
+    - `CachedChunkBiomeResolver` - A biome resolver that caches a given chunk.
+    - `NoiseBiomeChunk` - A noise chunk containing the paletted biome sections.
+- `net.minecraft.world.level.block`
+    - `BeaconBeamBlock#getColor` now returns an `int` instead of a `DyeColor`
+    - `Block`
+        - `BLOCK_STATE_REGISTRY_STREAM_CODEC` - The network codec for the block state registry.
+        - `getDrops(BlockState, ServerLevel, BlockPos, BlockEntity)` is removed
+    - `CalibratedSculkSensorBlock` now takes in an `IntProvider` for the XP range
+    - `DropExperienceEntityBlock` - A block with a block entity that drops experience after breaking.
+    - `MushroomBlock#canSpreadTo` - Whether the mushroom can spread to the given position.
+    - `RedStoneOreBlock` now extends `DropExperienceBlock`
+        - The constructor now takes in an `IntProvider` for the XP range
+    - `Rotation#BY_ID` is removed
+    - `SculkCatalystBlock` now extends `DropExperienceEntityBlock`
+        - The constructor now takes in an `IntProvider` for the XP range
+    - `SculkSensorBlock` now extends `DropExperienceEntityBlock`
+        - The constructor now takes in an `IntProvider` for the XP range
+    - `SculkShriekerBlock` now extends `DropExperienceEntityBlock`
+        - The constructor now takes in an `IntProvider` for the XP range
+    - `WeatheringCopper$WeatherState`
+        - `BY_ID` is removed
+        - `STREAM_CODEC` is now an `EnumStreamCodec`
+        - `getId` - The identifier of the weather state.
+- `net.minecraft.world.level.block.entity.TestInstanceBlockEntity$Status#byIndex` is removed
+- `net.minecraft.world.level.block.state.BlockBehaviour`
+    - `spawnAfterBreak`, `$BlockStateBase#spawnAfterBreak` now takes in a nullable `Entity` for the breaker
+    - `$Properties#mapColor(DyeColor)` is removed
+- `net.minecraft.world.level.chunk`
+    - `CarvingMask`
+        - `visit`, `$Visitor` are removed
+        - `applyFilter` - Applies the filter to the mask, clearing any indices that do not match.
+        - `getColumn` - Gets the column at the given XZ.
+        - `$Column` - A representation of a Y column at some XZ base.
+    - `ChunkAccess`
+        - `collectBiomesInPalette` now returns the set of `Holder<Biome>`s
+        - `fillBiomesFromNoise` -> `fillBiomes`
+    - `ChunkGenerator`
+        - `createBiomes` -> `createNoiseBiomes`, now taking in the `ProtoChunk` and `PalettedContainerFactory` instead of the `StructureManager` and `ChunkAccess`
+            - `createBiomes` still exists, filling the biomes with a `CachedChunkBiomeResolver` through the provided `NoiseBiomeResolver`
+        - `decorateBiomeResolver` now takes in the `ProtoChunk` instead of the `ChunkAccess`
+        - `buildTerrain` no longer takes in the `BiomeManager`
+        - `getBaseHeight` is removed
+    - `ImposterProtoChunk` no longer takes in the `boolean` for allowing writes
+    - `LevelChunkSection`
+        - `getNoiseBiome` -> `getBiome`
+        - `fillBiomesFromNoise` -> `fillBiome`
+    - `PalettedContainer` can now take in the number of data bits `int`
+        - `fromInitializer` - Creates a container using the initializer with the provided strategy.
+        - `setUnchecked`, `fillUnchecked` - Writes data without acquiring a thread lock.
+        - `$Initializer` - A functional interface that returns a value for some XYZ position.
+    - `PalettedContainerFactory` now takes in the noise `Strategy<Holder<Biome>>` and `Codec<PalettedContainerRO<Holder<Biome>>>`
+        - `create` now has an overload that takes in a `Registry<Biome>`
+        - `createForNoiseBiomes` - Creates the `PalettedContainer` using the noise strategy.
+    - `PalettedContainerRO#recreate` now has an overload that takes in the initial value and the `int` number of data bits
+    - `ProtoChunk`
+        - `updateRetroGenStatus` - Returns the next status if the chunk has retrogen; otherwise the given status.
+        - `setBelowZeroRetrogen` -> `setRetroGen`
+        - `getBelowZeroRetrogen` -> `getRetroGen`
+        - `getNoiseBiomeChunk`, `setNoiseBiomeChunk`, `fillNoiseBiomesFromNoise` - Handles the associated `NoiseBiomeChunk`.
+    - `Strategy`
+        - `createForBiomes` -> `createForNoiseBiomes`
+            - `createForBiomes` still exists, now in a potential non-noise context, handling a bit count up to 8
+        - `countPerAxis` - Returns the number of potential values per axis.
+    - `ChunkStatus`
+        - `BIOMES` -> `NOISE_BIOMES`
+            - `BIOMES` still exists, which handles the upscaling
+        - `getNext` - Returns the next `ChunkStatus` after this one.
+    - `ChunkStatusTasks`
+        - `generateBiomes` -> `generateNoiseBiomes`
+        - `upscaleBiomes` - Upscales the generated noise biomes to cover the chunk.
+        - `dropNoiseBiomes` - Unsets the noise biome chunk on the `ProtoChunk`.
+- `net.minecraft.world.level.chunk.storage.SerializableChunkData` now takes in the `NoiseBiomeChunk`
+    - `STATUS_TAG` - The tag for the chunk status.
+- `net.minecraft.world.level.levelgen`
+    - `Aquifer$Config#rewrite` - Rewrites the density functions and returns the new config.
+    - `BelowZeroRetrogen` -> `RetroGen`
+        - `getNextStatus` - Returns the next status to run after the given status. 
+        - `keepsLight` - Whether the light engine is kept.
+        - `hasBelowZeroRetroGen` - Whether retrogen updates the chunks below zero if nothing is present.
+    - `ChunkTerrainBuilder` - Builds the terrain for the provided chunks.
+    - `Heightmap#copyHeightmap` - Copies the chunk heightmap from one type to another.
+    - `NoiseChunk` now takes in the `ContextMap` sampler fields, the final `DensityFunction`, and the `Aquifer$Config` instead of the `Beardifier`, `NoiseGeneratorSettings`, and `Blender`
+        - `prepareColumn` - Creates and fills the `NoiseColumn` for the given XZ.
+        - `volumeWithBlocks` - Returns the `DensityVolume` of the volume's block position.
+    - `NoiseGeneratorSettings` no longer takes in the default `BlockState`
+    - `NoiseRouter#rewrite` - Rewrites the density functions and returns the new router.
+    - `RandomState`
+        - `create` no longer takes in the default `BlockState`
+        - `surfaceSystem` -> `materialSystem`
+    - `SurfaceExtensions` - Extensions for specific surface noises.
+    - `VerticalAnchor` is now a `record` from an `interface`
+        - The constructor takes in a `$Type` and an `int` offset
+        - `BOTTOM`, `TOP` are now `private` from `public`
+        - `$AboveBottom` replaced by `$Type#ABOVE_BOTTOM`
+        - `$Absolute` replaced by `$Type#ABSOLUTE`
+        - `$BelowTop` replaced by `$Type#BELOW_TOP`
+        - `$RelativeToSeaLevel` replaced by `$Type#RELATIVE_TO_SEA_LEVEL`
+    - `WorldGenerationContext` -> `VerticalAnchor$Context`
+        - `of` -> `from`
+- `net.minecraft.world.level.levelgen.densityfunction`
+    - `DensityBuffer`
+        - `slice` - Creates a new buffer of the specified size.
+        - `copyFrom` now has an overload that takes in the `int` index bounds and the `int` length
+    - `DensityFunction`
+        - `idShortString` - Returns the the short string identifier for the provided holder.
+        - `getDebugName` - Returns the identifier of the density function type.
+    - `SamplerContext#clearCaches`, `$CacheCell#clear` - Clears the cache cells by closing the buffer.
+    - `TracyProfiledFunction` - A density function that profiled by the tracy client.
+- `net.minecraft.world.level.levelgen.densityfunction.op.SplineFunction$Sampler` now takes in a `CubicSpline$Multipoint` instead of a `CubicSpline`
+- `net.minecraft.world.level.levelgen.feature.trunkplacers.StraightTrunkPlacer` now has an overload that takes in an `IntProvider` for the trunk width
+- `net.minecraft.world.level.levelgen.material`
+    - `MaterialRuleContext` constructor is now `public` from package-private, taking in the `BiomeResolver` instead of a function for the biome getter
+        - `updateXZ`, `updateY` are now `public` from package-private
+    - `MaterialSystem` no longer takes in the default `BlockState`
+        - `topMaterial` is removed
+        - `surfaceExtensions` - The extensions to the surface terrain.
+- `net.minecraft.world.level.levelgen.placement`
+    - `PlacementContext` is now a `record`, no longer extending `WorldGenerationContext`
+        - The constructor now takes in the `VerticalAnchor$Context`
+    - `PlacementModifier#modifyXzDomain` - Specifies the domain of the potential placement locations.
