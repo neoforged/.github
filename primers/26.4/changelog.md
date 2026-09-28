@@ -137,7 +137,7 @@ The following is a non-exhaustive changelog of the differences between 26.3 to 2
     - `renderPath` now takes in an `int` for how many ticks remain until the next stuck detection check
 - `net.minecraft.client.renderer.entity.layers.EquipmentLayerRenderer#renderLayers` now returns an `int` for the last order used by the rendering equipment.
 - `net.minecraft.client.resources.sounds.RidingEntitySoundInstance`, `RidingMinecartSoundInstance` now take in the `LocalPlayer` instead of the `Player`, and an `int` for the identifier of the riding sound
-- `net.minecraft.core.Direction#BY_ID` is removed
+- `net.minecraft.core.Direction#BY_ID` is removed, replaced by `EnumStreamCodec#byId`
 - `net.minecraft.network`
     - `Connection`
         - `initiateServerboundStatusConnection` now takes in the `ServerConnectionDetails` instead of the hostname `String` and `int` port
@@ -153,7 +153,7 @@ The following is a non-exhaustive changelog of the differences between 26.3 to 2
     - `ModListPayload` - A payload intended to inform servers about client mods.
     - `PropertyMap` - A map of identifiers to strings, with a max size of 32 elements.
 - `net.minecraft.network.protocol.game`
-    - `ClientboundTrackedWaypointPacket$Operation#BY_ID` is removed
+    - `ClientboundTrackedWaypointPacket$Operation#BY_ID` is removed, replaced by `EnumStreamCodec#byId`
     - `CommonPlayerSpawnInfo` no longer takes in the `long` seed
 - `net.minecraft.network.protocol.handshake.ClientIntent`
     - `STREAM_CODEC` - The network codec.
@@ -169,7 +169,7 @@ The following is a non-exhaustive changelog of the differences between 26.3 to 2
     - `enableLegacyStatus` - When `false`, disables pre-1.7 server status and ping protocol handles.
     - `allowedConnectionIds` - A list of identifiers that must match for the server to accept the connection from the client.
     - `acceptsConnectionId` - Whether the given id matches one of the accepted identifiers.
-- `net.minecraft.server.dialog.DialogAction#BY_ID` is removed
+- `net.minecraft.server.dialog.DialogAction#BY_ID` is removed, replaced by `EnumStreamCodec#byId`
 - `net.minecraft.server.level`
     - `ParticleStatus#STREAM_CODEC` is now an `EnumStreamCodec`
     - `ServerLevel` no longer takes in the `long` biome zoom seed
@@ -192,14 +192,14 @@ The following is a non-exhaustive changelog of the differences between 26.3 to 2
 - `net.minecraft.world.attribute.EnvironmentAttribute#isFullResolutionBiomes`, `$Builder#fullResolutionBiomes` are removed
 - `net.minecraft.world.entity`
     - `Entity#addDeltaMovement` now has an overload that takes in `double`s for the XYZ velocities
-    - `EquipmentSlot#BY_ID` is removed
-    - `EquipmentSlotGroup#BY_ID` is removed
+    - `EquipmentSlot#BY_ID` is removed, replaced by `EnumStreamCodec#byId`
+    - `EquipmentSlotGroup#BY_ID` is removed, replaced by `EnumStreamCodec#byId`
     - `LivingEntity#jumpOutOfFluid` is now `protected` from `private`
-    - `Pose#BY_ID` is removed
+    - `Pose#BY_ID` is removed, replaced by `EnumStreamCodec#byId`
     - `PositionPath$Type`
-        - `BY_ID` is removed
+        - `BY_ID` is removed, replaced by `EnumStreamCodec#byId`
         - `getId` - The identifier of the type.
-- `net.minecraft.world.entity.ai.attributes.AttributeModifier$Operation#BY_ID` is removed
+- `net.minecraft.world.entity.ai.attributes.AttributeModifier$Operation#BY_ID` is removed, replaced by `EnumStreamCodec#byId`
 - `net.minecraft.world.entity.ai.navigation.PathNavigation#getStuckCount` - How many ticks remain until the next stuck detection check.
 - `net.minecraft.world.entity.animal.axolotl.Axolotl$Variant#STREAM_CODEC` is now an `EnumStreamCodec`
 - `net.minecraft.world.entity.animal.cow.MushroomCow$Variant#STREAM_CODEC` is now an `EnumStreamCodec`
@@ -282,7 +282,7 @@ The following is a non-exhaustive changelog of the differences between 26.3 to 2
     - `MushroomBlock#canSpreadTo` - Whether the mushroom can spread to the given position.
     - `RedStoneOreBlock` now extends `DropExperienceBlock`
         - The constructor now takes in an `IntProvider` for the XP range
-    - `Rotation#BY_ID` is removed
+    - `Rotation#BY_ID` is removed, replaced by `EnumStreamCodec#byId`
     - `SculkCatalystBlock` now extends `DropExperienceEntityBlock`
         - The constructor now takes in an `IntProvider` for the XP range
     - `SculkSensorBlock` now extends `DropExperienceEntityBlock`
@@ -290,7 +290,7 @@ The following is a non-exhaustive changelog of the differences between 26.3 to 2
     - `SculkShriekerBlock` now extends `DropExperienceEntityBlock`
         - The constructor now takes in an `IntProvider` for the XP range
     - `WeatheringCopper$WeatherState`
-        - `BY_ID` is removed
+        - `BY_ID` is removed, replaced by `EnumStreamCodec#byId`
         - `STREAM_CODEC` is now an `EnumStreamCodec`
         - `getId` - The identifier of the weather state.
 - `net.minecraft.world.level.block.entity.TestInstanceBlockEntity$Status#byIndex` is removed
