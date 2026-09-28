@@ -2434,7 +2434,7 @@ new Item(
 );
 ```
 
-### Compostable Copmonent
+### Compostable Component
 
 What items can be thrown in a composter are now specified by `DataComponents#COMPOSTABLE`, replacing `ComposterBlock#COMPOSTABLES`. The associated `Compostable` takes in a `ResolvableInt` for how many layers should be added when used. The `ResolvableInt` can either be a constant or a `ContextIntProvider` reference that is resolved against the `LootContextParamSets#BLOCK_INTERACT` context.
 
