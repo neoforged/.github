@@ -10,6 +10,7 @@ Thank you to:
 
 - @RogueLogix for reviews on the Blaze3d and Renderpearl changes
 - @crendgrim since the E key is not the M key
+- @cassiancc for fixing a typo
 
 ## Pack Changes
 
