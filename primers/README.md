@@ -38,6 +38,8 @@ The primers were written by:
 * [1.21.11 -> 26.1](./26.1/index.md)
 * [26.1.x -> 26.2](./26.2/index.md)
 * [26.2 -> 26.3](./26.3/index.md)
+* [26.3 -> 26.4](./26.4/index.md)
+    * [Changelog](./26.4/changelog.md)
 
 ## License
 

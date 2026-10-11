@@ -11,6 +11,7 @@ Thank you to:
 - @RogueLogix for reviews on the Blaze3d and Renderpearl changes
 - @crendgrim since the E key is not the M key
 - @cassiancc for fixing a typo
+- @jab125 for a typo
 
 ## Pack Changes
 
@@ -1052,7 +1053,7 @@ Like before, the passed in `RenderType` is only used to check whether it `Render
         - `GLINT_SNIPPET`, `GLINT_SPECIAL_SNIPPET`, `ARMOR_CUTOUT_NO_CULL_GLINT`, `ENTITY_SOLID_GLINT`, `ITEM_CUTOUT_GLINT`, `ITEM_CUTOUT_GLINT_SPECIAL`, `ITEM_TRANSLUCENT_GLINT`, `ITEM_TRANSLUCENT_GLINT_SPECIAL` - Snippets and pipelines for applying the glint decal.
         - `TEXT_BACKGROUND`, `TEXT_BACKGROUND_SEE_THROUGH` are removed
         - `LINES_TRANSLUCENT` replaced by `LINES_TRANSLUCENT_NO_DEPTH_WRITE`
-            - `LINES_TRANSLUCENT` now uses the default depth stenctil state
+            - `LINES_TRANSLUCENT` now uses the default depth stencil state
         - `WEATHER_DEPTH_WRITE`, `WEATHER_NO_DEPTH_WRITE` replaced by `WEATHER`
         - `BLIT_DEPTH_BOUNDS`, `BLIT_DEPTH_DURING_DEPTH_BOUNDS`, `BLIT_DEPTH`, `INTEGRATE_DEPTH` - Pipelines for handling depth bounds during order-independent transparency.
         - `getStaticPipelines` -> `requiredPipelines`
