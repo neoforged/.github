@@ -14,6 +14,114 @@ Thank you to:
 
 There are a number of user-facing changes that are part of vanilla which are not discussed below that may be relevant to modders. You can find a list of them on [Misode's version changelog](https://misode.github.io/versions/?id=26.4&tab=changelog).
 
+## Texture Handles and Providers
+
+The way textures are loaded and stored by the `TextureManager` has been rewritten. `AbstractTexture` and its subclass no longer exists. Instead, textures are generally loaded through a `TextureProvider` and then referenced through its loaded `TextureHandle`, splitting the previous implementation. The previous `AbstractTexture` subclasses have corollaries with the `TextureProvider` implementations, as storage remains quite uniform across the implementations.
+
+`TextureProvider`s load the textures via `TextureManager#registerAndLoad` through three methods.
+
+First, `prepareState` is called to read the texture from disk, taking in the `ResourceManager` and `Identifier`, returning the loaded 'file' data represented as a generic. Vanilla uses `TextureContents` here as it holds the `NativeImage` along with the `TextureMetadataSection`. If any exception is thrown (e.g., no file found), then `missingState` is returned instead. The loaded 'file' data must be an `UncheckedAutoCloseable` to release any resources once used.
+
+Then, the `TextureHandle` is created through `createTexture`, taking in the loaded 'file' data and `Identifier`. `createTexture` actually enforces the `TextureHandle` to be a `TextureResources` to support a common dumping and closing implementation. The returned `TextureHandle` exposes the `GpuTextureView` and `GpuSampler` to use in a shader.
+
+By default, textures are loaded through the `TextureProvider2d`; however, a custom texture can be set for an `Identifier` in one of two ways: `registerProvider` to register how to load the texture from disk, or `register` to directly provide the `TextureResources`:
+
+```java
+// An example provider implementation.
+// A copy of `TextureProvider2d`.
+public record ExampleTextureProvider() implements TextureProvider<TextureContents> {
+
+    @Override
+    public TextureContents prepareState(ResourceManager resourceManager, Identifier identifier) throws IOException {
+        // Loads the texture as the set generic.
+        return TextureContents.load(resourceManager, identifier);
+    }
+
+    @Override
+    public TextureContents missingState() {
+        // The missing texture if an exception is thrown.
+        return TextureContents.createMissing();
+    }
+
+    @Override
+    public TextureResources createTexture(TextureContents state, Identifier identifier) {
+        // Create the texture and write the image data.
+        AddressMode addressMode = state.clamp() ? AddressMode.CLAMP_TO_EDGE : AddressMode.REPEAT;
+        FilterMode minMag = state.blur() ? FilterMode.LINEAR : FilterMode.NEAREST;
+        GpuSampler sampler = RenderSystem.getSamplerCache().getSampler(addressMode, addressMode, minMag, minMag, false);
+        return TextureResources.from2dImage(identifier::toString, state.image(), sampler);
+    }
+}
+
+// In some client initialization.
+Minecraft.getInstance().getTextureManager()
+    .registerProvider(
+        // Textures are not loaded relative to any location, so need to specify the entire path.
+        // Points to: `assets/examplemod/textures/example_texture.png`
+        Identifier.fromNamespaceAndPath("examplemod", "textures/example_texture.png"),
+        // the provider instance.
+        new ExampleTextureProvider()
+    );
+
+Minecraft.getInstance().getTextureManager()
+    .register(
+        // The identifier of the texture, once again non-relative.
+        // Points to: `assets/examplemod/textures/atlas/example_atlas.png`
+        Identifier.fromNamespaceAndPath("examplemod", "textures/atlas/example_atlas.png"),
+        // The texture resources.
+        new TextureResources(...)
+    );
+```
+
+## Block Sound Sets
+
+`SoundType` has been replaced with `BlockSoundSet`, a world datapack registry, that provides the common interaction sounds for blocks.
+
+```json5
+// A file located at:
+// - `data/examplemod/block_sound_set/example_sound.json
+{
+    // When present, the sound to play when the block is broken.
+    // Must be a registered `SoundEvent`.
+    "break_sound": "minecraft:block.stone.break",
+    // When present, the sound to play when the block landed on
+    // after taking damage from falling.
+    // Must be a registered `SoundEvent`.
+    "fall_sound": "minecraft:block.stone.fall",
+    // When present, the sound to play when the block is being hit
+    // (e.g., player breaking).
+    // Must be a registered `SoundEvent`.
+    "hit_sound": "minecraft:block.stone.hit",
+    // When present, the sound to play when the block is placed
+    // into the world.
+    // Must be a registered `SoundEvent`.
+    "place_sound": "minecraft:block.stone.place",
+    // When present, the sound to play when the block is stepped
+    // on by an entity.
+    // Must be a registered `SoundEvent`.
+    "step_sound": "minecraft:block.stone.step",
+    // The pitch to play the block sounds at.
+    // Must be a value between [0.00001, 2].
+    // Defaults to 1.
+    "pitch": 0.5,
+    // The volume to play the block sounds.
+    // Must be a value between [0.00001, 10].
+    // Defaults to 1.
+    "volume": 0.5
+}
+```
+
+The sound set a block uses can be set through `Block$Properties#sound`. If no sound should be played, use `noSound` instead. All blocks default to using `BlockSoundSets#STONE`.
+
+```java
+// For some block.
+new Block(
+    Block.Properties.of()
+        // Takes in the `ResourceKey` of the sound set.
+        .sound(ResourceKey.create(Registries.BLOCK_SOUND_SET, Identifier.fromNamespaceAndPath("examplemod", "example_sound")))
+);
+```
+
 ## Debug Facts
 
 The debug screen has been rewritten to better organize information into 'groups' with understandable contents, or 'facts'.
@@ -196,6 +304,10 @@ Registry.register(
     RandomTest.CODEC
 );
 ```
+
+## Pathfinding Tags
+
+Some `PathType`s now have an associated block tag `minecraft:pathfinding/*`, allowing entity navigation to treat the block as belonging to a specific group it can pathfind through or around. Most `PathType`s still remain explicitly checked for or computed.
 
 ## Biomes are Noise Biomes, but also Biomes
 
